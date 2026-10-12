@@ -1,0 +1,28 @@
+[package]
+name = "sg-sim"
+description = "Pipeline orchestration, fidelity tiers and the public simulate() API."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+default = ["classic"]
+# The Classic tier derives from non-commercial code and must stay removable
+# (PLAN.md D18). Without this feature Fidelity::Classic returns an error.
+classic = ["dep:sg-classic"]
+
+[dependencies]
+sg-core.workspace = true
+sg-schema.workspace = true
+sg-stellar.workspace = true
+sg-classic = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,12 @@
+[package]
+name = "sg-app"
+description = "StarGen-NG application (Bevy shell). Stub until M2."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

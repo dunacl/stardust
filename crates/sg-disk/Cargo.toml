@@ -1,0 +1,13 @@
+[package]
+name = "sg-disk"
+description = "Protoplanetary gas and dust disk models (PLAN.md §5.2). Stub until M3/M4."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+sg-core.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,12 @@
+[package]
+name = "sg-render"
+description = "wgpu domain renderer as a Bevy plugin (PLAN.md §8). Stub until M2; Bevy is added then."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

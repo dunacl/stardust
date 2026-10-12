@@ -1,0 +1,6 @@
+# Used by rustup. Simulation crates must build for wasm32-unknown-unknown
+# (CLAUDE.md hard rule 8), so the target is part of the toolchain.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]

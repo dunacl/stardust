@@ -1,0 +1,17 @@
+[package]
+name = "sg-stellar"
+description = "Stellar relations: main-sequence properties, spectral class, habitable zone."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+sg-core.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

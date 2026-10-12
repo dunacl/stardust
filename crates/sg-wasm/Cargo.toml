@@ -1,0 +1,14 @@
+[package]
+name = "sg-wasm"
+description = "WebAssembly entry points. M1: a raw C-ABI export for the cross-platform determinism check; the wasm-bindgen API arrives with the web build in M2."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+sg-schema.workspace = true
+sg-sim = { workspace = true, features = ["classic"] }

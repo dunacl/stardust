@@ -1,0 +1,12 @@
+[package]
+name = "sg-ffi"
+description = "Optional C ABI for other engines and bindings. Stub."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
