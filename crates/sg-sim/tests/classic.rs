@@ -5,7 +5,7 @@ use proptest::prelude::*;
 use sg_schema::*;
 use sg_sim::{
     result_hash, simulate, simulate_with, snapshot_hash, Control, SimError, SimObserver, Stage,
-    MODEL_VERSION,
+    StellarModel, MODEL_VERSION,
 };
 
 fn params(seed: u64, mass: f64) -> SimulationParams {
@@ -35,10 +35,10 @@ fn same_params_give_identical_results() {
 /// (Linux, macOS, Windows, WASM) for this model version. If a deliberate
 /// model change alters them, bump `MODEL_VERSION` and update the values; a
 /// schema change (which also changes the serialised snapshot) updates the
-/// values only. Last updated for schema 0.3.0.
+/// values only. Last updated for schema 0.4.0 and model 0.2.0.
 #[test]
 fn snapshot_hashes_are_pinned() {
-    assert_eq!(MODEL_VERSION, "0.1.0");
+    assert_eq!(MODEL_VERSION, "0.2.0");
     let got: Vec<String> = PINNED
         .iter()
         .map(|(seed, mass, _)| snapshot_hash(&simulate(&params(*seed, *mass)).unwrap().snapshot))
@@ -48,9 +48,9 @@ fn snapshot_hashes_are_pinned() {
 }
 
 const PINNED: [(u64, f64, &str); 3] = [
-    (1, 1.0, "e171aed07921a126"),
-    (42, 1.0, "f795e26f4c68651c"),
-    (7, 0.3, "f48cb0813da45ec1"),
+    (1, 1.0, "00f1a0fa14de4411"),
+    (42, 1.0, "fdba63bdb932dec7"),
+    (7, 0.3, "b0cfd1b088c6c29c"),
 ];
 
 #[test]
@@ -173,17 +173,7 @@ fn age_can_be_fixed() {
 }
 
 #[test]
-fn unsupported_requests_are_reported() {
-    let mut p = params(42, 1.0);
-    p.system = SystemSpec::Auto {
-        primary_mass_msun: Some(1.0),
-        multiplicity: Some(Multiplicity::Binary),
-    };
-    assert!(matches!(
-        simulate(&p),
-        Err(SimError::Unsupported(Fidelity::Classic, _))
-    ));
-
+fn invalid_requests_are_reported() {
     let mut p = params(0, 1.0);
     assert!(matches!(simulate(&p), Err(SimError::Classic(_))));
     p.seed = 1;
@@ -191,15 +181,34 @@ fn unsupported_requests_are_reported() {
     assert!(matches!(simulate(&p), Err(SimError::InvalidParams(_))));
 }
 
+/// Inside StarGen's mass range a single star is modelled exactly as
+/// StarGen does; outside it the star comes from the evolution model.
 #[test]
-fn out_of_range_mass_and_hot_stars_warn() {
-    // 3 M☉ is outside the Classic range: StarGen substitutes a mass.
-    let result = simulate(&params(5, 3.0)).unwrap();
-    assert!(result
+fn stellar_model_follows_the_request() {
+    let inside = simulate(&params(5, 1.2)).unwrap();
+    assert_eq!(inside.diagnostics.stellar_model, StellarModel::Fogg1985);
+    assert!(inside.diagnostics.warnings.is_empty());
+
+    let outside = simulate(&params(5, 3.0)).unwrap();
+    assert_eq!(
+        outside.diagnostics.stellar_model,
+        StellarModel::HurleyPolsTout2000
+    );
+    let HierarchyNode::Star(star) = &outside.snapshot.hierarchy else {
+        panic!("single star expected");
+    };
+    assert_eq!(star.mass_msun, 3.0);
+    // A 3 M☉ star lives about 0.35 Gyr on the main sequence.
+    assert!(outside.snapshot.age_gyr < 0.4);
+    assert!(outside
         .diagnostics
         .warnings
         .iter()
-        .any(|w| w.contains("outside the Classic")));
+        .any(|w| w.contains("written for stars of 0.2–1.5")));
+}
+
+#[test]
+fn hot_stars_have_no_habitable_zone() {
     // At 1.5 M☉ the Classic luminosity puts T_eff above Kopparapu's 7200 K.
     let result = simulate(&params(5, 1.5)).unwrap();
     assert!(result.snapshot.habitable_zones.is_empty());

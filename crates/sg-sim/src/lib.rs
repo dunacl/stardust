@@ -5,13 +5,17 @@
 //! parameters and [`MODEL_VERSION`] give the same result on every platform.
 //!
 //! Tiers available so far: **Classic**, when the `classic` feature is on
-//! (the default). Standard and High return [`SimError::TierUnavailable`]
+//! (the default). It covers single stars as StarGen models them, and, with
+//! modern stars and stability limits, multiple-star systems (`classic.rs`). Standard and High return [`SimError::TierUnavailable`]
 //! until M4 and M7.
 
 #[cfg(feature = "classic")]
 mod classic;
 pub mod names;
 mod presets;
+// Tier-independent, but so far only the Classic tier builds systems.
+#[cfg_attr(not(feature = "classic"), allow(dead_code))]
+mod stars;
 
 pub use presets::{preset_availability, preset_params, PresetAvailability, ALL_PRESETS};
 
@@ -20,7 +24,7 @@ use sg_schema::{EventTimeline, Fidelity, SimulationParams, SystemSnapshot, SCHEM
 
 /// Version of the physical model. Bump whenever a change alters outputs for
 /// existing parameters (CLAUDE.md hard rule 7).
-pub const MODEL_VERSION: &str = "0.1.0";
+pub const MODEL_VERSION: &str = "0.2.0";
 
 /// Everything a run produces.
 #[derive(Debug, Clone, PartialEq)]
@@ -41,6 +45,8 @@ pub struct SimulationResult {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Diagnostics {
     pub fidelity: Fidelity,
+    /// Where the stars' luminosities and radii came from.
+    pub stellar_model: StellarModel,
     /// False when a tier cannot promise identical bits everywhere (GPU
     /// N-body, PLAN.md §6.4).
     pub bit_deterministic: bool,
@@ -51,6 +57,17 @@ pub struct Diagnostics {
     /// Things the user should know, e.g. a quantity outside a model's
     /// validity range.
     pub warnings: Vec<String>,
+}
+
+/// The stellar relations a run used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StellarModel {
+    /// StarGen's own: Fogg's (1985) mass–luminosity law, no evolution. Used
+    /// for the single stars StarGen models, so they match it exactly.
+    Fogg1985,
+    /// Main-sequence evolution fits of Tout et al. (1996) and Hurley, Pols
+    /// & Tout (2000). Used for everything else.
+    HurleyPolsTout2000,
 }
 
 /// Pipeline stages, reported to a [`SimObserver`].

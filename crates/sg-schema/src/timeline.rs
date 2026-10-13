@@ -1,6 +1,6 @@
 //! Formation history for playback (PLAN.md §7.4).
 
-use crate::snapshot::{BodyId, DiskId};
+use crate::snapshot::{BodyId, DiskId, HostRef};
 use serde::{Deserialize, Serialize};
 
 /// The formation history of a system.
@@ -58,6 +58,8 @@ pub enum EventKind {
     /// A new embryo (Classic: nucleus) appears.
     EmbryoInjected {
         body: BodyId,
+        /// What it orbits.
+        host: HostRef,
         a_au: f64,
         e: f64,
     },
@@ -125,6 +127,8 @@ pub struct Keyframe {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct KeyframeBody {
     pub id: BodyId,
+    /// What it orbits.
+    pub host: HostRef,
     pub a_au: f64,
     pub e: f64,
     pub mass_mearth: f64,

@@ -13,7 +13,8 @@ mod golden;
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use sg_schema::{
-    Body, Fidelity, HierarchyNode, Multiplicity, PlanetClass, SimulationParams, SystemSpec,
+    Body, Fidelity, HierarchyNode, HostRef, Multiplicity, PlanetClass, PresetId, SimulationParams,
+    SystemSnapshot, SystemSpec,
 };
 use sg_sim::{SimulationResult, MODEL_VERSION};
 use std::collections::BTreeMap;
@@ -85,9 +86,12 @@ struct RunArgs {
     /// Fidelity tier.
     #[arg(long, value_enum, default_value_t = FidelityArg::Classic)]
     fidelity: FidelityArg,
-    /// Stellar mass in solar masses.
+    /// Stellar mass in solar masses, for a single star.
     #[arg(long, default_value_t = 1.0)]
     mass: f64,
+    /// Use a preset instead of --mass.
+    #[arg(long, value_enum)]
+    preset: Option<PresetArg>,
     /// Fix the system age in Gyr (default: sampled).
     #[arg(long)]
     age_gyr: Option<f64>,
@@ -96,6 +100,17 @@ struct RunArgs {
     /// ignored.
     #[arg(long)]
     params: Option<PathBuf>,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum PresetArg {
+    SunLike,
+    RedDwarf,
+    MassiveAStar,
+    Circumbinary,
+    STypeBinary,
+    HierarchicalTriple,
+    Random,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -115,13 +130,28 @@ impl RunArgs {
             params.seed = seed;
             return Ok(params);
         }
+        let fidelity = match self.fidelity {
+            FidelityArg::Classic => Fidelity::Classic,
+            FidelityArg::Standard => Fidelity::Standard,
+            FidelityArg::High => Fidelity::High,
+        };
+        if let Some(preset) = self.preset {
+            let id = match preset {
+                PresetArg::SunLike => PresetId::SunLike,
+                PresetArg::RedDwarf => PresetId::RedDwarf,
+                PresetArg::MassiveAStar => PresetId::MassiveAStar,
+                PresetArg::Circumbinary => PresetId::Circumbinary,
+                PresetArg::STypeBinary => PresetId::STypeBinary,
+                PresetArg::HierarchicalTriple => PresetId::HierarchicalTriple,
+                PresetArg::Random => PresetId::Random,
+            };
+            let mut params = sg_sim::preset_params(id, seed, fidelity);
+            params.age_gyr = self.age_gyr.or(params.age_gyr);
+            return Ok(params);
+        }
         Ok(SimulationParams {
             seed,
-            fidelity: match self.fidelity {
-                FidelityArg::Classic => Fidelity::Classic,
-                FidelityArg::Standard => Fidelity::Standard,
-                FidelityArg::High => Fidelity::High,
-            },
+            fidelity,
             system: SystemSpec::Auto {
                 primary_mass_msun: Some(self.mass),
                 multiplicity: Some(Multiplicity::Single),
@@ -197,6 +227,65 @@ fn body_row(index: usize, body: &Body) -> String {
     )
 }
 
+/// Lists the stars, indented by their place in the hierarchy.
+fn stars(node: &HierarchyNode, depth: usize, out: &mut String) {
+    use std::fmt::Write;
+    let indent = "  ".repeat(depth);
+    match node {
+        HierarchyNode::Star(star) => {
+            let _ = writeln!(
+                out,
+                "{indent}Star {}: {} {:.2} Msun, {:.3} Lsun, {:.2} Rsun, {:.0} K, age {:.2} Gyr",
+                star.name,
+                star.spectral_class,
+                star.mass_msun,
+                star.luminosity_lsun,
+                star.radius_rsun,
+                star.teff_k,
+                star.age_gyr
+            );
+        }
+        HierarchyNode::Pair { a, b, orbit, .. } => {
+            let _ = writeln!(
+                out,
+                "{indent}Pair: {:.3} AU apart, e {:.2}, period {:.4} years",
+                orbit.a_au,
+                orbit.e,
+                orbit.period_days / 365.25
+            );
+            stars(a, depth + 1, out);
+            stars(b, depth + 1, out);
+        }
+    }
+}
+
+/// Names of the stars under a node, e.g. `Vorus A` or `Vorus A + Vorus B`.
+fn star_names(node: &HierarchyNode) -> Vec<&str> {
+    match node {
+        HierarchyNode::Star(star) => vec![star.name.as_str()],
+        HierarchyNode::Pair { a, b, .. } => {
+            let mut names = star_names(a);
+            names.extend(star_names(b));
+            names
+        }
+    }
+}
+
+fn find_host(node: &HierarchyNode, host: HostRef) -> Option<&HierarchyNode> {
+    match (node, host) {
+        (HierarchyNode::Star(star), HostRef::Star(id)) if star.id == id => Some(node),
+        (HierarchyNode::Pair { id, .. }, HostRef::Barycenter(wanted)) if *id == wanted => {
+            Some(node)
+        }
+        (HierarchyNode::Pair { a, b, .. }, _) => find_host(a, host).or_else(|| find_host(b, host)),
+        _ => None,
+    }
+}
+
+fn host_name(snap: &SystemSnapshot, host: HostRef) -> String {
+    find_host(&snap.hierarchy, host).map_or_else(|| "?".into(), |node| star_names(node).join(" + "))
+}
+
 fn summary(result: &SimulationResult) -> String {
     use std::fmt::Write;
     let snap = &result.snapshot;
@@ -207,36 +296,34 @@ fn summary(result: &SimulationResult) -> String {
         result.diagnostics.fidelity,
         sg_sim::result_hash(result)
     );
-    if let HierarchyNode::Star(star) = &snap.hierarchy {
+    stars(&snap.hierarchy, 0, &mut out);
+    for zone in &snap.planet_zones {
+        let _ = write!(
+            out,
+            "\nPlanets of {}: {:.2}-{:.2} AU",
+            host_name(snap, zone.host),
+            zone.inner_au,
+            zone.outer_au
+        );
+        if let Some(hz) = snap.habitable_zones.iter().find(|hz| hz.host == zone.host) {
+            let _ = write!(
+                out,
+                "; habitable zone {:.2}-{:.2} AU (optimistic {:.2}-{:.2} AU)",
+                hz.conservative_inner_au,
+                hz.conservative_outer_au,
+                hz.optimistic_inner_au,
+                hz.optimistic_outer_au
+            );
+        }
         let _ = writeln!(
             out,
-            "Star {}: {} {:.2} Msun, {:.3} Lsun, {:.2} Rsun, {:.0} K, age {:.2} Gyr",
-            star.name,
-            star.spectral_class,
-            star.mass_msun,
-            star.luminosity_lsun,
-            star.radius_rsun,
-            star.teff_k,
-            star.age_gyr
+            "\n{:>3} {:<11} {:>8} {:>6} {:>10} {:>9} {:>8} {:>9} {:>7} {:<2}",
+            "#", "class", "a (AU)", "e", "mass (ME)", "R (km)", "day (h)", "P (atm)", "T (K)", ""
         );
-    }
-    for hz in &snap.habitable_zones {
-        let _ = writeln!(
-            out,
-            "Habitable zone: {:.2}-{:.2} AU (optimistic {:.2}-{:.2} AU)",
-            hz.conservative_inner_au,
-            hz.conservative_outer_au,
-            hz.optimistic_inner_au,
-            hz.optimistic_outer_au
-        );
-    }
-    let _ = writeln!(
-        out,
-        "\n{:>3} {:<11} {:>8} {:>6} {:>10} {:>9} {:>8} {:>9} {:>7} {:<2}",
-        "#", "class", "a (AU)", "e", "mass (ME)", "R (km)", "day (h)", "P (atm)", "T (K)", ""
-    );
-    for (index, body) in snap.bodies.iter().enumerate() {
-        let _ = writeln!(out, "{}", body_row(index, body));
+        let hosted = snap.bodies.iter().filter(|b| b.host == zone.host);
+        for (index, body) in hosted.enumerate() {
+            let _ = writeln!(out, "{}", body_row(index, body));
+        }
     }
     let _ = writeln!(
         out,

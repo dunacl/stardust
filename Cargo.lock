@@ -5328,6 +5328,7 @@ dependencies = [
  "serde_json",
  "sg-classic",
  "sg-core",
+ "sg-dynamics",
  "sg-schema",
  "sg-stellar",
  "thiserror 2.0.21",

@@ -33,9 +33,14 @@ pub struct SystemSnapshot {
     pub belts: Vec<Belt>,
     pub disks_at_dispersal: Vec<DiskSummary>,
     pub habitable_zones: Vec<HabitableZone>,
+    /// Where planets could form, one entry per star or pair that has room
+    /// for any.
+    pub planet_zones: Vec<PlanetZone>,
 }
 
-/// Stars and their mutual orbits.
+/// Stars and their mutual orbits. A `Pair`'s `orbit` is the orbit of `b`
+/// relative to `a`; each moves about their common centre of mass, which is
+/// what `HostRef::Barycenter(id)` refers to. All orbits share one plane.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HierarchyNode {
@@ -285,7 +290,22 @@ pub struct DiskSummary {
     pub lifetime_myr: f64,
 }
 
-/// Habitable zone of one host (Kopparapu et al. 2014 limits).
+/// The range of orbits open to planets of one host: inside the limit a
+/// companion star imposes, or outside the limit a host pair imposes on its
+/// own planets (Holman & Wiegert 1999), within the formation model's reach.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlanetZone {
+    pub host: HostRef,
+    pub inner_au: f64,
+    pub outer_au: f64,
+    /// The inner edge is a stability limit (the host is a pair of stars).
+    pub limited_inside: bool,
+    /// The outer edge is a stability limit (a companion star).
+    pub limited_outside: bool,
+}
+
+/// Habitable zone of one host (Kopparapu et al. 2014 limits). For a pair,
+/// the zone of the two stars' combined light.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HabitableZone {
     pub host: HostRef,

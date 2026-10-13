@@ -148,6 +148,13 @@ fn sample_snapshot() -> SystemSnapshot {
             conservative_outer_au: 1.68,
             optimistic_outer_au: 1.77,
         }],
+        planet_zones: vec![PlanetZone {
+            host: HostRef::Barycenter(NodeId(0)),
+            inner_au: 0.65,
+            outer_au: 48.0,
+            limited_inside: true,
+            limited_outside: false,
+        }],
     }
 }
 
@@ -168,6 +175,7 @@ fn sample_timeline() -> EventTimeline {
         },
         EventKind::EmbryoInjected {
             body: b,
+            host: HostRef::Star(StarId(0)),
             a_au: 1.1,
             e: 0.05,
         },
@@ -221,6 +229,7 @@ fn sample_timeline() -> EventTimeline {
             t_myr: 1.0,
             bodies: vec![KeyframeBody {
                 id: b,
+                host: HostRef::Barycenter(NodeId(0)),
                 a_au: 1.1,
                 e: 0.05,
                 mass_mearth: 0.4,

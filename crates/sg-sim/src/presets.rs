@@ -4,7 +4,9 @@
 //! field. Presets live here, not in a front end, so every app offers the same
 //! ones.
 
-use sg_schema::{Fidelity, Multiplicity, PresetId, SimulationParams, SystemSpec};
+use sg_schema::{
+    Fidelity, Multiplicity, OrbitSpec, PresetId, SimulationParams, StarNode, StarSpec, SystemSpec,
+};
 
 /// Every preset, in menu order.
 pub const ALL_PRESETS: [PresetId; 9] = [
@@ -34,34 +36,45 @@ pub fn preset_availability(preset: PresetId, fidelity: Fidelity) -> PresetAvaila
         return Unavailable("this tier is not implemented yet");
     }
     match preset {
-        PresetId::SunLike | PresetId::RedDwarf | PresetId::Random => Available,
         PresetId::HotJupiter => Unavailable("needs migration (Standard tier, M4)"),
-        PresetId::MassiveAStar => Unavailable("needs stars above 1.5 M☉ (M3)"),
-        PresetId::MetalPoor => Unavailable("needs metallicity (Standard tier, M4)"),
-        PresetId::Circumbinary | PresetId::STypeBinary | PresetId::HierarchicalTriple => {
-            Unavailable("needs multiple stars (M3)")
+        PresetId::MetalPoor => {
+            Unavailable("needs a formation model that responds to metallicity (Standard tier, M4)")
         }
+        _ => Available,
     }
 }
 
 /// Parameters for `preset` with the given seed and tier.
 ///
-/// Classic-tier notes:
-/// - **Red dwarf** uses 0.2 M☉, the smallest star the Classic model accepts;
-///   a TRAPPIST-1-like 0.09 M☉ star needs the M3 stellar model.
-/// - **Random** leaves the mass unset, so the Classic model draws one in
-///   [0.7, 1.4] M☉ as StarGen does.
+/// - **Sun-like** and **Red dwarf** (0.2 M☉, the smallest star StarGen
+///   models) run exactly as StarGen would.
+/// - **Massive A star**: 2 M☉, beyond StarGen's range, so the star comes
+///   from the stellar-evolution model.
+/// - **Circumbinary**: the stars of Kepler-16 (Doyle et al. 2011, Science
+///   333, 1602): 0.69 and 0.20 M☉, 0.224 AU apart, e = 0.16.
+/// - **S-type binary**: the stars of α Centauri AB (Pourbaix & Boffin 2016,
+///   A&A 586, A90): 1.08 and 0.91 M☉, 23.5 AU apart, e = 0.52.
+/// - **Hierarchical triple**: an invented, compact example, so all three
+///   stars fit in one view: a 1.0 + 0.7 M☉ pair 0.25 AU apart, orbited at
+///   60 AU by a 0.4 M☉ star.
+/// - **Random**: primary mass from the IMF and companions from observed
+///   multiplicity statistics.
 ///
+/// The planets of the three multiple-star presets are whatever the model
+/// forms around those stars; the real systems' planets are not put in.
 /// Presets that are not available yet still return parameters describing
-/// what they will mean; [`crate::simulate`] reports why they cannot run.
+/// what they will mean; [`crate::simulate`] may run them without the
+/// physics they are named for.
 pub fn preset_params(preset: PresetId, seed: u64, fidelity: Fidelity) -> SimulationParams {
-    let single = |mass: Option<f64>| SystemSpec::Auto {
-        primary_mass_msun: mass,
+    let single = |mass: f64| SystemSpec::Auto {
+        primary_mass_msun: Some(mass),
         multiplicity: Some(Multiplicity::Single),
     };
-    let multiple = |mass: f64, multiplicity| SystemSpec::Auto {
-        primary_mass_msun: Some(mass),
-        multiplicity: Some(multiplicity),
+    let star = |mass_msun: f64| Box::new(StarNode::Star(StarSpec { mass_msun }));
+    let pair = |a: Box<StarNode>, b: Box<StarNode>, a_au: f64, e: f64| StarNode::Pair {
+        a,
+        b,
+        orbit: OrbitSpec { a_au, e },
     };
     let mut params = SimulationParams {
         seed,
@@ -70,17 +83,33 @@ pub fn preset_params(preset: PresetId, seed: u64, fidelity: Fidelity) -> Simulat
         ..SimulationParams::default()
     };
     match preset {
-        PresetId::SunLike | PresetId::HotJupiter => params.system = single(Some(1.0)),
-        PresetId::RedDwarf => params.system = single(Some(0.2)),
-        PresetId::MassiveAStar => params.system = single(Some(2.0)),
+        PresetId::SunLike | PresetId::HotJupiter => params.system = single(1.0),
+        PresetId::RedDwarf => params.system = single(0.2),
+        PresetId::MassiveAStar => params.system = single(2.0),
         PresetId::MetalPoor => {
-            params.system = single(Some(0.8));
+            params.system = single(0.8);
             params.metallicity_feh = Some(-1.0);
         }
-        PresetId::Circumbinary => params.system = multiple(0.69, Multiplicity::Binary),
-        PresetId::STypeBinary => params.system = multiple(1.1, Multiplicity::Binary),
-        PresetId::HierarchicalTriple => params.system = multiple(1.0, Multiplicity::Triple),
-        PresetId::Random => params.system = single(None),
+        PresetId::Circumbinary => {
+            params.system = SystemSpec::Explicit(pair(star(0.6897), star(0.2026), 0.2243, 0.159));
+        }
+        PresetId::STypeBinary => {
+            params.system = SystemSpec::Explicit(pair(star(1.08), star(0.91), 23.5, 0.52));
+        }
+        PresetId::HierarchicalTriple => {
+            params.system = SystemSpec::Explicit(pair(
+                Box::new(pair(star(1.0), star(0.7), 0.25, 0.1)),
+                star(0.4),
+                60.0,
+                0.3,
+            ));
+        }
+        PresetId::Random => {
+            params.system = SystemSpec::Auto {
+                primary_mass_msun: None,
+                multiplicity: None,
+            };
+        }
     }
     params
 }
@@ -108,19 +137,12 @@ mod tests {
 
     #[cfg(feature = "classic")]
     #[test]
-    fn availability_agrees_with_simulate() {
+    fn available_presets_run() {
         for preset in ALL_PRESETS {
             let params = preset_params(preset, 5, Fidelity::Classic);
-            let ran = crate::simulate(&params).is_ok();
-            let available =
-                preset_availability(preset, Fidelity::Classic) == PresetAvailability::Available;
-            // The massive A star "runs" only because StarGen silently
-            // substitutes an in-range mass; it is still listed as unavailable.
-            if preset != PresetId::MassiveAStar
-                && preset != PresetId::HotJupiter
-                && preset != PresetId::MetalPoor
-            {
-                assert_eq!(ran, available, "{preset:?}");
+            if preset_availability(preset, Fidelity::Classic) == PresetAvailability::Available {
+                let result = crate::simulate(&params);
+                assert!(result.is_ok(), "{preset:?}: {:?}", result.err());
             }
         }
         assert_eq!(
@@ -131,19 +153,48 @@ mod tests {
 
     #[cfg(feature = "classic")]
     #[test]
-    fn red_dwarf_and_random_presets_produce_the_intended_stars() {
-        let star_mass = |preset| {
-            let result = crate::simulate(&preset_params(preset, 9, Fidelity::Classic)).unwrap();
-            match result.snapshot.hierarchy {
-                sg_schema::HierarchyNode::Star(star) => {
-                    (star.mass_msun, result.diagnostics.warnings)
-                }
-                _ => panic!("single star expected"),
+    fn presets_produce_the_intended_stars() {
+        use sg_schema::HierarchyNode;
+        fn count(node: &HierarchyNode) -> usize {
+            match node {
+                HierarchyNode::Star(_) => 1,
+                HierarchyNode::Pair { a, b, .. } => count(a) + count(b),
             }
+        }
+        let stars = |preset| {
+            let result = crate::simulate(&preset_params(preset, 9, Fidelity::Classic)).unwrap();
+            (count(&result.snapshot.hierarchy), result)
         };
-        assert_eq!(star_mass(PresetId::RedDwarf).0, 0.2);
-        let (mass, warnings) = star_mass(PresetId::Random);
-        assert!((0.7..=1.4).contains(&mass));
-        assert!(warnings.is_empty(), "{warnings:?}");
+        let (n, red_dwarf) = stars(PresetId::RedDwarf);
+        assert_eq!(n, 1);
+        assert_eq!(
+            red_dwarf.diagnostics.stellar_model,
+            crate::StellarModel::Fogg1985
+        );
+        let HierarchyNode::Star(star) = &red_dwarf.snapshot.hierarchy else {
+            panic!("single star expected");
+        };
+        assert_eq!(star.mass_msun, 0.2);
+
+        let (n, a_star) = stars(PresetId::MassiveAStar);
+        assert_eq!(n, 1);
+        assert_eq!(
+            a_star.diagnostics.stellar_model,
+            crate::StellarModel::HurleyPolsTout2000
+        );
+        let HierarchyNode::Star(star) = &a_star.snapshot.hierarchy else {
+            panic!("single star expected");
+        };
+        assert_eq!(star.mass_msun, 2.0);
+        // A-type when young; it cools to F late on the main sequence.
+        assert!(
+            star.spectral_class.starts_with(['A', 'F']),
+            "{}",
+            star.spectral_class
+        );
+
+        assert_eq!(stars(PresetId::Circumbinary).0, 2);
+        assert_eq!(stars(PresetId::STypeBinary).0, 2);
+        assert_eq!(stars(PresetId::HierarchicalTriple).0, 3);
     }
 }

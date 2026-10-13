@@ -1,25 +1,38 @@
 //! Classic tier: runs `sg-classic` and maps its output onto the schema.
 //!
-//! The physics is entirely `sg-classic`'s. This module adds only what the
-//! Classic model does not have:
+//! Two paths share the mapping:
 //!
-//! - stellar radius, effective temperature and spectral class, from
-//!   `sg-stellar`, using the Classic luminosity so the star is consistent
-//!   with the planets it produced;
+//! - **Faithful** ([`simulate_faithful`]): one star of 0.2–1.5 M☉ (or of a
+//!   mass StarGen draws), exactly as StarGen models it, including Fogg's
+//!   (1985) luminosity. This is what the golden comparison covers.
+//! - **Extended** ([`simulate_extended`]): several stars, a star outside
+//!   that mass range, a sampled system or a stated metallicity. The stars
+//!   come from [`crate::stars`] (main-sequence evolution, stability limits)
+//!   and the Classic accretion model is run once in every zone where
+//!   planets can exist, through `sg_classic::generate_in_disk`. This is
+//!   neither StarGen nor the modern formation model of M4: it is Dole's
+//!   accretion placed in a modern stellar system, and it applies that
+//!   model's mass scalings outside the range they were written for.
+//!
+//! Besides the physics, which is `sg-classic`'s, this module adds:
+//!
+//! - on the faithful path, stellar radius, effective temperature and
+//!   spectral class from `sg-stellar`, using the Classic luminosity so the
+//!   star is consistent with the planets it produced;
 //! - the Kopparapu et al. (2014) habitable zone, replacing StarGen's
 //!   constant ecosphere;
 //! - orbital angles (Ω, ω, M₀), drawn from a ChaCha stream, since the model
 //!   is one-dimensional. Inclinations are zero;
 //! - names, from [`crate::names`];
-//! - a clock for the timeline: accretion events are spread evenly, in order,
-//!   over `timeline.classic_window_myr`.
+//! - a clock for the timeline: each disk's accretion events are spread
+//!   evenly, in order, over `timeline.classic_window_myr`.
 
 use crate::{
-    names, params_hash, Control, Diagnostics, SimError, SimObserver, SimulationResult, Stage,
-    MODEL_VERSION,
+    names, params_hash, stars, Control, Diagnostics, SimError, SimObserver, SimulationResult,
+    Stage, StellarModel, MODEL_VERSION,
 };
 use sg_classic::consts::SUN_MASS_IN_EARTH_MASSES;
-use sg_classic::{ClassicEvent, ClassicPlanet, ClassicSystem, ClassicType};
+use sg_classic::{ClassicEvent, ClassicPlanet, ClassicType};
 use sg_core::hash::fnv1a64;
 use sg_core::rng::{ModuleId, RngStream};
 use sg_core::units::{Kelvin, SolarLuminosity, SolarMass};
@@ -36,24 +49,15 @@ fn check(observer: &mut dyn SimObserver, stage: Stage, fraction: f64) -> Result<
     }
 }
 
-/// The single star's mass, or `None` to let the Classic model draw one.
-fn star_mass(params: &SimulationParams) -> Result<Option<f64>, SimError> {
-    let unsupported = |what: &str| {
-        Err(SimError::Unsupported(
-            Fidelity::Classic,
-            format!("{what}; the Classic model handles single stars only"),
-        ))
-    };
+/// The single star's mass on the faithful path, or `None` to let the
+/// Classic model draw one. Only called when [`is_stargen_case`] holds.
+fn stargen_mass(params: &SimulationParams) -> Option<f64> {
     match &params.system {
         SystemSpec::Auto {
-            primary_mass_msun,
-            multiplicity,
-        } => match multiplicity {
-            None | Some(Multiplicity::Single) => Ok(*primary_mass_msun),
-            Some(_) => unsupported("multiple stars requested"),
-        },
-        SystemSpec::Explicit(StarNode::Star(spec)) => Ok(Some(spec.mass_msun)),
-        SystemSpec::Explicit(StarNode::Pair { .. }) => unsupported("a stellar pair was given"),
+            primary_mass_msun, ..
+        } => *primary_mass_msun,
+        SystemSpec::Explicit(StarNode::Star(spec)) => Some(spec.mass_msun),
+        SystemSpec::Explicit(StarNode::Pair { .. }) => None,
     }
 }
 
@@ -133,12 +137,13 @@ fn finite(value: f64) -> Option<f64> {
 
 fn body(
     p: &ClassicPlanet,
+    id: BodyId,
+    host: HostRef,
     name: String,
     seed: u64,
     angles: &mut RngStream,
     hz: Option<&HabitableZone>,
 ) -> Body {
-    let id = BodyId(p.id);
     let giant = p.planet_type.is_giant();
     let has_air = giant || p.surf_pressure_mb > 0.0;
     let h_he_frac = p.gas_mass_msun / p.mass_msun;
@@ -183,13 +188,13 @@ fn body(
 
     let mut texture_key = [0u8; 12];
     texture_key[..8].copy_from_slice(&seed.to_le_bytes());
-    texture_key[8..].copy_from_slice(&p.id.to_le_bytes());
+    texture_key[8..].copy_from_slice(&id.0.to_le_bytes());
 
     Body {
         id,
         name,
         kind: BodyKind::Planet,
-        host: HostRef::Star(STAR),
+        host,
         orbit: Orbit {
             a_au: p.a_au,
             e: p.e,
@@ -239,27 +244,55 @@ fn body(
     }
 }
 
-/// Builds the timeline from the ordered accretion events.
+/// The accretion history of one disk.
+struct DiskRun<'a> {
+    disk: DiskId,
+    host: HostRef,
+    /// Added to the model's nucleus ids to make body ids unique in the system.
+    id_offset: u32,
+    events: &'a [ClassicEvent],
+}
+
+impl DiskRun<'_> {
+    /// One more than the largest body id this disk uses.
+    fn id_end(&self) -> u32 {
+        let injected = self.events.iter().filter_map(|event| match event {
+            ClassicEvent::NucleusInjected { id, .. } => Some(*id + 1),
+            _ => None,
+        });
+        self.id_offset + injected.max().unwrap_or(0)
+    }
+}
+
+/// Builds the timeline from each disk's ordered accretion events.
 ///
 /// `nucleus_mass_msun` is the mass shown for a nucleus between its injection
-/// and its first sweep; the two events are adjacent in time.
-fn timeline(
-    system: &ClassicSystem,
-    params: &TimelineParams,
-    nucleus_mass_msun: f64,
-) -> EventTimeline {
+/// and its first sweep; the two events are adjacent in time. The disks'
+/// histories are independent, so they are interleaved by their nominal
+/// times.
+fn timeline(disks: &[DiskRun], params: &TimelineParams, nucleus_mass_msun: f64) -> EventTimeline {
     let window = params.classic_window_myr;
-    let n = system.events.len();
-    let time_of = |index: usize| window * (index + 1) as f64 / (n + 1) as f64;
     let mearth = |msun: f64| msun * SUN_MASS_IN_EARTH_MASSES;
+
+    // (time, disk index, event), ordered by time; ties keep disk order.
+    let mut ordered: Vec<(f64, usize, &ClassicEvent)> = Vec::new();
+    for (index, run) in disks.iter().enumerate() {
+        let n = run.events.len();
+        for (k, event) in run.events.iter().enumerate() {
+            ordered.push((window * (k + 1) as f64 / (n + 1) as f64, index, event));
+        }
+    }
+    ordered.sort_by(|x, y| x.0.total_cmp(&y.0).then(x.1.cmp(&y.1)));
 
     let mut events = Vec::new();
     if params.record_events {
-        events.reserve(n + 2);
-        events.push(Event {
-            t_myr: 0.0,
-            kind: EventKind::DiskFormed { disk: DISK },
-        });
+        events.reserve(ordered.len() + 2 * disks.len());
+        for run in disks {
+            events.push(Event {
+                t_myr: 0.0,
+                kind: EventKind::DiskFormed { disk: run.disk },
+            });
+        }
     }
 
     // Replay the events to recover the state of every body through time.
@@ -273,8 +306,9 @@ fn timeline(
         bodies: state.values().cloned().collect(),
     };
 
-    for (index, event) in system.events.iter().enumerate() {
-        let t_myr = time_of(index);
+    for (t_myr, index, event) in ordered {
+        let run = &disks[index];
+        let global = |id: u32| id + run.id_offset;
         while next_keyframe <= keyframe_count && keyframe_time(next_keyframe) < t_myr {
             keyframes.push(snapshot_state(&state, keyframe_time(next_keyframe)));
             next_keyframe += 1;
@@ -283,16 +317,18 @@ fn timeline(
         let kind = match *event {
             ClassicEvent::NucleusInjected { id, a_au, e } => {
                 state.insert(
-                    id,
+                    global(id),
                     KeyframeBody {
-                        id: BodyId(id),
+                        id: BodyId(global(id)),
+                        host: run.host,
                         a_au,
                         e,
                         mass_mearth: mearth(nucleus_mass_msun),
                     },
                 );
                 EventKind::EmbryoInjected {
-                    body: BodyId(id),
+                    body: BodyId(global(id)),
+                    host: run.host,
                     a_au,
                     e,
                 }
@@ -304,19 +340,19 @@ fn timeline(
                 outer_au,
                 mass_after_msun,
             } => {
-                if let Some(b) = state.get_mut(&id) {
+                if let Some(b) = state.get_mut(&global(id)) {
                     b.mass_mearth = mearth(mass_after_msun);
                 }
                 EventKind::DustSwept {
-                    body: BodyId(id),
+                    body: BodyId(global(id)),
                     dm_mearth: mearth(swept_mass_msun),
                     inner_au,
                     outer_au,
                 }
             }
-            ClassicEvent::GasCaptureBegan { id } => {
-                EventKind::RunawayGasAccretion { body: BodyId(id) }
-            }
+            ClassicEvent::GasCaptureBegan { id } => EventKind::RunawayGasAccretion {
+                body: BodyId(global(id)),
+            },
             ClassicEvent::Collision {
                 survivor,
                 absorbed,
@@ -324,16 +360,16 @@ fn timeline(
                 e,
                 mass_msun,
             } => {
-                state.remove(&absorbed);
-                if let Some(b) = state.get_mut(&survivor) {
+                state.remove(&global(absorbed));
+                if let Some(b) = state.get_mut(&global(survivor)) {
                     b.a_au = a_au;
                     b.e = e;
                     b.mass_mearth = mearth(mass_msun);
                 }
                 EventKind::Collision {
-                    a: BodyId(survivor),
-                    b: BodyId(absorbed),
-                    result: BodyId(survivor),
+                    a: BodyId(global(survivor)),
+                    b: BodyId(global(absorbed)),
+                    result: BodyId(global(survivor)),
                 }
             }
         };
@@ -347,24 +383,198 @@ fn timeline(
     }
 
     if params.record_events {
-        events.push(Event {
-            t_myr: window,
-            kind: EventKind::DiskDispersed { disk: DISK },
-        });
+        for run in disks {
+            events.push(Event {
+                t_myr: window,
+                kind: EventKind::DiskDispersed { disk: run.disk },
+            });
+        }
     }
 
     EventTimeline { events, keyframes }
 }
+
+/// True if the parameters describe what StarGen itself models: one star,
+/// of solar metallicity, with a mass in its range or left for it to draw.
+fn is_stargen_case(params: &SimulationParams) -> bool {
+    let mass_in_range = match &params.system {
+        SystemSpec::Auto {
+            primary_mass_msun, ..
+        } => primary_mass_msun.map_or(true, |m| CLASSIC_MASS_RANGE_MSUN.contains(&m)),
+        SystemSpec::Explicit(StarNode::Star(spec)) => {
+            CLASSIC_MASS_RANGE_MSUN.contains(&spec.mass_msun)
+        }
+        SystemSpec::Explicit(StarNode::Pair { .. }) => false,
+    };
+    stars::is_single(&params.system) && mass_in_range && params.metallicity_feh.is_none()
+}
+
+/// Stellar masses StarGen models, M☉.
+const CLASSIC_MASS_RANGE_MSUN: std::ops::RangeInclusive<f64> = 0.2..=1.5;
 
 pub(crate) fn simulate(
     params: &SimulationParams,
     observer: &mut dyn SimObserver,
 ) -> Result<SimulationResult, SimError> {
     validate(params)?;
-    let requested_mass = star_mass(params)?;
-    // StarGen draws a mass in [0.7, 1.4] M☉ when given one outside its range;
-    // 0 asks for that on purpose.
-    let mass = requested_mass.unwrap_or(0.0);
+    if is_stargen_case(params) {
+        simulate_faithful(params, observer)
+    } else {
+        simulate_extended(params, observer)
+    }
+}
+
+/// Several stars, or a star StarGen does not model: modern stars, with the
+/// Classic accretion model run in every zone open to planets.
+fn simulate_extended(
+    params: &SimulationParams,
+    observer: &mut dyn SimObserver,
+) -> Result<SimulationResult, SimError> {
+    check(observer, Stage::Stellar, 0.0)?;
+    let system_name = names::star_name(params.seed);
+    let mut stellar_rng = RngStream::new(params.seed, ModuleId::STELLAR);
+    let system = stars::build(params, &mut stellar_rng, &system_name)?;
+    let mut warnings = system.warnings.clone();
+
+    check(observer, Stage::Formation, 0.1)?;
+    let classic = classic_params(params);
+    let mut seeds = RngStream::new(params.seed, ModuleId::FORMATION);
+    let mut runs = Vec::with_capacity(system.disks.len());
+    for disk in &system.disks {
+        // The Classic generator takes a non-zero 32-bit seed.
+        let seed = loop {
+            let candidate = seeds.next_u64() & 0xFFFF_FFFF;
+            if candidate != 0 {
+                break candidate;
+            }
+        };
+        let spec = sg_classic::DiskSpec {
+            central_mass_msun: disk.central_mass_msun,
+            luminosity_lsun: disk.luminosity_lsun,
+            age_yr: system.age_gyr * 1.0e9,
+            main_seq_life_yr: disk.lifetime_gyr * 1.0e9,
+            inner_limit_au: disk.inner_limit_au,
+            outer_limit_au: disk.outer_limit_au,
+        };
+        runs.push(sg_classic::generate_in_disk(seed, &spec, &classic)?);
+    }
+    check(observer, Stage::Planets, 0.8)?;
+
+    let mut angles = RngStream::new(params.seed, ModuleId::ORBIT_ANGLES);
+    let mut bodies = Vec::new();
+    let mut habitable_zones = Vec::new();
+    let mut planet_zones = Vec::new();
+    let mut disk_runs = Vec::new();
+    let mut id_offset = 0u32;
+    let mut out_of_range: Vec<f64> = Vec::new();
+    for (index, (disk, run)) in system.disks.iter().zip(&runs).enumerate() {
+        // The zone the model could place planets in; none if the limits
+        // leave no room.
+        let mass = disk.central_mass_msun;
+        let inner =
+            sg_classic::accrete::nearest_planet(mass).max(disk.inner_limit_au.unwrap_or(0.0));
+        let reach = sg_classic::accrete::farthest_planet(mass);
+        let outer = disk.outer_limit_au.map_or(reach, |limit| limit.min(reach));
+        if inner >= outer {
+            continue;
+        }
+        planet_zones.push(stars::planet_zone(disk, inner, outer));
+        if !CLASSIC_MASS_RANGE_MSUN.contains(&mass) {
+            out_of_range.push(mass);
+        }
+        let hz = match stars::habitable_zone(disk) {
+            Ok(hz) => Some(hz),
+            Err(err) => {
+                warnings.push(format!(
+                    "no habitable zone computed for {}: {err}",
+                    host_label(&system_name, &disk.designation)
+                ));
+                None
+            }
+        };
+
+        let disk_run = DiskRun {
+            disk: DiskId(index as u32),
+            host: disk.host,
+            id_offset,
+            events: &run.events,
+        };
+        let prefix = host_label(&system_name, &disk.designation);
+        for (order, planet) in run.planets.iter().enumerate() {
+            bodies.push(body(
+                planet,
+                BodyId(planet.id + id_offset),
+                disk.host,
+                names::planet_name(&prefix, order),
+                params.seed,
+                &mut angles,
+                hz.as_ref(),
+            ));
+        }
+        id_offset = disk_run.id_end();
+        disk_runs.push(disk_run);
+        habitable_zones.extend(hz);
+    }
+    if !out_of_range.is_empty() {
+        let list: Vec<String> = out_of_range.iter().map(|m| format!("{m:.2}")).collect();
+        warnings.push(format!(
+            "the accretion model was written for stars of 0.2–1.5 M☉; here it also ran around \
+             {} M☉",
+            list.join(", ")
+        ));
+    }
+    check(observer, Stage::Assembly, 0.95)?;
+
+    let snapshot = SystemSnapshot {
+        schema_version: SCHEMA_VERSION.to_string(),
+        model_version: MODEL_VERSION.to_string(),
+        params_hash: params_hash(params),
+        age_gyr: system.age_gyr,
+        hierarchy: system.hierarchy.clone(),
+        bodies,
+        belts: Vec::new(),
+        disks_at_dispersal: Vec::new(),
+        habitable_zones,
+        planet_zones,
+    };
+    let timeline = timeline(
+        &disk_runs,
+        &params.timeline,
+        params.formation.classic.protoplanet_mass_msun,
+    );
+    check(observer, Stage::Assembly, 1.0)?;
+
+    Ok(SimulationResult {
+        snapshot,
+        timeline,
+        diagnostics: Diagnostics {
+            fidelity: Fidelity::Classic,
+            stellar_model: StellarModel::HurleyPolsTout2000,
+            bit_deterministic: true,
+            rng_draws: runs.iter().map(|run| run.rng_draws).sum(),
+            rejected_samples: 0,
+            warnings,
+        },
+    })
+}
+
+/// `Name`, or `Name AB` for the stars a disk orbits in a multiple system.
+fn host_label(system_name: &str, designation: &str) -> String {
+    if designation.is_empty() {
+        system_name.to_string()
+    } else {
+        format!("{system_name} {designation}")
+    }
+}
+
+/// One star as StarGen models it.
+fn simulate_faithful(
+    params: &SimulationParams,
+    observer: &mut dyn SimObserver,
+) -> Result<SimulationResult, SimError> {
+    // StarGen draws a mass in [0.7, 1.4] M☉ when given one outside its
+    // range; 0 asks for that on purpose.
+    let mass = stargen_mass(params).unwrap_or(0.0);
     let mut warnings = Vec::new();
 
     check(observer, Stage::Stellar, 0.0)?;
@@ -376,14 +586,6 @@ pub(crate) fn simulate(
         &classic_params(params),
     )?;
     check(observer, Stage::Planets, 0.8)?;
-
-    if requested_mass.is_some_and(|m| !(0.2..=1.5).contains(&m)) {
-        warnings.push(format!(
-            "stellar mass {mass} M☉ is outside the Classic model's range [0.2, 1.5]; \
-             as in StarGen, {:.3} M☉ was drawn instead",
-            system.star.mass_msun
-        ));
-    }
 
     let star_mass = SolarMass(system.star.mass_msun);
     let luminosity = SolarLuminosity(system.star.luminosity_lsun);
@@ -413,7 +615,15 @@ pub(crate) fn simulate(
         .enumerate()
         .map(|(index, p)| {
             let name = names::planet_name(&star_name, index);
-            body(p, name, params.seed, &mut angles, habitable_zones.first())
+            body(
+                p,
+                BodyId(p.id),
+                HostRef::Star(STAR),
+                name,
+                params.seed,
+                &mut angles,
+                habitable_zones.first(),
+            )
         })
         .collect();
 
@@ -440,10 +650,22 @@ pub(crate) fn simulate(
         belts: Vec::new(),
         disks_at_dispersal: Vec::new(),
         habitable_zones,
+        planet_zones: vec![PlanetZone {
+            host: HostRef::Star(STAR),
+            inner_au: sg_classic::accrete::nearest_planet(system.star.mass_msun),
+            outer_au: sg_classic::accrete::farthest_planet(system.star.mass_msun),
+            limited_inside: false,
+            limited_outside: false,
+        }],
     };
 
     let timeline = timeline(
-        &system,
+        &[DiskRun {
+            disk: DISK,
+            host: HostRef::Star(STAR),
+            id_offset: 0,
+            events: &system.events,
+        }],
         &params.timeline,
         params.formation.classic.protoplanet_mass_msun,
     );
@@ -454,6 +676,7 @@ pub(crate) fn simulate(
         timeline,
         diagnostics: Diagnostics {
             fidelity: Fidelity::Classic,
+            stellar_model: StellarModel::Fogg1985,
             bit_deterministic: true,
             rng_draws: system.rng_draws,
             rejected_samples: 0,
