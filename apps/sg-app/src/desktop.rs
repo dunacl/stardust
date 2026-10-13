@@ -1,7 +1,9 @@
 //! Desktop only: command-line options and screenshot mode.
 
 use crate::launch::Launch;
+use bevy::camera::RenderTarget;
 use bevy::prelude::*;
+use bevy::render::render_resource::TextureFormat;
 use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 use bevy::window::WindowOccluded;
 use clap::{Parser, ValueEnum};
@@ -42,6 +44,11 @@ struct Args {
     /// Hide the UI panels (useful with --screenshot).
     #[arg(long)]
     no_ui: bool,
+    /// With --screenshot: draw the scene into an image instead of the
+    /// window, so it works with the window covered, the display asleep or
+    /// the screen locked. The panels are left out; the name labels are drawn.
+    #[arg(long)]
+    offscreen: bool,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -83,6 +90,38 @@ struct Capture {
     visible_since_secs: f32,
     /// Seconds since startup at which the screenshot was requested.
     captured_at_secs: Option<f32>,
+    /// Draw into an image rather than the window.
+    offscreen: bool,
+    /// That image, once the camera has been pointed at it.
+    target: Option<Handle<Image>>,
+}
+
+/// Size of an off-screen screenshot, pixels.
+const OFFSCREEN_SIZE: (u32, u32) = (1440, 900);
+
+/// Points the scene camera at an image, once it exists.
+fn redirect_camera(
+    mut commands: Commands,
+    mut capture: ResMut<Capture>,
+    mut images: ResMut<Assets<Image>>,
+    camera: Query<Entity, With<Camera3d>>,
+) {
+    if !capture.offscreen || capture.target.is_some() {
+        return;
+    }
+    let Ok(camera) = camera.single() else {
+        return;
+    };
+    let image = images.add(Image::new_target_texture(
+        OFFSCREEN_SIZE.0,
+        OFFSCREEN_SIZE.1,
+        TextureFormat::Rgba8UnormSrgb,
+        None,
+    ));
+    commands
+        .entity(camera)
+        .insert(RenderTarget::Image(image.clone().into()));
+    capture.target = Some(image);
 }
 
 const CAPTURE_AFTER_FRAMES: u32 = 90;
@@ -111,7 +150,10 @@ fn capture(
         }
         return;
     }
-    if capture.occluded {
+    if capture.offscreen && capture.target.is_none() {
+        return;
+    }
+    if capture.occluded && !capture.offscreen {
         if now >= CAPTURE_TIMEOUT_SECS {
             error!("no screenshot: the window stayed hidden behind other windows");
             exit.write(AppExit::error());
@@ -122,8 +164,12 @@ fn capture(
     if capture.visible_frames >= CAPTURE_AFTER_FRAMES
         && now >= capture.visible_since_secs + CAPTURE_AFTER_SECS
     {
+        let shot = match &capture.target {
+            Some(image) => Screenshot::image(image.clone()),
+            None => Screenshot::primary_window(),
+        };
         commands
-            .spawn(Screenshot::primary_window())
+            .spawn(shot)
             .observe(save_to_disk(capture.path.clone()));
         capture.captured_at_secs = Some(now);
     }
@@ -157,12 +203,17 @@ pub fn launch() -> Launch {
         time: args.time,
         select: args.select,
         screenshot: args.screenshot,
-        show_ui: !args.no_ui,
+        offscreen: args.offscreen,
+        show_ui: !args.no_ui && !args.offscreen,
     }
 }
 
 /// Adds screenshot mode to the app.
-pub fn add_capture(app: &mut App, path: PathBuf) {
-    app.insert_resource(Capture { path, ..default() })
-        .add_systems(Update, capture);
+pub fn add_capture(app: &mut App, path: PathBuf, offscreen: bool) {
+    app.insert_resource(Capture {
+        path,
+        offscreen,
+        ..default()
+    })
+    .add_systems(Update, (redirect_camera, capture).chain());
 }

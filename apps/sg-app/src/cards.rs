@@ -409,7 +409,18 @@ pub fn body_card(body: &Body, number: usize) -> Card {
             notes.push("Its core grew heavy enough to pull in gas in a runaway.".into());
         }
         if body.climate.is_none() && body.atmosphere.is_none() {
-            notes.push("This tier does not yet model its surface or any thin atmosphere.".into());
+            notes.push(
+                "This tier does not yet model its surface or any thin atmosphere: it is drawn \
+                 as bare ground, and the terrain is illustrative."
+                    .into(),
+            );
+        }
+        if sg_render::surface::appearance(body).assumed_day {
+            notes.push(format!(
+                "Cloud colours follow its temperature. This tier gives no day length: the \
+                 bands are drawn for an assumed {:.0}-hour day.",
+                sg_render::surface::ASSUMED_GIANT_DAY_HOURS
+            ));
         }
     } else {
         let mut story = format!("Grew from a nucleus injected at {:.2} AU", f.origin_a_au);

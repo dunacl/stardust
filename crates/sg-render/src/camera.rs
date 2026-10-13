@@ -22,6 +22,9 @@ pub struct OrbitCamera {
     pub pitch: f32,
     pub distance: f32,
     pub goal_distance: f32,
+    /// Yaw and pitch the camera is swinging toward, after a body is
+    /// selected, so that it is seen from its day side. Dragging cancels it.
+    pub swing: Option<(f32, f32)>,
     /// Pixels the pointer has travelled since the button went down; a press
     /// that moves less than a few pixels counts as a click.
     drag_pixels: f32,
@@ -36,6 +39,7 @@ impl Default for OrbitCamera {
             pitch: 0.9,
             distance: 8.0,
             goal_distance: 8.0,
+            swing: None,
             drag_pixels: 0.0,
         }
     }
@@ -101,6 +105,7 @@ pub(crate) fn control_camera(
     if buttons.pressed(MouseButton::Left) {
         orbit.drag_pixels += motion.delta.length();
         if orbit.drag_pixels > CLICK_SLOP_PIXELS {
+            orbit.swing = None;
             orbit.yaw -= motion.delta.x * 0.005;
             orbit.pitch = (orbit.pitch + motion.delta.y * 0.005).clamp(-1.55, 1.55);
         }
@@ -132,12 +137,30 @@ pub(crate) fn apply_camera(
                 orbit.goal_distance =
                     (placement.focus_radius * 9.0).clamp(MIN_DISTANCE, MAX_DISTANCE);
                 *followed = Some(target);
+                if let Target::Body(_) = target {
+                    let nearest_star = placements
+                        .iter()
+                        .filter(|(other, _)| matches!(other, Target::Star(_)))
+                        .map(|(_, star)| star.position - placement.position)
+                        .min_by(|a, b| a.length_squared().total_cmp(&b.length_squared()));
+                    if let Some(to_star) = nearest_star {
+                        orbit.swing = Some(day_side_view(to_star));
+                    }
+                }
             }
         }
     } else {
         *followed = None;
     }
     let ease = 1.0 - (-8.0 * time.delta_secs()).exp();
+    if let Some((yaw, pitch)) = orbit.swing {
+        let turn = shortest_turn(orbit.yaw, yaw);
+        orbit.yaw += turn * ease;
+        orbit.pitch += (pitch - orbit.pitch) * ease;
+        if turn.abs() < 1e-3 && (pitch - orbit.pitch).abs() < 1e-3 {
+            orbit.swing = None;
+        }
+    }
     let goal_focus = orbit.goal_focus;
     orbit.focus = orbit.focus.lerp(goal_focus, ease);
     // Ease distance in log space so zooming feels even at every scale.
@@ -146,6 +169,25 @@ pub(crate) fn apply_camera(
 
     let eye = orbit.eye();
     **camera = Transform::from_translation(eye).looking_at(orbit.focus, Vec3::Y);
+}
+
+/// Angle of the sun behind the camera's shoulder when a body is selected:
+/// far enough round to show the terminator.
+const DAY_SIDE_PHASE: f32 = 0.7;
+/// Height of that view above the orbital plane, radians.
+const DAY_SIDE_PITCH: f32 = 0.3;
+
+/// Yaw and pitch from which a body is seen mostly lit, given the direction
+/// from it to its star: the camera stands on the star's side, turned
+/// [`DAY_SIDE_PHASE`] round, so about four fifths of the disc is in
+/// daylight.
+pub fn day_side_view(to_star: Vec3) -> (f32, f32) {
+    (to_star.x.atan2(to_star.z) + DAY_SIDE_PHASE, DAY_SIDE_PITCH)
+}
+
+/// Signed smallest rotation from one angle to another, radians.
+pub fn shortest_turn(from: f32, to: f32) -> f32 {
+    (to - from + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI
 }
 
 /// Nearest intersection of a ray with a sphere, as a distance along the ray.
@@ -206,6 +248,29 @@ pub(crate) fn pick(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn selected_bodies_are_seen_from_their_day_side() {
+        for to_star in [Vec3::X, Vec3::new(-3.0, 0.0, 2.0), Vec3::NEG_Z] {
+            let (yaw, pitch) = day_side_view(to_star);
+            let camera = OrbitCamera {
+                yaw,
+                pitch,
+                distance: 1.0,
+                ..OrbitCamera::default()
+            };
+            // The angle at the body between the star and the camera.
+            let phase = camera.eye().normalize().dot(to_star.normalize()).acos();
+            assert!(phase > 0.5 && phase < 1.0, "{phase}");
+        }
+    }
+
+    #[test]
+    fn turns_take_the_short_way_round() {
+        assert!((shortest_turn(0.1, 0.3) - 0.2).abs() < 1e-6);
+        assert!((shortest_turn(6.2, 0.1) - (0.1 + std::f32::consts::TAU - 6.2)).abs() < 1e-5);
+        assert!((shortest_turn(0.1, 6.2) + (0.1 + std::f32::consts::TAU - 6.2)).abs() < 1e-5);
+    }
 
     #[test]
     fn ray_hits_and_misses_spheres() {

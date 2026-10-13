@@ -21,6 +21,8 @@ pub struct Launch {
     pub select: Option<usize>,
     /// Desktop only: save a screenshot here and exit.
     pub screenshot: Option<PathBuf>,
+    /// Desktop only: draw that screenshot off screen.
+    pub offscreen: bool,
     pub show_ui: bool,
 }
 
@@ -34,6 +36,7 @@ impl Default for Launch {
             time: None,
             select: None,
             screenshot: None,
+            offscreen: false,
             show_ui: true,
         }
     }
@@ -112,6 +115,7 @@ mod tests {
                 time: Some(0.5),
                 select: Some(3),
                 screenshot: None,
+                offscreen: false,
                 show_ui: false,
             }
         );

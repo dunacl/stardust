@@ -5,10 +5,13 @@ use crate::camera::{self, OrbitCamera, PointerCaptured};
 use crate::display::{self, DisplayBody, Highlight};
 use crate::layout::{self, Layout};
 use crate::palette;
-use crate::scale::ScaleBlend;
+use crate::planet::{self, PlanetMaterial, StarLighting};
+use crate::scale::{ScaleBlend, ScaleMode};
+use crate::surface::{self, Appearance};
 use crate::{belt, sky};
 use bevy::light::GlobalAmbientLight;
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 use sg_core::units::{Au, SolarMass};
 use sg_dynamics::kepler::{self, Elements};
 use sg_schema::{BodyId, HierarchyNode, HostRef, PlanetClass, Star, StarId};
@@ -156,7 +159,12 @@ impl BodyPlacements {
 #[derive(Component)]
 struct BodyVisual {
     class: Option<PlanetClass>,
+    look: Appearance,
 }
+
+/// The shell of air drawn around a body.
+#[derive(Component)]
+struct AirVisual;
 
 #[derive(Component)]
 struct StarVisual;
@@ -167,6 +175,8 @@ struct StarLight;
 #[derive(Resource)]
 struct SceneAssets {
     sphere: Handle<Mesh>,
+    /// Finer, for bodies seen close up.
+    globe: Handle<Mesh>,
 }
 
 /// The sphere and the light of one star.
@@ -179,6 +189,8 @@ struct StarEntities {
 struct SceneEntities {
     generation: u64,
     bodies: BTreeMap<BodyId, Entity>,
+    /// The air of the bodies that have any.
+    air: BTreeMap<BodyId, Entity>,
     stars: BTreeMap<StarId, StarEntities>,
 }
 
@@ -191,6 +203,13 @@ const ORBIT_SEGMENTS: usize = 128;
 /// reference distance of the overview. Exposure conventions, not physics.
 const FOLLOWED_LUX: f32 = 20_000.0;
 const OVERVIEW_LUX: f32 = 2200.0;
+/// Days of the orbital clock in which a body is drawn turning once. Real
+/// days are far shorter than years: at a playback rate that shows orbits,
+/// true rotation would be a blur, so every unlocked body is drawn turning
+/// at this one slow rate. A drawing convention.
+const DRAWN_ROTATION_DAYS: f64 = 1500.0;
+/// Vertical field of view of the camera (Bevy's default), radians.
+const FIELD_OF_VIEW: f32 = std::f32::consts::FRAC_PI_4;
 /// How long a formation highlight lingers, as a fraction of the timeline.
 const HIGHLIGHT_LOOKBACK: f64 = 0.02;
 /// A star is never drawn wider than this fraction of the distance to its
@@ -227,6 +246,7 @@ pub fn system_extent(result: &SimulationResult, scale: &ScaleBlend) -> f32 {
 fn setup(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>) {
     commands.insert_resource(SceneAssets {
         sphere: meshes.add(Sphere::new(1.0).mesh().uv(48, 24)),
+        globe: meshes.add(Sphere::new(1.0).mesh().uv(128, 64)),
     });
     commands.insert_resource(GlobalAmbientLight {
         color: Color::WHITE,
@@ -276,18 +296,28 @@ fn sync_scene(
     mut placements: ResMut<BodyPlacements>,
     mut selection: ResMut<Selection>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut planet_materials: ResMut<Assets<PlanetMaterial>>,
+    window: Query<&Window, With<PrimaryWindow>>,
     mut bodies: Query<
-        (
-            &mut Transform,
-            &mut BodyVisual,
-            &MeshMaterial3d<StandardMaterial>,
-        ),
-        (Without<StarVisual>, Without<StarLight>),
+        (&mut Transform, &BodyVisual, &MeshMaterial3d<PlanetMaterial>),
+        (Without<StarVisual>, Without<StarLight>, Without<AirVisual>),
     >,
-    mut star_spheres: Query<&mut Transform, (With<StarVisual>, Without<BodyVisual>)>,
+    mut air: Query<
+        (&mut Transform, &MeshMaterial3d<PlanetMaterial>),
+        (With<AirVisual>, Without<StarVisual>, Without<StarLight>),
+    >,
+    mut star_spheres: Query<
+        &mut Transform,
+        (With<StarVisual>, Without<BodyVisual>, Without<AirVisual>),
+    >,
     mut lights: Query<
         (&mut Transform, &mut PointLight),
-        (With<StarLight>, Without<StarVisual>, Without<BodyVisual>),
+        (
+            With<StarLight>,
+            Without<StarVisual>,
+            Without<BodyVisual>,
+            Without<AirVisual>,
+        ),
     >,
 ) {
     placements.0.clear();
@@ -299,6 +329,9 @@ fn sync_scene(
     // A new system: start from an empty scene.
     if entities.generation != view.generation() {
         for (_, entity) in std::mem::take(&mut entities.bodies) {
+            commands.entity(entity).despawn();
+        }
+        for (_, entity) in std::mem::take(&mut entities.air) {
             commands.entity(entity).despawn();
         }
         for (_, star) in std::mem::take(&mut entities.stars) {
@@ -385,54 +418,149 @@ fn sync_scene(
         );
     }
 
-    // The bodies.
+    // The bodies. Each is lit in the shader by every star, in proportion
+    // to the light it really receives from each: that needs true
+    // distances, whatever the scale mode on screen.
+    let true_layout = Layout::at(
+        &snapshot.hierarchy,
+        &ScaleBlend::settled(ScaleMode::True),
+        playback.orbit_days,
+    );
+    let pixels_per_radian = window
+        .single()
+        .map_or(900.0, |w| w.physical_height() as f32)
+        / (2.0 * (0.5 * FIELD_OF_VIEW).tan());
+    let spin = (TAU * playback.orbit_days / DRAWN_ROTATION_DAYS).rem_euclid(TAU) as f32;
     let shown = display::bodies_at(result, playback.t_myr);
     let mut stale: Vec<BodyId> = entities.bodies.keys().copied().collect();
     for body in &shown {
-        let (Some(centre), Some(host_mass)) = (
+        let (Some(centre), Some(true_centre), Some(host_mass)) = (
             layout.host(body.host),
+            true_layout.host(body.host),
             layout::host_mass(snapshot, body.host),
         ) else {
             continue;
         };
         stale.retain(|id| *id != body.id);
-        let offset = layout::map_offset(
-            scale,
-            kepler::position(elements(body, host_mass, playback.orbit_days)),
-        );
+        let orbital = kepler::position(elements(body, host_mass, playback.orbit_days));
+        let offset = layout::map_offset(scale, orbital);
         let position = centre + offset;
+        let true_position = true_centre + layout::to_scene(orbital);
         let presence = body.presence.clamp(0.0, 1.0);
         let body_radius = scale.planet_radius(body.radius_km as f32);
         let radius = body_radius.max(apparent_floor(position)) * presence.max(0.02);
         let transform = Transform::from_translation(position).with_scale(Vec3::splat(radius));
-        let color = body
-            .class
-            .map_or(palette::EMBRYO_COLOR, palette::class_color);
+
+        let shares = planet::light_shares(
+            &stars
+                .iter()
+                .map(|star| {
+                    let at = true_layout
+                        .stars
+                        .get(&star.id)
+                        .copied()
+                        .unwrap_or(Vec3::ZERO);
+                    (
+                        star.luminosity_lsun,
+                        f64::from((at - true_position).length()),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        );
+        let lighting: Vec<StarLighting> = stars
+            .iter()
+            .zip(shares)
+            .take(planet::MAX_STARS)
+            .map(|(star, share)| StarLighting {
+                direction: (star_position_of(&layout, star) - position).normalize_or(Vec3::X),
+                color: palette::star_color(star.color_linear_rgb).to_vec3(),
+                share,
+            })
+            .collect();
+        let pixels = pixels_per_radian * radius / (position - eye).length().max(1e-9);
+
+        // A body that has just become a finished planet is drawn anew.
+        if let Some(&entity) = entities.bodies.get(&body.id) {
+            if bodies
+                .get(entity)
+                .is_ok_and(|(_, visual, _)| visual.class != body.class)
+            {
+                commands.entity(entity).despawn();
+                entities.bodies.remove(&body.id);
+                if let Some(shell) = entities.air.remove(&body.id) {
+                    commands.entity(shell).despawn();
+                }
+            }
+        }
 
         match entities.bodies.get(&body.id) {
             Some(&entity) => {
-                if let Ok((mut current, mut visual, material)) = bodies.get_mut(entity) {
+                if let Ok((mut current, visual, material)) = bodies.get_mut(entity) {
                     *current = transform;
-                    if visual.class != body.class {
-                        visual.class = body.class;
-                        if let Some(mut material) = materials.get_mut(&material.0) {
-                            material.base_color = color;
+                    if let Some(mut material) = planet_materials.get_mut(&material.0) {
+                        planet::update_uniform(
+                            &mut material.uniform,
+                            &visual.look,
+                            eye,
+                            &lighting,
+                            spin,
+                            pixels,
+                        );
+                    }
+                    if let Some((mut shell, material)) = entities
+                        .air
+                        .get(&body.id)
+                        .and_then(|shell| air.get_mut(*shell).ok())
+                    {
+                        let height = visual.look.air.map_or(0.0, |a| a.height);
+                        *shell = transform.with_scale(Vec3::splat(radius * (1.0 + height)));
+                        if let Some(mut material) = planet_materials.get_mut(&material.0) {
+                            planet::update_uniform(
+                                &mut material.uniform,
+                                &visual.look,
+                                eye,
+                                &lighting,
+                                spin,
+                                pixels,
+                            );
                         }
                     }
                 }
             }
             None => {
-                let material = materials.add(StandardMaterial {
-                    base_color: color,
-                    perceptual_roughness: 0.9,
-                    ..default()
-                });
+                let look = snapshot
+                    .bodies
+                    .iter()
+                    .find(|b| b.id == body.id && body.class.is_some())
+                    .map_or_else(
+                        || surface::embryo_appearance(body.id.0),
+                        surface::appearance,
+                    );
+                let mut material_for = |shell: bool| {
+                    let mut uniform = planet::uniform_for(&look, shell);
+                    planet::update_uniform(&mut uniform, &look, eye, &lighting, spin, pixels);
+                    planet_materials.add(PlanetMaterial { uniform, shell })
+                };
+                if let Some(gas) = look.air {
+                    let shell = commands
+                        .spawn((
+                            AirVisual,
+                            Mesh3d(assets.globe.clone()),
+                            MeshMaterial3d(material_for(true)),
+                            transform.with_scale(Vec3::splat(radius * (1.0 + gas.height))),
+                        ))
+                        .id();
+                    entities.air.insert(body.id, shell);
+                }
                 let entity = commands
                     .spawn((
-                        BodyVisual { class: body.class },
-                        Mesh3d(assets.sphere.clone()),
-                        MeshMaterial3d(material),
+                        Mesh3d(assets.globe.clone()),
+                        MeshMaterial3d(material_for(false)),
                         transform,
+                        BodyVisual {
+                            class: body.class,
+                            look,
+                        },
                     ))
                     .id();
                 entities.bodies.insert(body.id, entity);
@@ -455,6 +583,9 @@ fn sync_scene(
     }
     for id in stale {
         if let Some(entity) = entities.bodies.remove(&id) {
+            commands.entity(entity).despawn();
+        }
+        if let Some(entity) = entities.air.remove(&id) {
             commands.entity(entity).despawn();
         }
         // A selected planet stays selected while playback is before its
@@ -519,6 +650,10 @@ fn sync_scene(
             light.intensity = lux * 4.0 * std::f32::consts::PI * share(star) / received;
         }
     }
+}
+
+fn star_position_of(layout: &Layout, star: &Star) -> Vec3 {
+    layout.stars.get(&star.id).copied().unwrap_or(Vec3::ZERO)
 }
 
 fn ring(gizmos: &mut Gizmos, centre: Vec3, radius: f32, color: Color) {
@@ -668,8 +803,9 @@ impl Plugin for StardustRenderPlugin {
             .init_resource::<OrbitCamera>()
             .init_resource::<PointerCaptured>()
             .init_resource::<belt::BeltEntities>()
-            .init_resource::<sky::SkyState>()
-            .add_systems(Startup, (setup, camera::spawn_camera))
+            .init_resource::<sky::SkyState>();
+        planet::build(app);
+        app.add_systems(Startup, (setup, camera::spawn_camera))
             .add_systems(
                 Update,
                 (

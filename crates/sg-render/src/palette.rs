@@ -1,8 +1,8 @@
 //! Colours for bodies and overlays.
 //!
-//! Each planet is drawn as a sphere in one colour chosen by its class. The
-//! class comes from the simulation; only the swatch is chosen here. Surface
-//! palettes derived from composition and temperature arrive with M5.
+//! Colours of overlays, belts and stars. [`class_color`] is the swatch of
+//! a planet class, used where a body is too small to show a surface (the
+//! UI's legends); the surfaces themselves are in [`crate::surface`].
 
 use bevy::color::{Color, LinearRgba};
 use sg_schema::PlanetClass;

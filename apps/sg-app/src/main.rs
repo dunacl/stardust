@@ -82,7 +82,7 @@ fn main() {
 
     #[cfg(not(target_arch = "wasm32"))]
     if let Some(path) = launch.screenshot {
-        desktop::add_capture(&mut app, path);
+        desktop::add_capture(&mut app, path, launch.offscreen);
     }
 
     app.run();
