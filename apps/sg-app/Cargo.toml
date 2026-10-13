@@ -1,12 +1,20 @@
 [package]
 name = "sg-app"
-description = "StarGen-NG application (Bevy shell). Stub until M2."
+description = "StarGen-NG application: Bevy shell with an egui control panel (PLAN.md §9)."
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
+rust-version = "1.97.1" # Bevy 0.20
 publish.workspace = true
 
 [dependencies]
+sg-schema.workspace = true
+sg-sim = { workspace = true, features = ["classic"] }
+sg-render.workspace = true
+sg-core.workspace = true
+bevy.workspace = true
+bevy_egui.workspace = true
+anyhow.workspace = true
+clap.workspace = true
 
 [lints]
 workspace = true

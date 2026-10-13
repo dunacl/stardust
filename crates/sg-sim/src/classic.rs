@@ -35,8 +35,8 @@ fn check(observer: &mut dyn SimObserver, stage: Stage, fraction: f64) -> Result<
     }
 }
 
-/// The single star's mass, or 0 to let the Classic model draw one.
-fn star_mass(params: &SimulationParams) -> Result<f64, SimError> {
+/// The single star's mass, or `None` to let the Classic model draw one.
+fn star_mass(params: &SimulationParams) -> Result<Option<f64>, SimError> {
     let unsupported = |what: &str| {
         Err(SimError::Unsupported(
             Fidelity::Classic,
@@ -48,10 +48,10 @@ fn star_mass(params: &SimulationParams) -> Result<f64, SimError> {
             primary_mass_msun,
             multiplicity,
         } => match multiplicity {
-            None | Some(Multiplicity::Single) => Ok(primary_mass_msun.unwrap_or(0.0)),
+            None | Some(Multiplicity::Single) => Ok(*primary_mass_msun),
             Some(_) => unsupported("multiple stars requested"),
         },
-        SystemSpec::Explicit(StarNode::Star(spec)) => Ok(spec.mass_msun),
+        SystemSpec::Explicit(StarNode::Star(spec)) => Ok(Some(spec.mass_msun)),
         SystemSpec::Explicit(StarNode::Pair { .. }) => unsupported("a stellar pair was given"),
     }
 }
@@ -353,7 +353,10 @@ pub(crate) fn simulate(
     observer: &mut dyn SimObserver,
 ) -> Result<SimulationResult, SimError> {
     validate(params)?;
-    let mass = star_mass(params)?;
+    let requested_mass = star_mass(params)?;
+    // StarGen draws a mass in [0.7, 1.4] M☉ when given one outside its range;
+    // 0 asks for that on purpose.
+    let mass = requested_mass.unwrap_or(0.0);
     let mut warnings = Vec::new();
 
     check(observer, Stage::Stellar, 0.0)?;
@@ -366,7 +369,7 @@ pub(crate) fn simulate(
     )?;
     check(observer, Stage::Planets, 0.8)?;
 
-    if !(0.2..=1.5).contains(&mass) {
+    if requested_mass.is_some_and(|m| !(0.2..=1.5).contains(&m)) {
         warnings.push(format!(
             "stellar mass {mass} M☉ is outside the Classic model's range [0.2, 1.5]; \
              as in StarGen, {:.3} M☉ was drawn instead",
@@ -415,6 +418,7 @@ pub(crate) fn simulate(
             radius_rsun: radius.0,
             teff_k: teff.0,
             spectral_class: sg_stellar::spectral_class(teff).to_string(),
+            color_linear_rgb: sg_stellar::blackbody_linear_srgb(teff),
             age_gyr,
             main_sequence_lifetime_gyr: system.star.main_seq_life_yr / 1.0e9,
         }),

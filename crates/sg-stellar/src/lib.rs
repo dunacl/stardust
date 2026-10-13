@@ -124,6 +124,50 @@ pub fn spectral_class(teff: Kelvin) -> SpectralClass {
     }
 }
 
+/// Highest temperature of Krystek's fit, K.
+const KRYSTEK_MAX_K: f64 = 15_000.0;
+/// Lowest temperature of Krystek's fit, K.
+const KRYSTEK_MIN_K: f64 = 1_000.0;
+
+/// CIE 1931 chromaticity `(x, y)` of a blackbody.
+///
+/// Krystek, M. (1985), "An algorithm to calculate correlated colour
+/// temperature", *Color Research & Application* 10, 38: rational fits to the
+/// Planckian locus in CIE 1960 `(u, v)`, converted to `(x, y)`. Valid for
+/// 1000–15000 K, where it is accurate to about 1e-4 in chromaticity. Outside
+/// that range the temperature is clamped: hotter blackbodies change colour
+/// very little (the locus converges on a blue-white limit).
+pub fn blackbody_chromaticity(teff: Kelvin) -> (f64, f64) {
+    let t = teff.0.clamp(KRYSTEK_MIN_K, KRYSTEK_MAX_K);
+    let t2 = t * t;
+    let u = (0.860117757 + 1.54118254e-4 * t + 1.28641212e-7 * t2)
+        / (1.0 + 8.42420235e-4 * t + 7.08145163e-7 * t2);
+    let v = (0.317398726 + 4.22806245e-5 * t + 4.20481691e-8 * t2)
+        / (1.0 - 2.89741816e-5 * t + 1.61456053e-7 * t2);
+    let denom = 2.0 * u - 8.0 * v + 4.0;
+    (3.0 * u / denom, 2.0 * v / denom)
+}
+
+/// Colour of a blackbody as linear sRGB, scaled so the largest channel is 1.
+///
+/// [`blackbody_chromaticity`] converted with the XYZ → linear sRGB matrix of
+/// IEC 61966-2-1 (D65 white). Channels that fall outside the sRGB gamut
+/// (cool stars are redder than sRGB can show) are clipped to 0. This is the
+/// star's hue only; brightness is carried by its luminosity. Same validity
+/// as [`blackbody_chromaticity`].
+pub fn blackbody_linear_srgb(teff: Kelvin) -> [f64; 3] {
+    let (x, y) = blackbody_chromaticity(teff);
+    let (cx, cy, cz) = (x / y, 1.0, (1.0 - x - y) / y);
+    let rgb = [
+        3.2406 * cx - 1.5372 * cy - 0.4986 * cz,
+        -0.9689 * cx + 1.8758 * cy + 0.0415 * cz,
+        0.0557 * cx - 0.2040 * cy + 1.0570 * cz,
+    ]
+    .map(|c| c.max(0.0));
+    let max = rgb[0].max(rgb[1]).max(rgb[2]);
+    rgb.map(|c| c / max)
+}
+
 /// A habitable-zone boundary of Kopparapu et al. (2014).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum HzLimit {
@@ -266,6 +310,45 @@ mod tests {
         assert_eq!(class(1_500.0), 'L');
         assert_eq!(spectral_class(Kelvin(3_050.0)).to_string(), "M5");
         assert_eq!(spectral_class(Kelvin(60_000.0)).subclass, 0);
+    }
+
+    /// Planckian locus chromaticities from the CIE tables: 2856 K (standard
+    /// illuminant A) is (0.4476, 0.4074); 6500 K is (0.3135, 0.3237);
+    /// 10000 K is (0.2807, 0.2884).
+    #[test]
+    fn blackbody_chromaticity_matches_the_planckian_locus() {
+        for (t, x, y) in [
+            (2856.0, 0.4476, 0.4074),
+            (6500.0, 0.3135, 0.3237),
+            (10_000.0, 0.2807, 0.2884),
+        ] {
+            let (gx, gy) = blackbody_chromaticity(Kelvin(t));
+            assert!(
+                (gx - x).abs() < 1e-3 && (gy - y).abs() < 1e-3,
+                "{t} K: ({gx}, {gy})"
+            );
+        }
+    }
+
+    /// Cool stars are orange-red, the Sun is near white (slightly warm
+    /// against the D65 white point), hot stars are blue-white.
+    #[test]
+    fn star_colours_run_from_red_to_blue() {
+        let m_dwarf = blackbody_linear_srgb(Kelvin(3000.0));
+        // Commonly tabulated sRGB for 3000 K is (255, 180, 107), i.e. about
+        // (1, 0.47, 0.15) in linear light.
+        assert_eq!(m_dwarf[0], 1.0);
+        assert!((m_dwarf[1] - 0.47).abs() < 0.03, "{m_dwarf:?}");
+        assert!((m_dwarf[2] - 0.15).abs() < 0.03, "{m_dwarf:?}");
+        let sun = blackbody_linear_srgb(Kelvin(5772.0));
+        assert!(sun[0] == 1.0 && sun[1] > 0.85 && sun[2] > 0.75, "{sun:?}");
+        let a_star = blackbody_linear_srgb(Kelvin(9500.0));
+        assert!(a_star[2] == 1.0 && a_star[0] < 0.75, "{a_star:?}");
+        // Clamped outside the fit's range.
+        assert_eq!(
+            blackbody_linear_srgb(Kelvin(40_000.0)),
+            blackbody_linear_srgb(Kelvin(15_000.0))
+        );
     }
 
     /// Kopparapu et al. (2014) define their fluxes at T_eff = 5780 K, where

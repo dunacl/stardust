@@ -58,6 +58,8 @@ pub struct Star {
     pub teff_k: f64,
     /// Harvard class with subclass, e.g. `G2`.
     pub spectral_class: String,
+    /// Blackbody colour at `teff_k`: linear sRGB, largest channel 1.
+    pub color_linear_rgb: [f64; 3],
     pub age_gyr: f64,
     /// Main-sequence lifetime.
     pub main_sequence_lifetime_gyr: f64,

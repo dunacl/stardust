@@ -10,6 +10,9 @@
 
 #[cfg(feature = "classic")]
 mod classic;
+mod presets;
+
+pub use presets::{preset_availability, preset_params, PresetAvailability, ALL_PRESETS};
 
 use sg_core::hash::fnv1a64_hex;
 use sg_schema::{EventTimeline, Fidelity, SimulationParams, SystemSnapshot, SCHEMA_VERSION};

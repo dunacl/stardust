@@ -1,12 +1,21 @@
 [package]
 name = "sg-render"
-description = "wgpu domain renderer as a Bevy plugin (PLAN.md §8). Stub until M2; Bevy is added then."
+description = "StarGen-NG renderer as a Bevy plugin (PLAN.md §8). M2: stars, planets, orbits, scale modes, formation playback."
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
+rust-version = "1.97.1" # Bevy 0.20
 publish.workspace = true
 
 [dependencies]
+sg-core.workspace = true
+sg-schema.workspace = true
+sg-dynamics.workspace = true
+sg-sim.workspace = true
+bevy.workspace = true
+
+[dev-dependencies]
+# The renderer itself is tier-agnostic; its tests need a real system.
+sg-sim = { workspace = true, features = ["classic"] }
 
 [lints]
 workspace = true

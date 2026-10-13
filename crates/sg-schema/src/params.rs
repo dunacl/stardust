@@ -57,9 +57,10 @@ pub enum Fidelity {
 }
 
 /// Named starting configurations (PLAN.md §9).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PresetId {
+    #[default]
     SunLike,
     RedDwarf,
     HotJupiter,

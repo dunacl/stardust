@@ -14,7 +14,7 @@
 //!   round-trips exactly.
 //! - Any change to these types bumps [`SCHEMA_VERSION`] and PLAN.md §7.
 //!
-//! This is schema **0.1**: it covers what the Classic tier produces. Types
+//! This is schema **0.2**: it covers what the Classic tier produces. Types
 //! for disks, belts, rings, multiple stars and the modern planet classes are
 //! present so consumers can be written against them, and are filled in by
 //! later milestones.
@@ -29,4 +29,4 @@ pub use timeline::*;
 
 /// Version of the data contracts, semver. Bump on any change to this crate's
 /// types.
-pub const SCHEMA_VERSION: &str = "0.1.0";
+pub const SCHEMA_VERSION: &str = "0.2.0";
