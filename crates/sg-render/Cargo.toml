@@ -1,6 +1,6 @@
 [package]
 name = "sg-render"
-description = "StarGen-NG renderer as a Bevy plugin (PLAN.md §8). M2: stars, planets, orbits, scale modes, formation playback."
+description = "Stardust renderer as a Bevy plugin (PLAN.md §8). M2: stars, planets, orbits, scale modes, formation playback."
 version.workspace = true
 edition.workspace = true
 rust-version = "1.97.1" # Bevy 0.20

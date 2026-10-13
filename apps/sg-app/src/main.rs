@@ -1,4 +1,4 @@
-//! StarGen-NG application (PLAN.md §9).
+//! Stardust application (PLAN.md §9).
 //!
 //! M2: pick a preset or adjust parameters, press Simulate, watch the system
 //! form, then explore it and click bodies for their data cards.
@@ -18,7 +18,7 @@ use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 use bevy::window::{WindowLevel, WindowOccluded, WindowResolution};
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 use clap::{Parser, ValueEnum};
-use sg_render::{ScaleMode, StarGenRenderPlugin, Target};
+use sg_render::{ScaleMode, StardustRenderPlugin, Target};
 use sg_schema::{BodyId, PresetId};
 use state::AppState;
 use std::path::PathBuf;
@@ -27,7 +27,7 @@ use std::path::PathBuf;
 #[command(
     name = "sg-app",
     version,
-    about = "StarGen-NG planetary system simulator"
+    about = "Stardust planetary system simulator"
 )]
 struct Args {
     /// Random seed (non-zero).
@@ -155,7 +155,7 @@ fn main() -> anyhow::Result<()> {
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
-            title: "StarGen-NG".into(),
+            title: "Stardust".into(),
             resolution: WindowResolution::new(1440, 900),
             // A screenshot needs the window drawn, and a covered window is
             // not: keep it in front for the few seconds it exists.
@@ -169,7 +169,7 @@ fn main() -> anyhow::Result<()> {
         ..default()
     }))
     .add_plugins(EguiPlugin::default())
-    .add_plugins(StarGenRenderPlugin)
+    .add_plugins(StardustRenderPlugin)
     .insert_resource(state)
     .add_systems(Startup, state::simulate_on_startup)
     .add_systems(EguiPrimaryContextPass, ui::draw);

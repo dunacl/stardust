@@ -1,4 +1,4 @@
-//! Data contracts of StarGen-NG (PLAN.md §7).
+//! Data contracts of Stardust (PLAN.md §7).
 //!
 //! Three documents, all `serde`-serialisable:
 //!

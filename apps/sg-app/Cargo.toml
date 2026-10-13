@@ -1,6 +1,6 @@
 [package]
 name = "sg-app"
-description = "StarGen-NG application: Bevy shell with an egui control panel (PLAN.md §9)."
+description = "Stardust application: Bevy shell with an egui control panel (PLAN.md §9)."
 version.workspace = true
 edition.workspace = true
 rust-version = "1.97.1" # Bevy 0.20

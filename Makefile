@@ -1,4 +1,4 @@
-# StarGen-NG shortcuts. `make` or `make help` lists them.
+# Stardust shortcuts. `make` or `make help` lists them.
 #
 # The checks themselves live in scripts/ (scripts/ci.sh is what hosted CI will
 # run); these targets only wrap them, so the two cannot drift apart.

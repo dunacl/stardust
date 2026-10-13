@@ -1,4 +1,4 @@
-//! Foundations shared by every StarGen-NG simulation crate.
+//! Foundations shared by every Stardust simulation crate.
 //!
 //! - [`math`]: transcendental functions routed through `libm`, so native and
 //!   WASM builds produce identical bits.

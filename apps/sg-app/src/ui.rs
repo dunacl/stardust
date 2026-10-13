@@ -415,7 +415,7 @@ pub fn draw(
         return Ok(());
     }
 
-    egui::Window::new("StarGen-NG")
+    egui::Window::new("Stardust")
         .anchor(Align2::LEFT_TOP, [12.0, 12.0])
         .default_width(330.0)
         .resizable(false)

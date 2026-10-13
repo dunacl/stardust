@@ -1,4 +1,4 @@
-//! StarGen-NG renderer (PLAN.md §8), as a Bevy plugin.
+//! Stardust renderer (PLAN.md §8), as a Bevy plugin.
 //!
 //! M2 scope: the star (blackbody colour, bloom), planets as spheres coloured
 //! by class, orbit lines, the habitable zone, three scale modes with
@@ -26,6 +26,6 @@ pub mod sky;
 pub use camera::{OrbitCamera, PointerCaptured};
 pub use scale::{ScaleBlend, ScaleMode};
 pub use scene::{
-    BodyPlacements, Placement, Playback, Selection, StarGenRenderPlugin, SystemView, Target,
+    BodyPlacements, Placement, Playback, Selection, StardustRenderPlugin, SystemView, Target,
     ViewSettings,
 };

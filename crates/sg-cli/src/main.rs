@@ -22,7 +22,7 @@ use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
-#[command(name = "sg-cli", version, about = "StarGen-NG command-line simulator")]
+#[command(name = "sg-cli", version, about = "Stardust command-line simulator")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -203,7 +203,7 @@ fn summary(result: &SimulationResult) -> String {
     let mut out = String::new();
     let _ = writeln!(
         out,
-        "StarGen-NG model {MODEL_VERSION}, {:?} tier, hash {}",
+        "Stardust model {MODEL_VERSION}, {:?} tier, hash {}",
         result.diagnostics.fidelity,
         sg_sim::result_hash(result)
     );

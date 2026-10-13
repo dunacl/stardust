@@ -513,10 +513,10 @@ fn draw_overlays(
     }
 }
 
-/// Adds the StarGen-NG scene to a Bevy app.
-pub struct StarGenRenderPlugin;
+/// Adds the Stardust scene to a Bevy app.
+pub struct StardustRenderPlugin;
 
-impl Plugin for StarGenRenderPlugin {
+impl Plugin for StardustRenderPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SystemView>()
             .init_resource::<Playback>()
