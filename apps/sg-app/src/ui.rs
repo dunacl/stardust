@@ -258,11 +258,6 @@ fn standard_controls(ui: &mut egui::Ui, state: &mut AppState) {
                     .fixed_decimals(1)
             },
         );
-        ui.add(
-            egui::Slider::new(&mut state.params.formation.standard.embryo_count, 2..=40)
-                .text("Embryos per disk"),
-        )
-        .on_hover_text("Seeds of planets placed in each disk. Most stay small.");
         ui.checkbox(&mut state.params.toggles.migration, "Migration")
             .on_hover_text("Planets drift inward through the gas disk as they grow.");
         if ui.button("Reset").clicked() {

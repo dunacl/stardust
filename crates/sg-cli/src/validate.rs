@@ -129,6 +129,33 @@ pub fn radius_valley_ratio(systems: &[SystemStats]) -> Option<f64> {
     (peak > 0.0).then(|| valley / peak)
 }
 
+/// Number of planets of 1–1.75 R⊕ for each one of 1.75–4 R⊕, among planets
+/// inside 100 days: the two populations either side of the radius valley.
+/// `None` if there are no sub-Neptunes.
+pub fn size_class_ratio(systems: &[SystemStats]) -> Option<f64> {
+    let count = |lo: f64, hi: f64| {
+        systems
+            .iter()
+            .flat_map(|s| &s.planets)
+            .filter(|(p, r, _)| *p < 100.0 && *r >= lo && *r < hi)
+            .count() as f64
+    };
+    let sub_neptunes = count(1.75, 4.0);
+    (sub_neptunes > 0.0).then(|| count(1.0, 1.75) / sub_neptunes)
+}
+
+/// Planets per star smaller than the Earth (0.5–1 R⊕) inside 100 days.
+/// Surveys cannot yet count these reliably, so this is reported, not
+/// scored.
+pub fn sub_earths_per_star(systems: &[SystemStats]) -> f64 {
+    let count = systems
+        .iter()
+        .flat_map(|s| &s.planets)
+        .filter(|(p, r, _)| *p < 100.0 && (0.5..1.0).contains(r))
+        .count();
+    count as f64 / systems.len().max(1) as f64
+}
+
 /// Where, between 1.25 and 3 R⊕, the model has fewest close-in planets:
 /// the bin `(low, high)` with the lowest density per unit log radius, and
 /// that density relative to the highest in the range. For describing the
@@ -216,6 +243,15 @@ pub fn metrics(systems: &[SystemStats]) -> Vec<Metric> {
             observed: "about 0.5",
             source: "Fulton et al. 2017, AJ 154, 109 (a deficit of about a factor of two)",
             tolerance: (0.0, 0.8),
+            unit: "",
+        },
+        Metric {
+            name: "Super-Earths (1–1.75 R⊕) per sub-Neptune (1.75–4 R⊕), inside 100 days",
+            model: size_class_ratio(systems).unwrap_or(f64::NAN),
+            model_error: f64::NAN,
+            observed: "about 1",
+            source: "Fulton et al. 2017, AJ 154, 109 (two peaks of similar height)",
+            tolerance: (0.5, 2.0),
             unit: "",
         },
     ]
@@ -308,6 +344,13 @@ pub fn report(
              The observed valley is centred near 1.8 R⊕."
         );
     }
+    let _ = writeln!(
+        out,
+        "\nNot scored: the model has {:.1} planets smaller than the Earth (0.5–1 R⊕) inside 100 \
+         days per star. Surveys are too incomplete at these sizes to give a firm number, but \
+         this is probably several times too many.",
+        sub_earths_per_star(systems)
+    );
     let _ = writeln!(out, "\nSources:\n");
     for m in &all {
         let _ = writeln!(out, "- {}: {}.", m.name, m.source);
@@ -435,6 +478,20 @@ mod tests {
     }
 
     #[test]
+    fn size_classes_are_counted_either_side_of_the_valley() {
+        let mut planets = vec![(10.0, 1.4, 3.0); 30];
+        planets.extend(vec![(10.0, 2.5, 6.0); 20]);
+        planets.extend(vec![(10.0, 0.8, 0.4); 50]);
+        // Beyond 100 days, and giants, are not counted.
+        planets.extend(vec![(300.0, 1.4, 3.0); 9]);
+        planets.extend(vec![(10.0, 11.0, 300.0); 9]);
+        let systems = vec![system(0.0, &planets), system(0.0, &[])];
+        assert!((size_class_ratio(&systems).unwrap() - 1.5).abs() < 1e-12);
+        assert!((sub_earths_per_star(&systems) - 25.0).abs() < 1e-12);
+        assert!(size_class_ratio(&[system(0.0, &[])]).is_none());
+    }
+
+    #[test]
     fn deepest_dip_finds_the_emptiest_bin() {
         let mut planets = Vec::new();
         planets.extend(vec![(10.0, 1.3, 2.0); 40]);
@@ -461,5 +518,6 @@ mod tests {
         assert!(text.contains("10 Sun-like single stars (seeds 1–10)"));
         assert!(text.contains("metrics inside tolerance"));
         assert!(text.contains("| pass |") && text.contains("| **fail** |"));
+        assert!(text.contains("Not scored"));
     }
 }

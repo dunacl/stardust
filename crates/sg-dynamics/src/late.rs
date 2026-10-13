@@ -99,6 +99,86 @@ pub fn settle(mut planets: Vec<Orbiter>, star_mass_msun: f64) -> (Vec<Orbiter>, 
     }
 }
 
+/// A planet as the sweep of leftover planetesimals sees it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Sweeper {
+    pub a_au: f64,
+    pub mass_msun: f64,
+    /// Physical radius, AU.
+    pub radius_au: f64,
+}
+
+/// What becomes of the planetesimals in one ring after the gas has gone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RingFate {
+    /// Swept up by the planet with this index.
+    Accreted(usize),
+    /// Flung out of the system by a planet.
+    Ejected,
+    /// Still there at the system's age: a belt.
+    Remains,
+}
+
+/// Largest fractional distance at which a planet stirs planetesimals onto
+/// orbits that cross its own. Beyond about half its orbital radius the
+/// picture of a planet working on its own neighbourhood no longer holds.
+const MAX_REACH: f64 = 0.5;
+
+/// Decides the fate of the planetesimals in a ring at `ring_a_au` holding
+/// `ring_mass_msun` at surface density `ring_sigma` (M☉/AU²), over
+/// `age_yr`, given the planets present.
+///
+/// A planet stirs the planetesimals near it to random speeds of about its
+/// own escape speed (Safronov 1969), which carries them `v_esc/v_K` of the
+/// way to its orbit; a ring within that reach belongs to the nearest such
+/// planet. If the planet's escape speed exceeds the orbital speed it throws
+/// them out of the system instead of accreting them (the Safronov number
+/// exceeds one: the giants of the outer Solar System). Otherwise it sweeps
+/// the ring at the rate `π R² Σ Ω (1 + v_esc²/v²)` (Safronov 1969; Lissauer
+/// 1993, ARA&A 31, 129, eq. 2 with gravitational focusing), with the
+/// encounter speed `v` set by how far the ring is from the planet, and the
+/// ring is accreted if that takes less than the system's age.
+pub fn ring_fate(
+    ring_a_au: f64,
+    ring_mass_msun: f64,
+    ring_sigma: f64,
+    planets: &[Sweeper],
+    star_mass_msun: f64,
+    age_yr: f64,
+) -> RingFate {
+    const G: f64 = 4.0 * core::f64::consts::PI * core::f64::consts::PI;
+    let mut best: Option<(f64, usize, f64)> = None;
+    for (index, planet) in planets.iter().enumerate() {
+        // (v_esc/v_K)² = 2 (M_p/M★) (a/R).
+        let speed_ratio =
+            sqrt(2.0 * planet.mass_msun / star_mass_msun * planet.a_au / planet.radius_au);
+        let offset = (ring_a_au - planet.a_au).abs() / planet.a_au;
+        if offset <= speed_ratio.min(MAX_REACH) && best.map_or(true, |(o, _, _)| offset < o) {
+            best = Some((offset, index, speed_ratio));
+        }
+    }
+    let Some((offset, index, speed_ratio)) = best else {
+        return RingFate::Remains;
+    };
+    if speed_ratio > 1.0 {
+        return RingFate::Ejected;
+    }
+    let planet = &planets[index];
+    // Encounter speed in units of the orbital speed: the eccentricity that
+    // brings the planetesimals to the planet, at least its Hill radius.
+    let hill = pow(planet.mass_msun / (3.0 * star_mass_msun), 1.0 / 3.0);
+    let encounter = offset.max(hill);
+    let focusing = 1.0 + (speed_ratio / encounter) * (speed_ratio / encounter);
+    let omega = sqrt(G * star_mass_msun / (ring_a_au * ring_a_au * ring_a_au));
+    let rate =
+        core::f64::consts::PI * planet.radius_au * planet.radius_au * ring_sigma * omega * focusing;
+    if rate > 0.0 && ring_mass_msun / rate < age_yr {
+        RingFate::Accreted(index)
+    } else {
+        RingFate::Remains
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -213,5 +293,79 @@ mod tests {
                 prop_assert!(separation_in_hill_radii(&pair[0], &pair[1], 1.0) >= limit);
             }
         }
+    }
+
+    const EARTH_RADIUS_AU: f64 = 6378.0 / 1.496e8;
+
+    fn sweeper(a_au: f64, earths: f64, earth_radii: f64) -> Sweeper {
+        Sweeper {
+            a_au,
+            mass_msun: earths * EARTH,
+            radius_au: earth_radii * EARTH_RADIUS_AU,
+        }
+    }
+
+    /// 10 g/cm² in M☉/AU².
+    const TEN_G_CM2: f64 = 10.0 / 8.887e6;
+
+    /// The Earth clears its own neighbourhood in tens of millions of years
+    /// (v_esc/v_K = 11.2/29.8 = 0.38 of the way to 1 AU), but not a ring at
+    /// 2.5 AU, which is the asteroid belt.
+    #[test]
+    fn earth_sweeps_its_zone_and_leaves_the_asteroid_belt() {
+        let earth = [sweeper(1.0, 1.0, 1.0)];
+        let ring_mass = 0.1 * EARTH;
+        assert_eq!(
+            ring_fate(1.2, ring_mass, TEN_G_CM2, &earth, 1.0, 4.6e9),
+            RingFate::Accreted(0)
+        );
+        assert_eq!(
+            ring_fate(2.5, ring_mass, TEN_G_CM2, &earth, 1.0, 4.6e9),
+            RingFate::Remains
+        );
+        // Too young a system has not had time.
+        assert_eq!(
+            ring_fate(1.3, ring_mass, TEN_G_CM2, &earth, 1.0, 1.0e3),
+            RingFate::Remains
+        );
+        assert_eq!(
+            ring_fate(1.2, ring_mass, TEN_G_CM2, &[], 1.0, 4.6e9),
+            RingFate::Remains
+        );
+    }
+
+    /// Jupiter's escape speed (60 km/s) is far above its orbital speed
+    /// (13 km/s): it ejects what it stirs. A hot Jupiter, orbiting at
+    /// 150 km/s, accretes instead.
+    #[test]
+    fn cold_giants_eject_and_hot_ones_accrete() {
+        let jupiter = [sweeper(5.2, 318.0, 11.2)];
+        assert_eq!(
+            ring_fate(6.5, EARTH, TEN_G_CM2, &jupiter, 1.0, 4.6e9),
+            RingFate::Ejected
+        );
+        // Beyond its reach (half its orbital radius) the ring is untouched.
+        assert_eq!(
+            ring_fate(9.0, EARTH, TEN_G_CM2, &jupiter, 1.0, 4.6e9),
+            RingFate::Remains
+        );
+        let hot = [sweeper(0.04, 318.0, 11.2)];
+        assert_eq!(
+            ring_fate(0.045, 0.01 * EARTH, TEN_G_CM2, &hot, 1.0, 4.6e9),
+            RingFate::Accreted(0)
+        );
+    }
+
+    #[test]
+    fn a_ring_goes_to_the_nearest_planet_that_reaches_it() {
+        let planets = [sweeper(0.7, 0.8, 0.95), sweeper(1.0, 1.0, 1.0)];
+        assert_eq!(
+            ring_fate(0.8, 0.01 * EARTH, TEN_G_CM2, &planets, 1.0, 4.6e9),
+            RingFate::Accreted(0)
+        );
+        assert_eq!(
+            ring_fate(0.95, 0.01 * EARTH, TEN_G_CM2, &planets, 1.0, 4.6e9),
+            RingFate::Accreted(1)
+        );
     }
 }

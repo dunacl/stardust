@@ -259,6 +259,67 @@ pub fn runaway_accretion_rate(
         .min(0.8 * disk.accretion_rate(t_yr))
 }
 
+/// 1 M☉/AU² in g/cm².
+pub const MSUN_PER_AU2_IN_G_PER_CM2: f64 = 1.989e33 / (1.496e13 * 1.496e13);
+
+/// Mass of a planetesimal as streaming instability forms it, M☉: a body
+/// 100 km across of density 1.2 g/cm³, 6.28×10²⁰ g (Lenz, Klahr & Birnstiel
+/// 2019, ApJ 874, 36, eq. 4).
+pub const PLANETESIMAL_MASS_MSUN: f64 = 6.28e20 / 1.989e33;
+
+/// Fraction of the pebble flux turned into planetesimals as it crosses a
+/// ring of radial width `dr`.
+///
+/// Lenz, Klahr & Birnstiel (2019), eq. 1: pebbles are caught in pressure
+/// traps a distance `d = 5 H` apart and a fraction `ε` of what enters a trap
+/// becomes planetesimals, so `Σ̇_p = (ε/d) Ṁ_peb/(2πr)` and the flux falls by
+/// `ε·dr/d` across the ring. Their fiducial `ε` is 0.1. They form
+/// planetesimals only from pebbles of Stokes number 0.01–10; that limit is
+/// not applied here (see `evolve`).
+pub fn planetesimal_conversion_fraction(efficiency: f64, dr_au: f64, scale_height_au: f64) -> f64 {
+    (efficiency * dr_au / (5.0 * scale_height_au)).clamp(0.0, 1.0)
+}
+
+/// Pebble flux below which a trap cannot gather one planetesimal's mass in
+/// its lifetime, M☉/yr, so none form.
+///
+/// Lenz et al. (2019), eqs. 5–6: `Ṁ_cr = m_p/(ε τ_l)` with a trap lifetime
+/// `τ_l` of 100 orbits.
+pub fn critical_pebble_flux(efficiency: f64, orbital_period_yr: f64) -> f64 {
+    PLANETESIMAL_MASS_MSUN / (efficiency * 100.0 * orbital_period_yr)
+}
+
+/// Time for an embryo to double its mass by sweeping up planetesimals,
+/// years.
+///
+/// Ida & Lin (2004, ApJ 604, 388), eq. 6, for oligarchic growth with the
+/// planetesimals' random motions damped by gas drag:
+/// `τ = 1.2×10⁵ yr (Σ_d/10 g cm⁻²)⁻¹ (a/AU)^(1/2) (M/M⊕)^(1/3) (M★/M☉)^(-1/6)
+/// × [(Σ_g/2400 g cm⁻²)^(-1/5) (a/AU)^(1/20) (m/10¹⁸ g)^(1/15)]²`, with `m` the
+/// planetesimal mass ([`PLANETESIMAL_MASS_MSUN`]). Infinite where there are
+/// no planetesimals or no gas (without gas, growth is far slower and is
+/// left to the stage after the disk).
+pub fn planetesimal_accretion_time_yr(
+    solids_g_cm2: f64,
+    gas_g_cm2: f64,
+    a_au: f64,
+    mass_msun: f64,
+    star_mass_msun: f64,
+) -> f64 {
+    if solids_g_cm2 <= 0.0 || gas_g_cm2 <= 0.0 {
+        return f64::INFINITY;
+    }
+    let drag = pow(gas_g_cm2 / 2.4e3, -0.2)
+        * pow(a_au, 0.05)
+        * pow(PLANETESIMAL_MASS_MSUN * 1.989e33 / 1.0e18, 1.0 / 15.0);
+    1.2e5 / (solids_g_cm2 / 10.0)
+        * sqrt(a_au)
+        * pow(mass_msun / EARTH_MASS_MSUN, 1.0 / 3.0)
+        * pow(star_mass_msun, -1.0 / 6.0)
+        * drag
+        * drag
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -439,5 +500,43 @@ mod tests {
             runaway_accretion_rate(&disk, a, 5.0e6, 95.0 * earth, ALPHA_T),
             0.0
         );
+    }
+
+    /// Lenz et al. (2019): with ε = 0.1 and traps 5 H apart, the flux falls
+    /// by a tenth across one trap spacing; a 6.28×10²⁰ g planetesimal needs
+    /// a flux of 10⁻⁸ M⊕/yr at 1 AU.
+    #[test]
+    fn planetesimal_formation_follows_lenz() {
+        assert!((planetesimal_conversion_fraction(0.1, 0.25, 0.05) - 0.1).abs() < 1e-12);
+        assert_eq!(planetesimal_conversion_fraction(0.8, 10.0, 0.05), 1.0);
+        let critical = earths(critical_pebble_flux(0.1, 1.0));
+        assert!((critical - 1.05e-8).abs() < 2e-10, "{critical}");
+        assert!((earths(PLANETESIMAL_MASS_MSUN) - 1.05e-7).abs() < 1e-9);
+        // 1 M☉/AU² is 8.89×10⁶ g/cm².
+        assert!((MSUN_PER_AU2_IN_G_PER_CM2 / 8.887e6 - 1.0).abs() < 1e-3);
+    }
+
+    /// Ida & Lin (2004), eq. 6: 1.2×10⁵ years for an Earth-mass core at 1 AU
+    /// in 10 g/cm² of 10¹⁸ g planetesimals and 2400 g/cm² of gas; with the
+    /// heavier planetesimals used here, (628)^(2/15) = 2.36 times longer.
+    #[test]
+    fn planetesimal_accretion_matches_ida_and_lin() {
+        let t = planetesimal_accretion_time_yr(10.0, 2.4e3, 1.0, EARTH_MASS_MSUN, 1.0);
+        assert!(
+            (t / (1.2e5 * 628f64.powf(2.0 / 15.0)) - 1.0).abs() < 1e-3,
+            "{t}"
+        );
+        // Twice the solids, half the time; eight times the mass, twice as long.
+        let double = planetesimal_accretion_time_yr(20.0, 2.4e3, 1.0, EARTH_MASS_MSUN, 1.0);
+        assert!((t / double - 2.0).abs() < 1e-9);
+        let heavy = planetesimal_accretion_time_yr(10.0, 2.4e3, 1.0, 8.0 * EARTH_MASS_MSUN, 1.0);
+        assert!((heavy / t - 2.0).abs() < 1e-9);
+        // Slower farther out and in thinner gas; never without solids or gas.
+        assert!(planetesimal_accretion_time_yr(10.0, 2.4e3, 5.0, EARTH_MASS_MSUN, 1.0) > 2.0 * t);
+        assert!(planetesimal_accretion_time_yr(10.0, 24.0, 1.0, EARTH_MASS_MSUN, 1.0) > 6.0 * t);
+        assert!(
+            planetesimal_accretion_time_yr(0.0, 2.4e3, 1.0, EARTH_MASS_MSUN, 1.0).is_infinite()
+        );
+        assert!(planetesimal_accretion_time_yr(10.0, 0.0, 1.0, EARTH_MASS_MSUN, 1.0).is_infinite());
     }
 }

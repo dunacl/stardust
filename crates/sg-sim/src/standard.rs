@@ -27,17 +27,17 @@
 //!   disks (Mamajek 2009, AIP Conf. Proc. 1158, 3).
 //! - **Disk size**: `R₁ = 10 AU (M_disk / 0.002 M☉)^(1/1.6)`, the observed
 //!   size–mass relation (Andrews et al. 2010, ApJ 723, 1241).
-//! - **Embryos**: positions log-uniform across the disk, appearance times
-//!   uniform over the first part of its life. Where and when the first
-//!   embryos form is not predicted by this model.
+//!
+//! Nothing is drawn for the embryos: one can appear in every ring of the
+//! disk, when the planetesimals formed there amount to a seed.
 //! - **Final eccentricities**: Rayleigh-distributed, small; larger for
 //!   systems that went through mergers after the gas cleared.
 //!
-//! Embryos that end lighter than the Moon are dropped: they are debris,
-//! which this tier does not yet turn into belts.
+//! Embryos that end lighter than the Moon are dropped as debris.
+//! Planetesimals that no planet accretes or ejects are reported as belts.
 //!
-//! Not yet in this tier: planetesimal accretion, moons, belts, rings,
-//! climate and atmospheric composition.
+//! Not yet in this tier: moons, rings, climate and atmospheric
+//! composition.
 
 use crate::{
     names, params_hash, stars, Control, Diagnostics, SimError, SimObserver, SimulationResult,
@@ -68,12 +68,8 @@ const SOLAR_DUST_TO_GAS: f64 = 0.0149;
 const STELLAR_SPIN_RANGE_DAYS: (f64, f64) = (2.0, 10.0);
 /// Embryos are not seeded beyond this, AU.
 const SEED_OUTER_LIMIT_AU: f64 = 60.0;
-/// Embryos appear between these times, Myr, or over the first 60% of the
-/// disk's life if that is shorter.
-const SEED_TIME_RANGE_MYR: (f64, f64) = (0.05, 1.5);
 /// Bodies lighter than this (about the Moon) are leftovers that never
-/// grew: they are part of the debris this tier does not yet turn into
-/// belts, and are not reported as planets.
+/// grew, and are not reported as planets.
 const MIN_PLANET_MASS_MEARTH: f64 = 0.01;
 /// Bond albedo assumed for equilibrium temperatures (Earth's is 0.3).
 const ASSUMED_ALBEDO: f64 = 0.3;
@@ -110,6 +106,10 @@ fn validate(params: &SimulationParams) -> Result<(), SimError> {
             "formation.standard.envelope_cooling_time_yr",
             s.envelope_cooling_time_yr,
         ),
+        (
+            "formation.standard.planetesimal_efficiency",
+            s.planetesimal_efficiency,
+        ),
         ("formation.standard.alpha_gap", s.alpha_gap),
     ];
     for (name, value) in positive {
@@ -129,12 +129,6 @@ fn validate(params: &SimulationParams) -> Result<(), SimError> {
             return invalid(format!("disk.lifetime_myr must be positive, got {life}"));
         }
     }
-    if s.embryo_count > 200 {
-        return invalid(format!(
-            "formation.standard.embryo_count must be at most 200, got {}",
-            s.embryo_count
-        ));
-    }
     Ok(())
 }
 
@@ -152,6 +146,93 @@ struct DiskResult {
     outcome: evolve::Outcome,
     planets: Vec<Formed>,
     late: Vec<late::Merger>,
+    belts: Vec<Belt>,
+}
+
+/// A belt is reported only if it holds at least this much, M⊕: a quarter
+/// of the Solar System's asteroid belt.
+const MIN_BELT_MASS_MEARTH: f64 = 1.0e-4;
+/// Rings holding less than this, M⊕, do not count as part of a belt.
+const MIN_BELT_RING_MASS_MEARTH: f64 = 1.0e-6;
+
+/// The stage after the gas for the planetesimals no body swept up while it
+/// lasted: each ring is accreted by a planet, ejected by one, or left as
+/// part of a belt (`sg_dynamics::late::ring_fate`). Planets grow by what
+/// they accrete; the belts are returned.
+fn sweep_leftovers(
+    planets: &mut [Formed],
+    rings: &[evolve::Ring],
+    plan: &stars::DiskPlan,
+    age_yr: f64,
+) -> Vec<Belt> {
+    const EARTH_RADIUS_AU: f64 = EARTH_RADIUS_KM / 1.495_978_707e8;
+    let sweepers: Vec<late::Sweeper> = planets
+        .iter()
+        .map(|p| {
+            let e = &p.embryo;
+            let radius_rearth = if e.runaway {
+                sg_planet::giant_radius(earths(e.mass_msun()))
+            } else {
+                sg_planet::solid_radius(earths(e.core_msun), e.water_msun / e.core_msun)
+            };
+            late::Sweeper {
+                a_au: e.a_au,
+                mass_msun: e.mass_msun(),
+                radius_au: radius_rearth * EARTH_RADIUS_AU,
+            }
+        })
+        .collect();
+
+    let mut belts: Vec<Belt> = Vec::new();
+    // The belt being extended, if the previous ring remained.
+    let mut open: Option<Belt> = None;
+    let close = |open: &mut Option<Belt>, belts: &mut Vec<Belt>| {
+        if let Some(belt) = open.take() {
+            if belt.mass_mearth >= MIN_BELT_MASS_MEARTH {
+                belts.push(belt);
+            }
+        }
+    };
+    for ring in rings {
+        let mid = sqrt(ring.inner_au * ring.outer_au);
+        let fate = if earths(ring.mass_msun) < MIN_BELT_RING_MASS_MEARTH {
+            None
+        } else {
+            Some(late::ring_fate(
+                mid,
+                ring.mass_msun,
+                ring.surface_density(),
+                &sweepers,
+                plan.central_mass_msun,
+                age_yr,
+            ))
+        };
+        match fate {
+            Some(late::RingFate::Remains) => match open.as_mut() {
+                Some(belt) => {
+                    belt.outer_au = ring.outer_au;
+                    belt.mass_mearth += earths(ring.mass_msun);
+                }
+                None => {
+                    open = Some(Belt {
+                        host: plan.host,
+                        inner_au: ring.inner_au,
+                        outer_au: ring.outer_au,
+                        mass_mearth: earths(ring.mass_msun),
+                    });
+                }
+            },
+            Some(late::RingFate::Accreted(index)) => {
+                let embryo = &mut planets[index].embryo;
+                embryo.core_msun += ring.mass_msun;
+                embryo.water_msun += ring.water_msun;
+                close(&mut open, &mut belts);
+            }
+            Some(late::RingFate::Ejected) | None => close(&mut open, &mut belts),
+        }
+    }
+    close(&mut open, &mut belts);
+    belts
 }
 
 fn earths(msun: f64) -> f64 {
@@ -243,19 +324,12 @@ fn form_in_disk(
     })
     .map_err(|err| SimError::InvalidParams(err.to_string()))?;
 
-    let latest = SEED_TIME_RANGE_MYR.1.min(0.6 * lifetime_myr);
-    let earliest = SEED_TIME_RANGE_MYR.0.min(0.5 * latest);
-    let mut seeds = Vec::new();
-    for _ in 0..params.formation.standard.embryo_count {
-        let u = rng.uniform();
-        let when = rng.uniform_range(earliest, latest);
-        if seed_inner < seed_outer {
-            seeds.push(Seed {
-                a_au: seed_inner * pow(seed_outer / seed_inner, u),
-                start_yr: when * 1.0e6,
-            });
-        }
-    }
+    // Embryos can appear in every ring of the disk's planetesimals within
+    // the seeded range. When each does is decided by the growth model.
+    let seeds: Vec<Seed> = evolve::ring_sites(&disk)
+        .into_iter()
+        .filter(|site| site.a_au >= seed_inner && site.a_au <= seed_outer)
+        .collect();
     Ok(Some((disk, seeds, lifetime_myr)))
 }
 
@@ -290,6 +364,7 @@ pub(crate) fn simulate(
         alpha_turbulent: params.formation.standard.alpha_turbulent,
         stokes_drift: params.formation.standard.stokes_drift,
         alpha_gap: params.formation.standard.alpha_gap,
+        planetesimal_efficiency: params.formation.standard.planetesimal_efficiency,
         cooling_time_1mearth_yr: params.formation.standard.envelope_cooling_time_yr,
         migration: params.toggles.migration,
         migration_efficiency: params.formation.standard.migration_efficiency,
@@ -359,9 +434,8 @@ pub(crate) fn simulate(
                 *late_count.entry(merger.survivor).or_insert(0) += inherited + 1;
             }
         }
-        let planets = settled
+        let mut planets: Vec<Formed> = settled
             .iter()
-            .filter(|orbiter| earths(orbiter.mass_msun) >= MIN_PLANET_MASS_MEARTH)
             .filter_map(|orbiter| {
                 let mut embryo = by_id.remove(&orbiter.id)?;
                 embryo.a_au = orbiter.a_au;
@@ -371,6 +445,8 @@ pub(crate) fn simulate(
                 })
             })
             .collect();
+        let belts = sweep_leftovers(&mut planets, &outcome.planetesimals, &plan, age_gyr * 1.0e9);
+        planets.retain(|p| earths(p.embryo.mass_msun()) >= MIN_PLANET_MASS_MEARTH);
         let seeded = seeds.len() as u32;
         results.push(DiskResult {
             plan,
@@ -379,6 +455,7 @@ pub(crate) fn simulate(
             outcome,
             planets,
             late,
+            belts,
         });
         id_offset += seeded;
     }
@@ -554,7 +631,7 @@ pub(crate) fn simulate(
         age_gyr,
         hierarchy: system.hierarchy.clone(),
         bodies,
-        belts: Vec::new(),
+        belts: results.iter().flat_map(|r| r.belts.clone()).collect(),
         disks_at_dispersal,
         habitable_zones,
         planet_zones,

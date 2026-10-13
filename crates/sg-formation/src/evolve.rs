@@ -1,27 +1,45 @@
 //! Integrates a set of embryos through the life of the gas disk.
 //!
-//! Each step, working inward from the outermost body:
+//! Each step, working inward from the outer disk:
 //!
-//! 1. **Pebbles.** The pebble flux drifts inward. Every body takes its share
-//!    ([`physics::pebble_accretion_rate`]) and passes on the rest; the flux
-//!    loses its ice at the ice line; and a body that has reached the pebble
-//!    isolation mass lets nothing past, starving everything inside its orbit
-//!    (Lambrechts et al. 2019, A&A 627, A83).
-//! 2. **Gas.** A body past isolation contracts its envelope and, once the
+//! 1. **Pebbles and planetesimals.** The pebble flux drifts inward from the
+//!    front where dust has just grown into pebbles. In every ring it crosses,
+//!    a fraction is caught in pressure traps and becomes planetesimals
+//!    ([`physics::planetesimal_conversion_fraction`]); every body takes its
+//!    share ([`physics::pebble_accretion_rate`]); the flux loses its ice at
+//!    the ice line; and a body that has reached the pebble isolation mass
+//!    lets nothing past, starving everything inside its orbit (Lambrechts et
+//!    al. 2019, A&A 627, A83).
+//! 2. **Embryos.** An embryo appears at one of the given sites once the
+//!    planetesimals around it amount to its seed mass, and grows by sweeping
+//!    them up ([`physics::planetesimal_accretion_time_yr`]). When it
+//!    outgrows the pebble transition mass it accretes pebbles as well. So
+//!    how soon embryos appear, and how fast they grow, follows from how much
+//!    solid material the disk has.
+//! 3. **Gas.** A body past isolation contracts its envelope and, once the
 //!    envelope outweighs the core, accretes gas in a runaway.
-//! 3. **Migration.** Bodies move by the disk's torque. Neighbours that
+//! 4. **Migration.** Bodies move by the disk's torque. Neighbours that
 //!    converge are caught in a mean-motion resonance and from then on move
 //!    as a chain, at the rate their summed torques give; a chain stops when
 //!    its innermost member reaches the disk's inner edge. Neighbours too
-//!    massive for any resonance to keep apart merge.
+//!    close for anything to keep apart merge.
 //!
 //! When the gas has gone, bodies that never entered runaway are left with
 //! the part of their envelope that survives the disk's dispersal (Ginzburg,
-//! Schlichting & Sari 2016).
+//! Schlichting & Sari 2016). The planetesimals not swept up are returned,
+//! ring by ring, for the stage after the gas.
 //!
 //! Simplifications: orbits are circular and coplanar while gas is present;
-//! resonance capture is certain and only the 3:2 and 2:1 resonances are
-//! used; mergers are perfect; planetesimal accretion is not included.
+//! resonance capture is certain, in first-order resonances only; mergers
+//! are perfect; a body accretes
+//! planetesimals only from the ring it is in; pebble accretion below the
+//! transition mass is neglected; the sites where embryos can appear are
+//! given, not predicted. Lenz et al. form planetesimals only from pebbles
+//! with Stokes numbers above 0.01, which with the fragmentation limit used
+//! here would leave the region inside the ice line without any; that limit
+//! is not applied, on the grounds that silicate grains released by
+//! sublimating pebbles pile up and form planetesimals there (Ida & Guillot
+//! 2016, A&A 596, L3).
 
 use crate::physics::{self, EARTH_MASS_MSUN, ICE_MASS_FRACTION};
 use sg_core::math::{exp, pow, sqrt};
@@ -39,6 +57,9 @@ pub struct GrowthParams {
     /// α that refills a planet's gap: sets gap depth, and through it the
     /// slowing of migration and of gas accretion (Kanagawa et al. 2018).
     pub alpha_gap: f64,
+    /// Fraction of the pebbles entering a pressure trap that become
+    /// planetesimals: Lenz et al.'s `ε`.
+    pub planetesimal_efficiency: f64,
     /// Kelvin–Helmholtz time of a 1 M⊕ planet's envelope, years: see
     /// [`physics::envelope_contraction_rate`].
     pub cooling_time_1mearth_yr: f64,
@@ -62,6 +83,7 @@ impl Default for GrowthParams {
             alpha_turbulent: 1.0e-4,
             stokes_drift: 0.05,
             alpha_gap: 1.0e-4,
+            planetesimal_efficiency: 0.1,
             cooling_time_1mearth_yr: physics::NOMINAL_COOLING_TIME_YR,
             migration: true,
             migration_efficiency: 1.0,
@@ -69,11 +91,30 @@ impl Default for GrowthParams {
     }
 }
 
-/// Where and when an embryo appears.
+/// A site where an embryo can appear.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Seed {
     pub a_au: f64,
-    pub start_yr: f64,
+}
+
+/// The planetesimals in one ring of the disk.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Ring {
+    pub inner_au: f64,
+    pub outer_au: f64,
+    /// Planetesimals not swept up by any body, M☉.
+    pub mass_msun: f64,
+    /// Part of that mass that is water ice, M☉.
+    pub water_msun: f64,
+}
+
+impl Ring {
+    /// Surface density of planetesimals, M☉/AU².
+    pub fn surface_density(&self) -> f64 {
+        self.mass_msun
+            / (core::f64::consts::PI
+                * (self.outer_au * self.outer_au - self.inner_au * self.inner_au))
+    }
 }
 
 /// A growing or finished body.
@@ -155,6 +196,8 @@ pub struct Outcome {
     pub planets: Vec<Embryo>,
     pub events: Vec<(f64, GrowthEvent)>,
     pub frames: Vec<Frame>,
+    /// Planetesimals left when the gas cleared, in rings ordered outward.
+    pub planetesimals: Vec<Ring>,
     /// Integration steps taken.
     pub steps: u64,
 }
@@ -165,8 +208,15 @@ const MAX_STEP_YR: f64 = 1.0e4;
 const MIN_STEP_YR: f64 = 20.0;
 /// A step changes no mass or orbit by more than this fraction.
 const STEP_FRACTION: f64 = 0.03;
-/// Smallest seed, M☉: a tenth of a lunar mass.
-const MIN_SEED_MSUN: f64 = 1.0e-3 * EARTH_MASS_MSUN;
+/// Mass of an embryo when it appears, M☉: 10⁻⁴ M⊕, about the mass of
+/// Ceres, the largest bodies streaming instability forms in simulations
+/// (Schäfer, Yang & Johansen 2017, A&A 597, A69).
+pub const SEED_MASS_MSUN: f64 = 1.0e-4 * EARTH_MASS_MSUN;
+/// Rings the disk is divided into for its planetesimals, spaced evenly in
+/// log radius.
+const RING_COUNT: usize = 64;
+/// Planetesimals are not followed beyond this, AU.
+const RING_OUTER_LIMIT_AU: f64 = 200.0;
 /// Largest envelope, as a fraction of the core, that a core holds without
 /// having entered runaway: at equal masses the runaway begins.
 const MAX_EMBEDDED_ENVELOPE: f64 = 0.5;
@@ -179,15 +229,20 @@ const HILL_STABILITY: f64 = 3.464;
 /// mutual Hill radii apart; otherwise the next wider one is used.
 const RESONANCE_MIN_HILL: f64 = 5.0;
 
+/// Closest first-order resonance considered: 10:9.
+const MAX_RESONANCE_INDEX: u8 = 9;
+
 /// First-order resonances a converging pair can be caught in, widest
-/// first: `(a_outer/a_inner, (p, q))` for the p:q period ratio.
-fn resonances() -> [(f64, (u8, u8)); 4] {
-    [
-        (pow(2.0, 2.0 / 3.0), (2, 1)),
-        (pow(1.5, 2.0 / 3.0), (3, 2)),
-        (pow(4.0 / 3.0, 2.0 / 3.0), (4, 3)),
-        (pow(1.25, 2.0 / 3.0), (5, 4)),
-    ]
+/// first: `(a_outer/a_inner, (j + 1, j))` for the period ratio (j+1):j,
+/// from 2:1 to 10:9. By Kepler's third law the distance ratio is the period
+/// ratio to the power 2/3.
+fn resonances() -> Vec<(f64, (u8, u8))> {
+    (1..=MAX_RESONANCE_INDEX)
+        .map(|j| {
+            let period_ratio = f64::from(j + 1) / f64::from(j);
+            (pow(period_ratio, 2.0 / 3.0), (j + 1, j))
+        })
+        .collect()
 }
 
 fn mutual_hill(a_in: f64, a_out: f64, m_in: f64, m_out: f64, star: f64) -> f64 {
@@ -200,27 +255,32 @@ fn spacing_at(ratio: f64, a_in: f64, m_in: f64, m_out: f64, star: f64) -> f64 {
     (a_out - a_in) / mutual_hill(a_in, a_out, m_in, m_out, star)
 }
 
-/// The resonances that can catch a pair, in the order tried.
+/// The resonances that can catch a pair, widest first.
 ///
-/// Light pairs slip through the 2:1 and are caught in the 3:2, the commonest
-/// outcome for super-Earths migrating at type I rates (Ogihara & Kobayashi
-/// 2013); a pair too massive for the 3:2 to keep `RESONANCE_MIN_HILL` apart
-/// is caught in the 2:1 instead. The tighter 4:3 and 5:4 catch pairs that
-/// start out inside the 3:2.
+/// A resonance can hold a pair only if it keeps them `RESONANCE_MIN_HILL`
+/// mutual Hill radii apart. Light pairs slip through the 2:1 and are caught
+/// in the 3:2, the commonest outcome for super-Earths migrating at type I
+/// rates (Ogihara & Kobayashi 2013, ApJ 775, 34); the 2:1 is used only by
+/// pairs too massive for the 3:2. Neighbouring embryos form closer together
+/// than the 3:2 and are caught in the tighter resonances, 4:3 to 10:9, as
+/// in the compact chains of N-body simulations (Izidoro et al. 2017,
+/// MNRAS 470, 1750).
 fn capture_candidates(a_in: f64, m_in: f64, m_out: f64, star: f64) -> Vec<(f64, (u8, u8))> {
-    let [two_one, three_two, four_three, five_four] = resonances();
+    let all = resonances();
     let holds =
         |r: &(f64, (u8, u8))| spacing_at(r.0, a_in, m_in, m_out, star) >= RESONANCE_MIN_HILL;
-    let mut order = Vec::with_capacity(4);
-    if !holds(&three_two) {
-        order.push(two_one);
-    }
-    for resonance in [three_two, four_three, five_four] {
-        if holds(&resonance) {
-            order.push(resonance);
-        }
-    }
-    order
+    let three_two_holds = holds(&all[1]);
+    all.into_iter()
+        .enumerate()
+        .filter(|(index, r)| {
+            if *index == 0 {
+                !three_two_holds
+            } else {
+                holds(r)
+            }
+        })
+        .map(|(_, r)| r)
+        .collect()
 }
 
 /// Envelope a core gathers while embedded in the gas disk, as a fraction
@@ -265,8 +325,42 @@ pub fn retained_envelope_fraction(
     taper * retained.min(accreted).min(MAX_EMBEDDED_ENVELOPE)
 }
 
+/// Edges of the planetesimal rings of a disk: `RING_COUNT + 1` radii from
+/// the inner edge outward, evenly spaced in log radius.
+fn ring_edges(disk: &Disk) -> Vec<f64> {
+    let inner = disk.spec().inner_edge_au;
+    let outer = disk
+        .spec()
+        .outer_edge_au
+        .min(RING_OUTER_LIMIT_AU)
+        .max(inner * 1.01);
+    let ratio = pow(outer / inner, 1.0 / RING_COUNT as f64);
+    let mut edges = Vec::with_capacity(RING_COUNT + 1);
+    let mut edge = inner;
+    for _ in 0..=RING_COUNT {
+        edges.push(edge);
+        edge *= ratio;
+    }
+    edges
+}
+
+/// One site per planetesimal ring, at its (geometric) middle: where
+/// embryos appear when nothing more is known. A ring is about as wide as
+/// the spacing oligarchic growth gives embryos of a few tenths of an Earth
+/// mass, some 10 Hill radii (Kokubo & Ida 1998, Icarus 131, 171), so each
+/// ring's planetesimals feed one embryo.
+pub fn ring_sites(disk: &Disk) -> Vec<Seed> {
+    ring_edges(disk)
+        .windows(2)
+        .map(|w| Seed {
+            a_au: sqrt(w[0] * w[1]),
+        })
+        .collect()
+}
+
 /// Runs the growth model from the disk's formation until its gas is gone.
 /// `frame_times_yr` must be ascending.
+#[allow(clippy::too_many_lines)]
 pub fn evolve(
     disk: &Disk,
     params: &GrowthParams,
@@ -275,18 +369,42 @@ pub fn evolve(
 ) -> Outcome {
     let star = disk.spec().star_mass_msun;
     let inner_edge = disk.spec().inner_edge_au;
+    let outer_edge = disk.spec().outer_edge_au;
     let end = disk.gas_gone_yr();
     let alpha = params.alpha_turbulent;
+    let efficiency = params.planetesimal_efficiency;
+
+    // Rings for the planetesimals, evenly spaced in log radius.
+    let edges = ring_edges(disk);
+    let ring_outer = edges[RING_COUNT];
+    let ring_ratio = edges[1] / edges[0];
+    let mut rings: Vec<Ring> = edges
+        .windows(2)
+        .map(|w| Ring {
+            inner_au: w[0],
+            outer_au: w[1],
+            mass_msun: 0.0,
+            water_msun: 0.0,
+        })
+        .collect();
+    let log_ratio = sg_core::math::ln(ring_ratio);
+    let ring_of = |a_au: f64| -> Option<usize> {
+        if a_au < inner_edge || a_au >= ring_outer {
+            return None;
+        }
+        let index = (sg_core::math::ln(a_au / inner_edge) / log_ratio) as usize;
+        Some(index.min(RING_COUNT - 1))
+    };
 
     let mut bodies: Vec<Embryo> = Vec::new();
+    // Sites still waiting for enough planetesimals, by seed index.
     let mut pending: Vec<(u32, Seed)> = seeds
         .iter()
         .copied()
         .zip(0u32..)
         .map(|(s, i)| (i, s))
+        .filter(|(_, seed)| seed.a_au > inner_edge && seed.a_au < outer_edge)
         .collect();
-    pending.sort_by(|x, y| x.1.start_yr.total_cmp(&y.1.start_yr).then(x.0.cmp(&y.0)));
-    let mut next_seed = 0usize;
     let mut events: Vec<(f64, GrowthEvent)> = Vec::new();
     let mut frames = Vec::with_capacity(frame_times_yr.len());
     let mut next_frame = 0usize;
@@ -312,20 +430,25 @@ pub fn evolve(
             frames.push(frame(frame_times_yr[next_frame], &bodies));
             next_frame += 1;
         }
-        // Seeds due.
-        while next_seed < pending.len() && pending[next_seed].1.start_yr <= t {
-            let (id, seed) = pending[next_seed];
-            next_seed += 1;
-            if seed.a_au <= inner_edge || seed.a_au >= disk.spec().outer_edge_au {
+        // Embryos appear where the planetesimals now amount to a seed.
+        let mut k = 0;
+        while k < pending.len() {
+            let (id, seed) = pending[k];
+            let ready = ring_of(seed.a_au).filter(|c| rings[*c].mass_msun >= SEED_MASS_MSUN);
+            let Some(c) = ready else {
+                k += 1;
                 continue;
-            }
-            let mass = physics::transition_mass(disk, seed.a_au, t).max(MIN_SEED_MSUN);
+            };
+            pending.remove(k);
+            let water = SEED_MASS_MSUN * rings[c].water_msun / rings[c].mass_msun;
+            rings[c].mass_msun -= SEED_MASS_MSUN;
+            rings[c].water_msun -= water;
             bodies.push(Embryo {
                 id,
                 a_au: seed.a_au,
-                core_msun: mass,
+                core_msun: SEED_MASS_MSUN,
                 envelope_msun: 0.0,
-                water_msun: 0.0,
+                water_msun: water,
                 origin_a_au: seed.a_au,
                 start_yr: t,
                 isolated: false,
@@ -344,67 +467,129 @@ pub fn evolve(
         }
         bodies.sort_by(|x, y| x.a_au.total_cmp(&y.a_au).then(x.id.cmp(&y.id)));
 
-        // Rates, outermost body first so the pebble flux is passed inward.
+        // Rates. The pebble flux is followed inward from the front, ring by
+        // ring, so each body and each ring sees what is left for it.
         let ice_line = disk.water_ice_line(t);
+        let front = physics::pebble_front_radius(star, disk.spec().dust_to_gas, t).min(outer_edge);
         let mut flux = physics::pebble_flux(disk, t);
         let mut past_ice_line = false;
         let n = bodies.len();
         let mut solid_rate = vec![0.0f64; n];
+        let mut sweep_rate = vec![0.0f64; n];
         let mut gas_rate = vec![0.0f64; n];
         let mut drift_rate = vec![0.0f64; n];
-        for i in (0..n).rev() {
-            let b = &bodies[i];
-            if !past_ice_line && b.a_au < ice_line {
+        // Planetesimal formation per ring, M☉/yr, and whether it is icy.
+        let mut ring_rate = [0.0f64; RING_COUNT];
+        let mut ring_icy = [false; RING_COUNT];
+
+        let mut next_body = n;
+        // One pass per ring from the outside, plus a last pass (`None`) for
+        // any body inside the innermost ring's inner edge.
+        for ring in (0..RING_COUNT).rev().map(Some).chain(std::iter::once(None)) {
+            let lower = ring.map_or(0.0, |c| rings[c].inner_au);
+            while next_body > 0 && bodies[next_body - 1].a_au >= lower {
+                next_body -= 1;
+                let i = next_body;
+                let b = &bodies[i];
+                if !past_ice_line && b.a_au < ice_line {
+                    flux *= 1.0 - ICE_MASS_FRACTION;
+                    past_ice_line = true;
+                }
+                if b.isolated {
+                    // Its pressure bump holds back all pebbles from outside.
+                    flux = 0.0;
+                }
+                // A body halted at the disk's inner edge sits where the gas
+                // ends, and draws none in.
+                if b.isolated && b.a_au > inner_edge {
+                    // Contraction first, a runaway once the envelope
+                    // outweighs the core; either way no faster than the gap
+                    // lets gas in.
+                    let supply = physics::runaway_accretion_rate(
+                        disk,
+                        b.a_au,
+                        t,
+                        b.mass_msun(),
+                        params.alpha_gap,
+                    );
+                    gas_rate[i] = if b.envelope_msun < b.core_msun {
+                        physics::envelope_contraction_rate(
+                            b.mass_msun(),
+                            params.cooling_time_1mearth_yr,
+                        )
+                        .min(supply)
+                    } else {
+                        supply
+                    };
+                } else if b.a_au <= front
+                    && b.mass_msun() >= physics::transition_mass(disk, b.a_au, t)
+                {
+                    let stokes = physics::stokes_number(
+                        disk,
+                        b.a_au,
+                        t,
+                        params.stokes_drift,
+                        alpha,
+                        ice_line,
+                    );
+                    let rate = physics::pebble_accretion_rate(
+                        disk,
+                        b.a_au,
+                        t,
+                        b.mass_msun(),
+                        flux,
+                        stokes,
+                        alpha,
+                    );
+                    solid_rate[i] = rate;
+                    flux -= rate;
+                }
+                // Planetesimals from the ring it is in.
+                if let Some(c) = ring_of(b.a_au) {
+                    let time = physics::planetesimal_accretion_time_yr(
+                        rings[c].surface_density() * physics::MSUN_PER_AU2_IN_G_PER_CM2,
+                        disk.gas_surface_density(b.a_au, t) * physics::MSUN_PER_AU2_IN_G_PER_CM2,
+                        b.a_au,
+                        b.mass_msun(),
+                        star,
+                    );
+                    sweep_rate[i] = b.mass_msun() / time;
+                }
+                if params.migration && b.a_au > inner_edge {
+                    // The efficiency stands in for the corotation torque,
+                    // which fades as a gap opens: it applies in full to a
+                    // planet with no gap and not at all to one deep in its
+                    // gap.
+                    let k =
+                        physics::gap_parameter(disk, b.a_au, t, b.mass_msun(), params.alpha_gap);
+                    let opened = 0.04 * k / (1.0 + 0.04 * k);
+                    let factor =
+                        params.migration_efficiency + (1.0 - params.migration_efficiency) * opened;
+                    drift_rate[i] = factor
+                        * physics::migration_rate(disk, b.a_au, t, b.mass_msun(), params.alpha_gap)
+                        / b.a_au;
+                }
+            }
+            // Planetesimals form from the flux crossing this ring.
+            let Some(c) = ring else { continue };
+            let mid = sqrt(rings[c].inner_au * rings[c].outer_au);
+            if mid >= front || flux <= 0.0 {
+                continue;
+            }
+            if !past_ice_line && mid < ice_line {
                 flux *= 1.0 - ICE_MASS_FRACTION;
                 past_ice_line = true;
             }
-            if b.isolated {
-                // Its pressure bump holds back all pebbles from outside.
-                flux = 0.0;
-                // Contraction first, a runaway once the envelope outweighs
-                // the core; either way no faster than the gap lets gas in.
-                let supply = physics::runaway_accretion_rate(
-                    disk,
-                    b.a_au,
-                    t,
-                    b.mass_msun(),
-                    params.alpha_gap,
+            let period = 2.0 * core::f64::consts::PI / disk.omega(mid);
+            if flux > physics::critical_pebble_flux(efficiency, period) {
+                let fraction = physics::planetesimal_conversion_fraction(
+                    efficiency,
+                    rings[c].outer_au - rings[c].inner_au,
+                    disk.aspect_ratio(mid, t) * mid,
                 );
-                gas_rate[i] = if b.envelope_msun < b.core_msun {
-                    physics::envelope_contraction_rate(
-                        b.mass_msun(),
-                        params.cooling_time_1mearth_yr,
-                    )
-                    .min(supply)
-                } else {
-                    supply
-                };
-            } else {
-                let stokes =
-                    physics::stokes_number(disk, b.a_au, t, params.stokes_drift, alpha, ice_line);
-                let rate = physics::pebble_accretion_rate(
-                    disk,
-                    b.a_au,
-                    t,
-                    b.mass_msun(),
-                    flux,
-                    stokes,
-                    alpha,
-                );
-                solid_rate[i] = rate;
-                flux -= rate;
-            }
-            if params.migration && b.a_au > inner_edge {
-                // The efficiency stands in for the corotation torque, which
-                // fades as a gap opens: it applies in full to a planet with
-                // no gap and not at all to one deep in its gap.
-                let k = physics::gap_parameter(disk, b.a_au, t, b.mass_msun(), params.alpha_gap);
-                let opened = 0.04 * k / (1.0 + 0.04 * k);
-                let efficiency =
-                    params.migration_efficiency + (1.0 - params.migration_efficiency) * opened;
-                drift_rate[i] = efficiency
-                    * physics::migration_rate(disk, b.a_au, t, b.mass_msun(), params.alpha_gap)
-                    / b.a_au;
+                ring_rate[c] = fraction * flux;
+                ring_icy[c] = !past_ice_line;
+                flux -= ring_rate[c];
             }
         }
 
@@ -444,7 +629,7 @@ pub fn evolve(
         // on the next seed, frame and the end.
         let mut dt = MAX_STEP_YR;
         for i in 0..n {
-            let growth = (solid_rate[i] + gas_rate[i]) / bodies[i].mass_msun();
+            let growth = (solid_rate[i] + sweep_rate[i] + gas_rate[i]) / bodies[i].mass_msun();
             let motion = chain_rate[chain_of[i]].abs();
             let fastest = growth.max(motion);
             if fastest > 0.0 {
@@ -452,13 +637,19 @@ pub fn evolve(
             }
         }
         dt = dt.max(MIN_STEP_YR);
-        if next_seed < pending.len() {
-            dt = dt.min((pending[next_seed].1.start_yr - t).max(MIN_STEP_YR.min(1.0)));
-        }
         if next_frame < frame_times_yr.len() {
             dt = dt.min((frame_times_yr[next_frame] - t).max(1.0));
         }
         dt = dt.min(end - t).max(1.0e-6);
+
+        // New planetesimals.
+        for c in 0..RING_COUNT {
+            let formed = ring_rate[c] * dt;
+            rings[c].mass_msun += formed;
+            if ring_icy[c] {
+                rings[c].water_msun += ICE_MASS_FRACTION * formed;
+            }
+        }
 
         // Apply growth and motion.
         for i in 0..n {
@@ -467,6 +658,17 @@ pub fn evolve(
             b.core_msun += solids;
             if b.a_au >= ice_line {
                 b.water_msun += ICE_MASS_FRACTION * solids;
+            }
+            // Planetesimals swept up: no more than its ring holds.
+            if let Some(c) = ring_of(b.a_au) {
+                let swept = (sweep_rate[i] * dt).min(rings[c].mass_msun);
+                if swept > 0.0 {
+                    let water = swept * rings[c].water_msun / rings[c].mass_msun;
+                    rings[c].mass_msun -= swept;
+                    rings[c].water_msun -= water;
+                    b.core_msun += swept;
+                    b.water_msun += water;
+                }
             }
             if b.isolated {
                 let was_contracting = b.envelope_msun < b.core_msun;
@@ -599,6 +801,7 @@ pub fn evolve(
         planets: bodies,
         events,
         frames,
+        planetesimals: rings,
         steps,
     }
 }
@@ -627,13 +830,10 @@ mod tests {
         msun / EARTH_MASS_MSUN
     }
 
+    /// Sites at the given distances. (The second number of each pair is
+    /// ignored: embryos appear when their site has enough planetesimals.)
     fn seeds(list: &[(f64, f64)]) -> Vec<Seed> {
-        list.iter()
-            .map(|(a_au, start_yr)| Seed {
-                a_au: *a_au,
-                start_yr: *start_yr,
-            })
-            .collect()
+        list.iter().map(|(a_au, _)| Seed { a_au: *a_au }).collect()
     }
 
     #[test]
@@ -665,8 +865,9 @@ mod tests {
         assert!(a.planets.windows(2).all(|w| w[0].a_au <= w[1].a_au));
     }
 
-    /// Without migration a seed stays where it was put, grows, and stops at
-    /// the pebble isolation mass if the disk lives long enough.
+    /// Without migration a seed stays where it was put. Near the ice line,
+    /// where planetesimals are plentiful, it grows to the pebble isolation
+    /// mass if the disk lives long enough.
     #[test]
     fn a_lone_seed_grows_to_isolation_in_place() {
         let disk = disk_with(0.08, 3.0e6);
@@ -674,20 +875,100 @@ mod tests {
             migration: false,
             ..GrowthParams::default()
         };
-        let outcome = evolve(&disk, &params, &seeds(&[(8.0, 1.0e5)]), &[]);
+        let outcome = evolve(&disk, &params, &seeds(&[(2.0, 0.0)]), &[]);
         let planet = &outcome.planets[0];
-        assert_eq!(planet.a_au, 8.0);
-        assert!(planet.isolated);
+        assert_eq!(planet.a_au, 2.0);
+        assert!(planet.isolated, "{planet:?}");
         assert!(
-            earths(planet.core_msun) > 3.0,
+            earths(planet.core_msun) > 2.0,
             "{}",
             earths(planet.core_msun)
         );
-        assert!(planet.water_msun > 0.3 * planet.core_msun);
+        assert!(planet.water_msun > 0.2 * planet.core_msun);
         assert!(outcome
             .events
             .iter()
             .any(|(_, e)| matches!(e, GrowthEvent::IsolationReached { id: 0 })));
+    }
+
+    /// Embryos appear wherever planetesimals have formed, in more places
+    /// in a disk with more solids, and grow faster there. This is where the
+    /// dependence of planets on metallicity comes from.
+    #[test]
+    fn embryos_grow_faster_where_there_are_more_solids() {
+        let with_dust = |dust_to_gas: f64| {
+            let disk = Disk::new(DiskSpec {
+                dust_to_gas,
+                ..disk_with(0.03, 3.0e6).spec().clone()
+            })
+            .unwrap();
+            let sites = ring_sites(&disk);
+            assert_eq!(sites.len(), RING_COUNT);
+            evolve(&disk, &GrowthParams::default(), &sites, &[])
+        };
+        let seeded = |outcome: &Outcome| -> Vec<(f64, f64)> {
+            outcome
+                .events
+                .iter()
+                .filter_map(|(t, e)| match e {
+                    GrowthEvent::Seeded { a_au, .. } => Some((*t, *a_au)),
+                    _ => None,
+                })
+                .collect()
+        };
+        let (rich, poor) = (with_dust(0.03), with_dust(0.005));
+        let (rich_seeds, poor_seeds) = (seeded(&rich), seeded(&poor));
+        assert!(rich_seeds.len() >= poor_seeds.len());
+        assert!(poor_seeds.len() > 5);
+        // The largest body near 1 AU is heavier in the metal-rich disk.
+        let near_one_au = |o: &Outcome| {
+            o.planets
+                .iter()
+                .filter(|p| (0.5..2.0).contains(&p.origin_a_au))
+                .map(Embryo::mass_msun)
+                .fold(0.0f64, f64::max)
+        };
+        assert!(near_one_au(&rich) > 2.0 * near_one_au(&poor));
+        // And the metal-rich disk builds far more in total.
+        let total = |o: &Outcome| o.planets.iter().map(Embryo::mass_msun).sum::<f64>();
+        assert!(
+            total(&rich) > 5.0 * total(&poor),
+            "{} {}",
+            earths(total(&rich)),
+            earths(total(&poor))
+        );
+    }
+
+    /// Solids are conserved: what ends in planets and in leftover
+    /// planetesimals never exceeds the disk's dust.
+    #[test]
+    fn solids_never_exceed_the_dust_supply() {
+        for (mass, dust_to_gas) in [(0.02, 0.0149), (0.08, 0.03), (0.005, 0.004)] {
+            let disk = Disk::new(DiskSpec {
+                dust_to_gas,
+                ..disk_with(mass, 3.0e6).spec().clone()
+            })
+            .unwrap();
+            let outcome = evolve(&disk, &GrowthParams::default(), &ring_sites(&disk), &[]);
+            let in_planets: f64 = outcome.planets.iter().map(|p| p.core_msun).sum();
+            let left: f64 = outcome.planetesimals.iter().map(|r| r.mass_msun).sum();
+            let dust = mass * dust_to_gas;
+            assert!(
+                in_planets + left <= dust,
+                "{} + {} vs {}",
+                earths(in_planets),
+                earths(left),
+                earths(dust)
+            );
+            assert!(left > 0.0);
+            for ring in &outcome.planetesimals {
+                assert!(ring.mass_msun >= 0.0 && ring.water_msun >= -1e-18);
+                assert!(ring.water_msun <= 0.5 * ring.mass_msun + 1e-18);
+                assert!(ring.inner_au < ring.outer_au);
+            }
+            // Planetesimals inside the ice line are dry.
+            assert!(outcome.planetesimals[0].water_msun.abs() < 1e-18);
+        }
     }
 
     /// The same seed in a disk that clears early stays small, with only a
@@ -716,58 +997,54 @@ mod tests {
         assert!(short.envelope_msun <= 0.5 * short.core_msun);
     }
 
-    /// A massive disk turns a well-placed seed into a gas giant.
+    /// A massive, metal-rich disk makes a gas giant; a light one does not.
     #[test]
     fn a_massive_disk_makes_a_gas_giant() {
-        let disk = disk_with(0.15, 4.0e6);
-        let outcome = evolve(
-            &disk,
-            &GrowthParams::default(),
-            &seeds(&[(15.0, 1.0e5)]),
-            &[],
-        );
-        let planet = &outcome.planets[0];
-        assert!(planet.runaway, "{planet:?}");
+        let run = |mass: f64, dust_to_gas: f64| {
+            let disk = Disk::new(DiskSpec {
+                dust_to_gas,
+                ..disk_with(mass, 4.0e6).spec().clone()
+            })
+            .unwrap();
+            evolve(&disk, &GrowthParams::default(), &ring_sites(&disk), &[])
+        };
+        let heavy = run(0.1, 0.03);
+        let giant = heavy
+            .planets
+            .iter()
+            .max_by(|x, y| x.mass_msun().total_cmp(&y.mass_msun()))
+            .unwrap();
+        assert!(giant.runaway, "{giant:?}");
         assert!(
-            earths(planet.mass_msun()) > 50.0,
+            earths(giant.mass_msun()) > 50.0,
             "{}",
-            earths(planet.mass_msun())
+            earths(giant.mass_msun())
         );
-        assert!(planet.envelope_msun > planet.core_msun);
-        assert!(planet.a_au < 15.0);
-        let kinds: Vec<_> = outcome
+        assert!(giant.envelope_msun > giant.core_msun);
+        let kinds: Vec<_> = heavy
             .events
             .iter()
             .map(|(_, e)| std::mem::discriminant(e))
             .collect();
         assert!(kinds.contains(&std::mem::discriminant(&GrowthEvent::RunawayGas { id: 0 })));
         assert!(kinds.contains(&std::mem::discriminant(&GrowthEvent::GapOpened { id: 0 })));
+
+        let light = run(0.005, 0.01);
+        assert!(light.planets.iter().all(|p| !p.runaway));
     }
 
-    /// A body at isolation starves the embryos inside its orbit: the same
-    /// inner seed ends up smaller when an outer one grows first.
+    /// A planet halted at the disk's inner edge sits where the gas ends and
+    /// draws none in, however heavy its core.
     #[test]
-    fn an_isolated_outer_body_starves_the_inner_disk() {
-        let disk = disk_with(0.08, 3.0e6);
-        let params = GrowthParams {
-            migration: false,
-            ..GrowthParams::default()
-        };
-        let alone = evolve(&disk, &params, &seeds(&[(1.0, 3.0e5)]), &[]);
-        let shadowed = evolve(&disk, &params, &seeds(&[(1.0, 3.0e5), (6.0, 5.0e4)]), &[]);
-        let inner_alone = alone.planets[0].mass_msun();
-        let inner_shadowed = shadowed
-            .planets
-            .iter()
-            .find(|p| p.id == 0)
-            .unwrap()
-            .mass_msun();
-        assert!(
-            inner_shadowed < 0.7 * inner_alone,
-            "{} vs {}",
-            earths(inner_shadowed),
-            earths(inner_alone)
-        );
+    fn nothing_accretes_gas_at_the_inner_edge() {
+        for seed in 0..3 {
+            let disk = disk_with(0.05 + 0.02 * f64::from(seed), 3.0e6);
+            let outcome = evolve(&disk, &GrowthParams::default(), &ring_sites(&disk), &[]);
+            for planet in outcome.planets.iter().filter(|p| p.a_au <= 0.05) {
+                // Any envelope it has was gained before it arrived.
+                assert!(!planet.runaway || planet.envelope_msun < 50.0 * planet.core_msun);
+            }
+        }
     }
 
     /// Converging bodies end in resonance or merged, never closer than the
@@ -822,12 +1099,15 @@ mod tests {
 
     #[test]
     fn resonances_are_chosen_by_mass() {
-        // Two Earths are caught by the 3:2 first; two Jupiters by the 2:1
-        // only; two bodies of 10 Jupiter masses by nothing.
+        // Two Earths are caught by the 3:2 first and can be held as close as
+        // the 10:9; two Jupiters by the 2:1 only; two bodies of 10 Jupiter
+        // masses by nothing that keeps them apart.
         let earth = EARTH_MASS_MSUN;
         let first = |m: f64| capture_candidates(1.0, m, m, 1.0).first().map(|r| r.1);
         assert_eq!(first(earth), Some((3, 2)));
-        assert_eq!(capture_candidates(1.0, earth, earth, 1.0).len(), 3);
+        let for_earths = capture_candidates(1.0, earth, earth, 1.0);
+        assert_eq!(for_earths.last().map(|r| r.1), Some((10, 9)));
+        assert_eq!(for_earths.len(), 8);
         assert_eq!(
             capture_candidates(1.0, 318.0 * earth, 318.0 * earth, 1.0),
             vec![resonances()[0]]
@@ -837,10 +1117,14 @@ mod tests {
             spacing_at(resonances()[0].0, 1.0, 3180.0 * earth, 3180.0 * earth, 1.0)
                 < HILL_STABILITY
         );
+        // Heavier pairs cannot be held as tightly: two 10 M⊕ planets stop at 5:4.
+        let heavy = capture_candidates(1.0, 10.0 * earth, 10.0 * earth, 1.0);
+        assert_eq!(heavy.last().map(|r| r.1), Some((5, 4)));
         // Kepler's third law: period ratios 2:1 and 3:2 are ratios of 1.5874
         // and 1.3104 in distance.
         assert!((resonances()[0].0 - 1.5874).abs() < 1e-4);
         assert!((resonances()[1].0 - 1.3104).abs() < 1e-4);
+        assert_eq!(resonances().len(), 9);
     }
 
     /// Ginzburg et al. (2016): a 5 M⊕ core at 1000 K embedded for 1 Myr

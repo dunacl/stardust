@@ -228,7 +228,7 @@ fn invalid_parameters_are_rejected() {
     params.formation.standard.alpha_turbulent = 0.0;
     assert!(simulate(&params).is_err());
     let mut params = sun(1);
-    params.formation.standard.embryo_count = 100_000;
+    params.formation.standard.planetesimal_efficiency = -0.1;
     assert!(simulate(&params).is_err());
     let mut params = sun(1);
     params.metallicity_feh = Some(f64::NAN);
@@ -272,8 +272,8 @@ fn standard_hashes_are_pinned() {
 }
 
 const PINNED: [&str; 4] = [
-    "fc32116e097d46dd",
-    "ce7e9da57969cbe2",
-    "ab9db37038f5729b",
-    "474e55b88f948f04",
+    "5df6cd7090370595",
+    "d34b9aca9b15a0d2",
+    "920434d30b47d589",
+    "9fa0be68175e7797",
 ];

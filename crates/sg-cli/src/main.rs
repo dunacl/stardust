@@ -368,6 +368,16 @@ fn summary(result: &SimulationResult) -> String {
             let _ = writeln!(out, "{}", body_row(index, body));
         }
     }
+    for belt in &snap.belts {
+        let _ = writeln!(
+            out,
+            "\nBelt around {}: {:.2}-{:.2} AU, {:.4} Earth masses",
+            host_name(snap, belt.host),
+            belt.inner_au,
+            belt.outer_au,
+            belt.mass_mearth
+        );
+    }
     let _ = writeln!(
         out,
         "\n{} bodies, {} formation events, {} keyframes",

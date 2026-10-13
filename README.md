@@ -8,7 +8,8 @@ Stardust succeeds the C program [StarGen](https://github.com/dunacl/stargen)
 and keeps a faithful port of it as one of two formation models:
 
 - **Standard**: a modern model. A gas disk drains and clears; planet cores
-  grow by sweeping up pebbles; the heaviest pull in gas and become giants;
+  grow by sweeping up planetesimals and pebbles; the heaviest pull in gas
+  and become giants;
   planets drift inward as they grow; close-in planets can lose their
   atmospheres. Compared against exoplanet surveys in `validation/`.
 - **Classic**: the Dole/StarGen accretion model of 1970–2000, reproduced
@@ -20,7 +21,7 @@ Both work around one, two or three stars.
 |---|---|
 | Where things stand | [`docs/PROGRESS.md`](docs/PROGRESS.md) |
 | Plan, science model, decisions | [`PLAN.md`](PLAN.md) |
-| How the model compares with real planets | [`validation/report-0.4.0.md`](validation/report-0.4.0.md) |
+| How the model compares with real planets | [`validation/report-0.5.0.md`](validation/report-0.5.0.md) |
 | Rules for working in this repository | [`CLAUDE.md`](CLAUDE.md) |
 
 ## Quick start

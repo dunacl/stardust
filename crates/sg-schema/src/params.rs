@@ -146,7 +146,7 @@ impl Default for DiskParams {
     fn default() -> Self {
         Self {
             mass_fraction: None,
-            mass_fraction_median: 0.015,
+            mass_fraction_median: 0.012,
             lifetime_myr: None,
             alpha_viscous: 5.0e-3,
         }
@@ -173,14 +173,15 @@ pub struct StandardParams {
     pub alpha_gap: f64,
     /// Stokes number of drift-limited pebbles.
     pub stokes_drift: f64,
+    /// Fraction of the pebbles entering a pressure trap that become
+    /// planetesimals (Lenz et al. 2019).
+    pub planetesimal_efficiency: f64,
     /// Time for the envelope of a 1 Earth-mass planet to cool and contract,
     /// years; scales with the envelope's (uncertain) opacity.
     pub envelope_cooling_time_yr: f64,
     /// Factor applied to the disk migration rate; below 1 it stands in for
     /// torques the model leaves out.
     pub migration_efficiency: f64,
-    /// Embryos seeded in each disk.
-    pub embryo_count: u32,
 }
 
 impl Default for StandardParams {
@@ -189,9 +190,9 @@ impl Default for StandardParams {
             alpha_turbulent: 1.0e-4,
             alpha_gap: 1.0e-4,
             stokes_drift: 0.05,
+            planetesimal_efficiency: 0.1,
             envelope_cooling_time_yr: 1.0e9,
-            migration_efficiency: 0.3,
-            embryo_count: 20,
+            migration_efficiency: 0.2,
         }
     }
 }
