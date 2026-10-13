@@ -103,7 +103,8 @@ impl MainSequence {
 
     /// Evaluates the metallicity dependence of every coefficient
     /// (Tout et al. 1996 eq. 3; HPT appendix A).
-    #[allow(clippy::too_many_lines)]
+    // The limits are written as nested min/max, as published.
+    #[allow(clippy::too_many_lines, clippy::manual_clamp)]
     fn build(z: f64) -> Self {
         let lzs = log10(z / SOLAR_Z);
         let lz = log10(z);

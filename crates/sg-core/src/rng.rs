@@ -68,6 +68,16 @@ impl RngStream {
         (self.next_u64() >> 11) as f64 * (1.0 / (1u64 << 53) as f64)
     }
 
+    /// Standard normal variate, by the Box–Muller transform (Box & Muller
+    /// 1958): `sqrt(-2 ln u₁)·cos(2π u₂)`. Consumes two uniforms.
+    pub fn standard_normal(&mut self) -> f64 {
+        // 1 − u is in (0, 1], so the logarithm is finite.
+        let u1 = 1.0 - self.uniform();
+        let u2 = self.uniform();
+        crate::math::sqrt(-2.0 * crate::math::ln(u1))
+            * crate::math::cos(2.0 * core::f64::consts::PI * u2)
+    }
+
     /// Uniform in `[lo, hi)`.
     pub fn uniform_range(&mut self, lo: f64, hi: f64) -> f64 {
         lo + (hi - lo) * self.uniform()
@@ -117,6 +127,21 @@ mod tests {
         let mean = (0..n).map(|_| rng.uniform()).sum::<f64>() / n as f64;
         // Standard error is 1/sqrt(12 n) ≈ 9.1e-4; allow 5 sigma.
         assert!((mean - 0.5).abs() < 5e-3, "mean = {mean}");
+    }
+
+    #[test]
+    fn normal_has_zero_mean_and_unit_variance() {
+        let mut rng = RngStream::new(9, ModuleId::STELLAR);
+        let n = 200_000;
+        let xs: Vec<f64> = (0..n).map(|_| rng.standard_normal()).collect();
+        let mean = xs.iter().sum::<f64>() / n as f64;
+        let var = xs.iter().map(|x| (x - mean) * (x - mean)).sum::<f64>() / n as f64;
+        assert!(mean.abs() < 0.01, "mean = {mean}");
+        assert!((var - 1.0).abs() < 0.02, "variance = {var}");
+        assert!(xs.iter().all(|x| x.is_finite()));
+        // 68.27% of draws fall within one standard deviation.
+        let within = xs.iter().filter(|x| x.abs() < 1.0).count() as f64 / n as f64;
+        assert!((within - 0.6827).abs() < 0.005, "{within}");
     }
 
     proptest! {

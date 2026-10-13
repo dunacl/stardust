@@ -7,6 +7,7 @@
 //! Hurley et al. (2000) fits.
 
 pub mod evolution;
+pub mod population;
 
 use sg_core::constants::SOLAR_TEFF_K;
 use sg_core::math::{pow, sqrt};
@@ -252,10 +253,70 @@ pub fn habitable_zone(
     })
 }
 
+/// Habitable zone around several stars seen as one source, for a planet
+/// that orbits all of them (a circumbinary planet).
+///
+/// Each star's light is weighted by how effectively its spectrum warms a
+/// planet, which is what the temperature dependence of `S_eff` expresses.
+/// A boundary lies where the weighted fluxes add up to the limit:
+/// `Σ Lᵢ / (S_eff(Tᵢ)·d²) = 1`, so `d = sqrt(Σ Lᵢ / S_eff(Tᵢ))` (Kaltenegger
+/// & Haghighipour 2013, ApJ 777, 165, eqs. 2–3, with every star placed at
+/// the barycentre). That placement is accurate when the stars' separation
+/// is small compared with the boundary's distance; the true zone also
+/// breathes as the stars orbit. Same temperature range as [`hz_flux`], for
+/// every star. With one star this is [`habitable_zone`].
+pub fn combined_habitable_zone(
+    stars: &[(SolarLuminosity, Kelvin)],
+) -> Result<HabitableZone, StellarError> {
+    let distance = |limit: HzLimit| -> Result<Au, StellarError> {
+        let mut sum = 0.0;
+        for (luminosity, teff) in stars {
+            sum += luminosity.0 / hz_flux(limit, *teff)?;
+        }
+        Ok(Au(sqrt(sum)))
+    };
+    Ok(HabitableZone {
+        recent_venus: distance(HzLimit::RecentVenus)?,
+        runaway_greenhouse: distance(HzLimit::RunawayGreenhouse)?,
+        maximum_greenhouse: distance(HzLimit::MaximumGreenhouse)?,
+        early_mars: distance(HzLimit::EarlyMars)?,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use proptest::prelude::*;
+
+    #[test]
+    fn combined_zone_of_one_star_is_its_own_zone() {
+        let star = (SolarLuminosity(1.0), Kelvin(5780.0));
+        assert_eq!(
+            combined_habitable_zone(&[star]).unwrap(),
+            habitable_zone(star.0, star.1).unwrap()
+        );
+    }
+
+    /// Two identical stars double the flux, so every boundary moves out by
+    /// √2. A cool, faint companion adds little: for Kepler-16 (0.148 and
+    /// 0.0057 L☉) the zone is within 3% of the primary's alone.
+    #[test]
+    fn combined_zone_adds_weighted_fluxes() {
+        let sun = (SolarLuminosity(1.0), Kelvin(5780.0));
+        let one = habitable_zone(sun.0, sun.1).unwrap();
+        let two = combined_habitable_zone(&[sun, sun]).unwrap();
+        let root2 = core::f64::consts::SQRT_2;
+        assert!((two.runaway_greenhouse.0 / one.runaway_greenhouse.0 - root2).abs() < 1e-12);
+        assert!((two.early_mars.0 / one.early_mars.0 - root2).abs() < 1e-12);
+
+        let a = (SolarLuminosity(0.148), Kelvin(4450.0));
+        let b = (SolarLuminosity(0.0057), Kelvin(3311.0));
+        let alone = habitable_zone(a.0, a.1).unwrap();
+        let both = combined_habitable_zone(&[a, b]).unwrap();
+        let ratio = both.maximum_greenhouse.0 / alone.maximum_greenhouse.0;
+        assert!(ratio > 1.0 && ratio < 1.03, "{ratio}");
+        assert!(combined_habitable_zone(&[a, (SolarLuminosity(20.0), Kelvin(9000.0))]).is_err());
+    }
 
     #[test]
     fn sun_is_the_unit_star() {
