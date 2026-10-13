@@ -7,7 +7,7 @@ use bevy::render::render_resource::TextureFormat;
 use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 use bevy::window::WindowOccluded;
 use clap::{Parser, ValueEnum};
-use sg_render::ScaleMode;
+use sg_render::{Quality, ScaleMode};
 use sg_schema::{Fidelity, PresetId};
 use std::path::PathBuf;
 
@@ -46,9 +46,19 @@ struct Args {
     no_ui: bool,
     /// With --screenshot: draw the scene into an image instead of the
     /// window, so it works with the window covered, the display asleep or
-    /// the screen locked. The panels are left out; the name labels are drawn.
+    /// the screen locked.
     #[arg(long)]
     offscreen: bool,
+    /// On a narrow window, start with the controls drawer open.
+    #[arg(long)]
+    drawer: bool,
+    /// Effects level: full, or the reduced set meant for phones.
+    #[arg(long, value_enum)]
+    quality: Option<QualityArg>,
+    /// Window size in pixels, as WIDTHxHEIGHT (for example 390x844 to see
+    /// the phone layout). With --offscreen, the size of the image.
+    #[arg(long, value_parser = parse_size)]
+    size: Option<(u32, u32)>,
     /// Measure the frame rate for this many seconds and exit: the scene is
     /// drawn off screen at 2560×1440 with no frame-rate cap, orbits running.
     #[arg(long)]
@@ -72,6 +82,20 @@ enum PresetArg {
 enum TierArg {
     Standard,
     Classic,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum QualityArg {
+    Full,
+    Reduced,
+}
+
+fn parse_size(text: &str) -> Result<(u32, u32), String> {
+    let parsed = text
+        .split_once(['x', 'X'])
+        .and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))
+        .filter(|(w, h): &(u32, u32)| (64..=8192).contains(w) && (64..=8192).contains(h));
+    parsed.ok_or_else(|| format!("expected WIDTHxHEIGHT between 64 and 8192, got `{text}`"))
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -100,6 +124,8 @@ struct Capture {
     target: Option<Handle<Image>>,
     /// Measure the frame rate for this long instead of saving an image.
     bench_secs: Option<f32>,
+    /// Size of the off-screen image.
+    size: (u32, u32),
     /// Frames drawn and the time when the measurement began.
     bench_from: Option<(u32, f32)>,
     frames: u32,
@@ -126,11 +152,7 @@ fn redirect_camera(
     let Ok(camera) = camera.single() else {
         return;
     };
-    let size = if capture.bench_secs.is_some() {
-        BENCH_SIZE
-    } else {
-        OFFSCREEN_SIZE
-    };
+    let size = capture.size;
     let image = images.add(Image::new_target_texture(
         size.0,
         size.1,
@@ -244,16 +266,34 @@ pub fn launch() -> Launch {
         screenshot: args.screenshot,
         offscreen: args.offscreen || args.bench.is_some(),
         bench: args.bench,
-        show_ui: !args.no_ui && !args.offscreen && args.bench.is_none(),
+        show_ui: !args.no_ui && args.bench.is_none(),
+        quality: args.quality.map(|quality| match quality {
+            QualityArg::Full => Quality::Full,
+            QualityArg::Reduced => Quality::Reduced,
+        }),
+        size: args.size,
+        drawer: args.drawer,
     }
 }
 
 /// Adds screenshot mode to the app.
-pub fn add_capture(app: &mut App, path: PathBuf, offscreen: bool, bench_secs: Option<f32>) {
+pub fn add_capture(
+    app: &mut App,
+    path: PathBuf,
+    offscreen: bool,
+    bench_secs: Option<f32>,
+    size: Option<(u32, u32)>,
+) {
+    let default_size = if bench_secs.is_some() {
+        BENCH_SIZE
+    } else {
+        OFFSCREEN_SIZE
+    };
     app.insert_resource(Capture {
         path,
         offscreen,
         bench_secs,
+        size: size.unwrap_or(default_size),
         ..default()
     })
     .add_systems(Update, (redirect_camera, capture).chain());

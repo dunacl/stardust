@@ -20,6 +20,7 @@ pub struct StartOptions {
     pub select: Option<usize>,
     /// Freeze the clocks (screenshot mode), so captures are repeatable.
     pub frozen: bool,
+    pub quality: sg_render::Quality,
 }
 
 #[derive(Resource)]
@@ -35,6 +36,11 @@ pub struct AppState {
     pub error: Option<String>,
     pub show_ui: bool,
     pub start: StartOptions,
+    /// How long the last Simulate took, milliseconds.
+    pub last_simulation_ms: Option<f64>,
+    /// Whether the control panel is open where it is a drawer (narrow
+    /// screens). Unset until the first frame shows how wide the screen is.
+    pub panel_open: Option<bool>,
 }
 
 impl AppState {
@@ -47,6 +53,8 @@ impl AppState {
             error: None,
             show_ui: true,
             start: StartOptions::default(),
+            last_simulation_ms: None,
+            panel_open: None,
         }
     }
 
@@ -89,7 +97,10 @@ pub struct SimulationTargets<'w> {
 
 /// Runs the simulation for the current parameters and shows the result.
 pub fn run_simulation(state: &mut AppState, targets: &mut SimulationTargets) {
-    let result: SimulationResult = match sg_sim::simulate(&state.params) {
+    let started = bevy::platform::time::Instant::now();
+    let outcome = sg_sim::simulate(&state.params);
+    state.last_simulation_ms = Some(started.elapsed().as_secs_f64() * 1000.0);
+    let result: SimulationResult = match outcome {
         Ok(result) => result,
         Err(err) => {
             state.error = Some(err.to_string());
@@ -117,6 +128,7 @@ pub fn run_simulation(state: &mut AppState, targets: &mut SimulationTargets) {
 pub fn simulate_on_startup(mut state: ResMut<AppState>, mut targets: SimulationTargets) {
     let start = state.start.clone();
     targets.settings.scale = ScaleBlend::settled(start.scale);
+    targets.settings.quality = start.quality;
     run_simulation(&mut state, &mut targets);
 
     let end = targets.view.timeline_end_myr();

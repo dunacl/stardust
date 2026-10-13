@@ -60,6 +60,16 @@ enum Command {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Time the simulation of consecutive seeds on this machine.
+    Bench {
+        #[command(flatten)]
+        run: RunArgs,
+        #[arg(long, default_value_t = 1)]
+        first_seed: u64,
+        /// Number of consecutive seeds.
+        #[arg(long, default_value_t = 100)]
+        count: u64,
+    },
     /// Compare the Classic tier with the golden outputs of the C reference.
     CompareGolden {
         /// Directory holding manifest.json and the .jsonl files.
@@ -401,6 +411,38 @@ fn write_output(out: Option<&PathBuf>, text: &str) -> Result<()> {
     }
 }
 
+/// The value below which `fraction` of the sorted values lie (nearest
+/// rank).
+fn percentile(sorted: &[f64], fraction: f64) -> f64 {
+    let rank = (fraction * sorted.len() as f64).ceil() as usize;
+    sorted[rank.clamp(1, sorted.len()) - 1]
+}
+
+/// Times each simulation. The clock is the machine's, so the numbers are
+/// not reproducible; the systems are.
+fn bench(run: &RunArgs, first_seed: u64, count: u64) -> Result<()> {
+    anyhow::ensure!(count > 0, "nothing to time: --count is 0");
+    let mut times_ms = Vec::with_capacity(count as usize);
+    for seed in first_seed..first_seed + count {
+        let params = run.params(seed)?;
+        let started = std::time::Instant::now();
+        sg_sim::simulate(&params).with_context(|| format!("simulating seed {seed}"))?;
+        times_ms.push(started.elapsed().as_secs_f64() * 1000.0);
+    }
+    times_ms.sort_by(f64::total_cmp);
+    let mean = times_ms.iter().sum::<f64>() / times_ms.len() as f64;
+    println!(
+        "{count} systems on {}/{}: mean {mean:.1} ms, median {:.1} ms, 95th percentile {:.1} ms, \
+         slowest {:.1} ms",
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        percentile(&times_ms, 0.5),
+        percentile(&times_ms, 0.95),
+        times_ms[times_ms.len() - 1],
+    );
+    Ok(())
+}
+
 fn batch(run: &RunArgs, first_seed: u64, count: u64, out: &Path) -> Result<()> {
     let file = fs::File::create(out).with_context(|| format!("creating {}", out.display()))?;
     let mut writer = BufWriter::new(file);
@@ -485,6 +527,11 @@ fn main() -> Result<()> {
             count,
             out,
         } => batch(&run, first_seed, count, &out),
+        Command::Bench {
+            run,
+            first_seed,
+            count,
+        } => bench(&run, first_seed, count),
         Command::CompareGolden {
             golden,
             tolerance,
@@ -555,5 +602,20 @@ fn main() -> Result<()> {
             println!("{}", sg_sim::result_hash(&result));
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::percentile;
+
+    #[test]
+    fn percentiles_use_the_nearest_rank() {
+        let values = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
+        assert_eq!(percentile(&values, 0.5), 5.0);
+        assert_eq!(percentile(&values, 0.95), 10.0);
+        assert_eq!(percentile(&values, 0.0), 1.0);
+        assert_eq!(percentile(&values, 1.0), 10.0);
+        assert_eq!(percentile(&[42.0], 0.5), 42.0);
     }
 }

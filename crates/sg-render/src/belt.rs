@@ -33,7 +33,6 @@ pub const BELT_MASS_LIMIT_MEARTH: f64 = 1.0e-3;
 /// Half-width of the belt drawn around an asteroid-class body, as a fraction
 /// of its semi-major axis. A drawing convention.
 const BODY_BELT_HALF_WIDTH: f64 = 0.08;
-const ROCKS_PER_BELT: usize = 1200;
 /// Largest eccentricity and inclination (radians) given to a rock.
 const MAX_ROCK_ECCENTRICITY: f64 = 0.12;
 const MAX_ROCK_INCLINATION: f64 = 0.10;
@@ -136,6 +135,7 @@ pub(crate) struct BeltRock {
 #[derive(Resource, Default)]
 pub(crate) struct BeltEntities {
     generation: u64,
+    quality: crate::Quality,
     rocks: Vec<Entity>,
 }
 
@@ -159,7 +159,8 @@ pub(crate) fn sync_belts(
     };
     let snapshot = &result.snapshot;
 
-    if entities.generation != view.generation() {
+    if entities.generation != view.generation() || entities.quality != settings.quality {
+        entities.quality = settings.quality;
         for entity in std::mem::take(&mut entities.rocks) {
             commands.entity(entity).despawn();
         }
@@ -173,7 +174,7 @@ pub(crate) fn sync_belts(
                 ..default()
             });
             for (host, seed, inner_au, outer_au) in zones {
-                for rock in rocks(seed, inner_au, outer_au, ROCKS_PER_BELT) {
+                for rock in rocks(seed, inner_au, outer_au, settings.quality.rocks_per_belt()) {
                     let entity = commands
                         .spawn((
                             BeltRock { host, rock },

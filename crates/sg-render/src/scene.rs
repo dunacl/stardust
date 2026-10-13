@@ -101,6 +101,63 @@ impl Default for Playback {
     }
 }
 
+/// How much the renderer spends on effects (PLAN.md §8.6): everything, or
+/// a lighter set for phones and for browsers without WebGPU.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Quality {
+    #[default]
+    Full,
+    /// No bloom or multisampling, coarser spheres, fewer belt rocks, and
+    /// surface detail limited to four octaves of noise.
+    Reduced,
+}
+
+impl Quality {
+    pub const ALL: [Quality; 2] = [Quality::Full, Quality::Reduced];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Quality::Full => "Full",
+            Quality::Reduced => "Reduced",
+        }
+    }
+
+    /// Rocks drawn per belt.
+    pub fn rocks_per_belt(self) -> usize {
+        match self {
+            Quality::Full => 1200,
+            Quality::Reduced => 300,
+        }
+    }
+
+    /// Segments around a sphere's equator; half as many pole to pole.
+    pub fn sphere_segments(self) -> u32 {
+        match self {
+            Quality::Full => 128,
+            Quality::Reduced => 48,
+        }
+    }
+
+    /// Largest apparent radius, pixels, the surface shaders are told: they
+    /// choose their octaves of noise from it (`planet.wesl`), so capping
+    /// it caps their cost per pixel.
+    pub fn detail_pixels(self, apparent_radius_pixels: f32) -> f32 {
+        match self {
+            Quality::Full => apparent_radius_pixels,
+            // log2(40) − 1 = four octaves.
+            Quality::Reduced => apparent_radius_pixels.min(40.0),
+        }
+    }
+
+    pub fn bloom(self) -> bool {
+        self == Quality::Full
+    }
+
+    pub fn multisampling(self) -> bool {
+        self == Quality::Full
+    }
+}
+
 /// What to draw and at what scale.
 #[derive(Resource, Debug, Clone, PartialEq)]
 pub struct ViewSettings {
@@ -116,6 +173,7 @@ pub struct ViewSettings {
     pub show_labels: bool,
     /// The disk of gas and dust during formation playback.
     pub show_disk: bool,
+    pub quality: Quality,
 }
 
 impl Default for ViewSettings {
@@ -129,6 +187,7 @@ impl Default for ViewSettings {
             show_backdrop: true,
             show_labels: true,
             show_disk: true,
+            quality: Quality::default(),
         }
     }
 }
@@ -179,8 +238,14 @@ struct StarLight;
 
 #[derive(Resource)]
 struct SceneAssets {
-    /// Fine enough for a body seen close up.
-    globe: Handle<Mesh>,
+    /// One sphere per quality level, in the order of [`Quality::ALL`].
+    globes: [Handle<Mesh>; 2],
+}
+
+impl SceneAssets {
+    fn globe(&self, quality: Quality) -> Handle<Mesh> {
+        self.globes[quality as usize].clone()
+    }
 }
 
 /// The sphere and the light of one star.
@@ -192,6 +257,7 @@ struct StarEntities {
 #[derive(Resource, Default)]
 struct SceneEntities {
     generation: u64,
+    quality: Quality,
     bodies: BTreeMap<BodyId, Entity>,
     /// The air of the bodies that have any.
     air: BTreeMap<BodyId, Entity>,
@@ -249,7 +315,10 @@ pub fn system_extent(result: &SimulationResult, scale: &ScaleBlend) -> f32 {
 
 fn setup(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>) {
     commands.insert_resource(SceneAssets {
-        globe: meshes.add(Sphere::new(1.0).mesh().uv(128, 64)),
+        globes: Quality::ALL.map(|quality| {
+            let around = quality.sphere_segments();
+            meshes.add(Sphere::new(1.0).mesh().uv(around, around / 2))
+        }),
     });
     commands.insert_resource(GlobalAmbientLight {
         color: Color::WHITE,
@@ -330,7 +399,8 @@ fn sync_scene(
     let snapshot = &result.snapshot;
 
     // A new system: start from an empty scene.
-    if entities.generation != view.generation() {
+    if entities.generation != view.generation() || entities.quality != settings.quality {
+        entities.quality = settings.quality;
         for (_, entity) in std::mem::take(&mut entities.bodies) {
             commands.entity(entity).despawn();
         }
@@ -399,7 +469,7 @@ fn sync_scene(
                 let sphere = commands
                     .spawn((
                         StarVisual,
-                        Mesh3d(assets.globe.clone()),
+                        Mesh3d(assets.globe(settings.quality)),
                         MeshMaterial3d(material),
                         transform,
                     ))
@@ -482,7 +552,9 @@ fn sync_scene(
                 share,
             })
             .collect();
-        let pixels = pixels_per_radian * radius / (position - eye).length().max(1e-9);
+        let pixels = settings
+            .quality
+            .detail_pixels(pixels_per_radian * radius / (position - eye).length().max(1e-9));
 
         // A body that has just become a finished planet is drawn anew.
         if let Some(&entity) = entities.bodies.get(&body.id) {
@@ -550,7 +622,7 @@ fn sync_scene(
                     let shell = commands
                         .spawn((
                             AirVisual,
-                            Mesh3d(assets.globe.clone()),
+                            Mesh3d(assets.globe(settings.quality)),
                             MeshMaterial3d(material_for(true)),
                             transform.with_scale(Vec3::splat(radius * (1.0 + gas.height))),
                         ))
@@ -559,7 +631,7 @@ fn sync_scene(
                 }
                 let entity = commands
                     .spawn((
-                        Mesh3d(assets.globe.clone()),
+                        Mesh3d(assets.globe(settings.quality)),
                         MeshMaterial3d(material_for(false)),
                         transform,
                         BodyVisual {
@@ -831,6 +903,7 @@ impl Plugin for StardustRenderPlugin {
                     camera::control_camera,
                     camera::touch_camera,
                     camera::rebase_camera,
+                    camera::apply_quality,
                     advance,
                     sync_scene,
                     belt::sync_belts,

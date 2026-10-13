@@ -34,6 +34,6 @@ pub mod surface;
 pub use camera::{OrbitCamera, PointerCaptured};
 pub use scale::{ScaleBlend, ScaleMode};
 pub use scene::{
-    BodyPlacements, Placement, Playback, Selection, StardustRenderPlugin, SystemView, Target,
-    ViewSettings,
+    BodyPlacements, Placement, Playback, Quality, Selection, StardustRenderPlugin, SystemView,
+    Target, ViewSettings,
 };

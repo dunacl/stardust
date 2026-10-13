@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use bevy_egui::egui::{self, Align2, Color32, RichText};
 use bevy_egui::EguiContexts;
 use sg_render::scene::system_extent;
-use sg_render::{layout, BodyPlacements, PointerCaptured, ScaleMode, Target};
+use sg_render::{layout, BodyPlacements, PointerCaptured, Quality, ScaleMode, Target};
 use sg_schema::{Fidelity, HostRef, PresetId, StarNode, SystemSpec};
 use sg_sim::{preset_availability, PresetAvailability, StellarModel, ALL_PRESETS, MODEL_VERSION};
 
@@ -193,9 +193,26 @@ fn controls(ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTar
     });
     if let Some(error) = &state.error {
         ui.colored_label(Color32::from_rgb(240, 110, 100), error);
+    } else if let Some(ms) = state.last_simulation_ms {
+        // The time this device took: the budget is two seconds on a phone
+        // (PLAN.md §4).
+        ui.label(
+            RichText::new(format!("Simulated in {}", simulation_time(ms)))
+                .small()
+                .color(MUTED),
+        );
     }
 
     view_controls(ui, targets);
+}
+
+/// A simulation's duration for display: milliseconds below a second.
+pub fn simulation_time(ms: f64) -> String {
+    if ms < 1000.0 {
+        format!("{ms:.0} ms")
+    } else {
+        format!("{:.1} s", ms / 1000.0)
+    }
 }
 
 /// A value the model draws unless the box is ticked, in which case the
@@ -303,7 +320,7 @@ fn view_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
     ui.separator();
     ui.label(RichText::new("View").strong());
     let mut mode = targets.settings.scale.to;
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         for candidate in ScaleMode::ALL {
             ui.radio_value(&mut mode, candidate, candidate.label());
         }
@@ -318,7 +335,7 @@ fn view_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
             }
         }
     }
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.checkbox(&mut targets.settings.show_orbits, "Orbits");
         ui.checkbox(&mut targets.settings.show_habitable_zone, "Habitable zone");
         ui.checkbox(&mut targets.settings.show_stability_limits, "Limits")
@@ -328,7 +345,7 @@ fn view_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
             );
         ui.checkbox(&mut targets.playback.orbits_running, "Orbital motion");
     });
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.checkbox(&mut targets.settings.show_labels, "Names");
         ui.checkbox(&mut targets.settings.show_disk, "Disk, while forming")
             .on_hover_text(
@@ -338,6 +355,17 @@ fn view_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
         ui.checkbox(&mut targets.settings.show_backdrop, "Sky backdrop")
             .on_hover_text("Scenery: the stars and galaxies behind the system are not simulated.");
     });
+    ui.horizontal(|ui| {
+        ui.label("Effects");
+        for quality in Quality::ALL {
+            ui.radio_value(&mut targets.settings.quality, quality, quality.label());
+        }
+    })
+    .response
+    .on_hover_text(
+        "Reduced is for phones and older graphics: no glow around stars, coarser \
+         spheres, fewer belt rocks, less surface detail.",
+    );
     ui.add(
         egui::Slider::new(&mut targets.playback.days_per_second, 1.0..=3000.0)
             .logarithmic(true)
@@ -359,13 +387,15 @@ fn view_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
     }
     ui.add_space(2.0);
     ui.label(
-        RichText::new("Drag to rotate · scroll to zoom · click a body for its card")
-            .small()
-            .color(MUTED),
+        RichText::new(
+            "Drag to rotate · scroll or pinch to zoom · click or tap a body for its card",
+        )
+        .small()
+        .color(MUTED),
     );
 }
 
-fn timeline(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
+fn timeline(ui: &mut egui::Ui, targets: &mut SimulationTargets, narrow: bool) {
     let end = targets.view.timeline_end_myr();
     if end <= 0.0 {
         ui.label("No formation timeline.");
@@ -379,15 +409,16 @@ fn timeline(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
         None => (0, 0),
     };
 
-    ui.horizontal(|ui| {
+    let buttons = |ui: &mut egui::Ui, targets: &mut SimulationTargets| {
         let at_end = targets.playback.t_myr >= end;
         let label = if targets.playback.playing {
             "Pause"
         } else {
             "Play"
         };
+        let height = ui.spacing().interact_size.y.max(22.0);
         if ui
-            .add_sized([56.0, 22.0], egui::Button::new(label))
+            .add_sized([56.0, height], egui::Button::new(label))
             .clicked()
         {
             if at_end {
@@ -403,7 +434,9 @@ fn timeline(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
             targets.playback.t_myr = end;
             targets.playback.playing = false;
         }
-        ui.spacing_mut().slider_width = 420.0;
+    };
+    let time_slider = |ui: &mut egui::Ui, targets: &mut SimulationTargets, width: f32| {
+        ui.spacing_mut().slider_width = width;
         // The slider works on a copy: it rounds what it shows, and writing
         // that back would nudge the time off the end of the timeline.
         let mut shown = targets.playback.t_myr;
@@ -415,10 +448,12 @@ fn timeline(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
             targets.playback.t_myr = shown.clamp(0.0, end);
             targets.playback.playing = false;
         }
+    };
+    let speed_slider = |ui: &mut egui::Ui, targets: &mut SimulationTargets, width: f32| {
         // Speed as a multiple of the default playback duration.
         let base = end / DEFAULT_PLAYBACK_SECS;
         let mut speed = targets.playback.myr_per_second / base;
-        ui.spacing_mut().slider_width = 90.0;
+        ui.spacing_mut().slider_width = width;
         if ui
             .add(
                 egui::Slider::new(&mut speed, 0.1..=8.0)
@@ -430,7 +465,24 @@ fn timeline(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
         {
             targets.playback.myr_per_second = speed * base;
         }
-    });
+    };
+    if narrow {
+        // Two rows: a phone is too narrow for buttons and both sliders.
+        // The value box beside a slider takes about 90 points.
+        let room = ui.available_width();
+        ui.horizontal(|ui| {
+            buttons(ui, targets);
+            let left = (room - ui.min_rect().width() - 110.0).max(40.0);
+            speed_slider(ui, targets, left);
+        });
+        ui.horizontal(|ui| time_slider(ui, targets, (room - 100.0).max(80.0)));
+    } else {
+        ui.horizontal(|ui| {
+            buttons(ui, targets);
+            time_slider(ui, targets, 420.0);
+            speed_slider(ui, targets, 90.0);
+        });
+    }
     let clock = match targets.view.result().map(|r| r.diagnostics.fidelity) {
         Some(Fidelity::Classic) => "Classic times are nominal, not physical",
         _ => "time since the disk formed",
@@ -610,6 +662,111 @@ fn labels(
     }
 }
 
+/// Screens narrower than this, in points, get the phone layout: the
+/// controls in a drawer, the playback bar across the bottom, the data card
+/// as a sheet above it. A phone held upright is 360–430 points wide; a
+/// small tablet or a phone on its side is wider and has room for the
+/// floating panels.
+pub const NARROW_BELOW_POINTS: f32 = 700.0;
+
+pub fn is_narrow(width_points: f32) -> bool {
+    width_points < NARROW_BELOW_POINTS
+}
+
+/// Height of a control a finger can hit, points: Apple's guidelines ask
+/// for 44, Android's for 48; egui's default of 18 is for a mouse.
+const TOUCH_TARGET_POINTS: f32 = 40.0;
+
+/// Makes controls finger-sized on a narrow screen, and restores the
+/// defaults on a wide one.
+fn apply_touch_sizes(ctx: &egui::Context, narrow: bool) {
+    ctx.all_styles_mut(|style| {
+        let defaults = egui::style::Spacing::default();
+        if narrow {
+            style.spacing.interact_size.y = TOUCH_TARGET_POINTS;
+            style.spacing.button_padding = egui::vec2(12.0, 8.0);
+            style.spacing.item_spacing = egui::vec2(10.0, 8.0);
+            style.spacing.icon_width = 22.0;
+            style.spacing.slider_rail_height = 12.0;
+            style.spacing.combo_height = 320.0;
+        } else {
+            style.spacing.interact_size = defaults.interact_size;
+            style.spacing.button_padding = defaults.button_padding;
+            style.spacing.item_spacing = defaults.item_spacing;
+            style.spacing.icon_width = defaults.icon_width;
+            style.spacing.slider_rail_height = defaults.slider_rail_height;
+            style.spacing.combo_height = defaults.combo_height;
+        }
+    });
+}
+
+/// The phone layout.
+fn narrow_layout(
+    ctx: &egui::Context,
+    state: &mut AppState,
+    targets: &mut SimulationTargets,
+    screen: egui::Rect,
+) {
+    let open = *state.panel_open.get_or_insert(false);
+    let margin = 8.0;
+    let width = screen.width() - 2.0 * margin;
+
+    // The playback bar across the bottom.
+    let bar = egui::Window::new("Formation")
+        .anchor(Align2::CENTER_BOTTOM, [0.0, -margin])
+        .fixed_size([width - 16.0, 0.0])
+        .resizable(false)
+        .collapsible(false)
+        .title_bar(false)
+        .show(ctx, |ui| timeline(ui, targets, true));
+    let bar_top = bar.map_or(screen.bottom(), |shown| shown.response.rect.top());
+
+    if open {
+        // The controls as a drawer down the left side.
+        let mut keep = true;
+        egui::Window::new("Stardust")
+            .id(egui::Id::new("controls-drawer"))
+            .anchor(Align2::LEFT_TOP, [margin, margin])
+            .fixed_size([
+                (width - 16.0).min(360.0),
+                (bar_top - screen.top() - 2.0 * margin - 48.0).max(160.0),
+            ])
+            .resizable(false)
+            .collapsible(false)
+            .open(&mut keep)
+            .vscroll(true)
+            .show(ctx, |ui| controls(ui, state, targets));
+        if !keep {
+            state.panel_open = Some(false);
+        }
+        return;
+    }
+    egui::Area::new(egui::Id::new("controls-button"))
+        .anchor(Align2::LEFT_TOP, [margin, margin])
+        .show(ctx, |ui| {
+            if ui.button("☰ Controls").clicked() {
+                state.panel_open = Some(true);
+            }
+        });
+
+    // The card as a sheet just above the bar; it gives way to the drawer.
+    if let Some(data) = selected_card(targets) {
+        let mut keep = true;
+        egui::Window::new(data.title.clone())
+            .id(egui::Id::new("data-card-sheet"))
+            .pivot(Align2::CENTER_BOTTOM)
+            .fixed_pos([screen.center().x, bar_top - margin])
+            .fixed_size([width - 16.0, 0.30 * screen.height()])
+            .resizable(false)
+            .open(&mut keep)
+            .vscroll(true)
+            .show(ctx, |ui| card(ui, &data));
+        if !keep {
+            targets.selection.0 = None;
+        }
+    }
+}
+
 pub fn draw(
     mut contexts: EguiContexts,
     mut state: ResMut<AppState>,
@@ -628,33 +785,65 @@ pub fn draw(
         return Ok(());
     }
 
-    egui::Window::new("Stardust")
-        .anchor(Align2::LEFT_TOP, [12.0, 12.0])
-        .default_width(330.0)
-        .resizable(false)
-        .show(ctx, |ui| controls(ui, &mut state, &mut targets));
-
-    egui::Window::new("Formation")
-        .anchor(Align2::CENTER_BOTTOM, [0.0, -12.0])
-        .resizable(false)
-        .collapsible(false)
-        .title_bar(false)
-        .show(ctx, |ui| timeline(ui, &mut targets));
-
-    if let Some(data) = selected_card(&targets) {
-        let mut open = true;
-        egui::Window::new(data.title.clone())
-            .id(egui::Id::new("data-card"))
-            .anchor(Align2::RIGHT_TOP, [-12.0, 12.0])
-            .default_width(300.0)
+    let screen = ctx.content_rect();
+    let narrow = is_narrow(screen.width());
+    apply_touch_sizes(ctx, narrow);
+    if narrow {
+        narrow_layout(ctx, &mut state, &mut targets, screen);
+    } else {
+        egui::Window::new("Stardust")
+            .anchor(Align2::LEFT_TOP, [12.0, 12.0])
+            .default_width(330.0)
             .resizable(false)
-            .open(&mut open)
-            .show(ctx, |ui| card(ui, &data));
-        if !open {
-            targets.selection.0 = None;
+            .show(ctx, |ui| controls(ui, &mut state, &mut targets));
+
+        egui::Window::new("Formation")
+            .anchor(Align2::CENTER_BOTTOM, [0.0, -12.0])
+            .resizable(false)
+            .collapsible(false)
+            .title_bar(false)
+            .show(ctx, |ui| timeline(ui, &mut targets, false));
+
+        if let Some(data) = selected_card(&targets) {
+            let mut open = true;
+            egui::Window::new(data.title.clone())
+                .id(egui::Id::new("data-card"))
+                .anchor(Align2::RIGHT_TOP, [-12.0, 12.0])
+                .default_width(300.0)
+                .resizable(false)
+                .open(&mut open)
+                .show(ctx, |ui| card(ui, &data));
+            if !open {
+                targets.selection.0 = None;
+            }
         }
     }
 
     captured.0 = ctx.egui_wants_pointer_input() || ctx.is_pointer_over_egui();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn phones_upright_are_narrow_and_tablets_are_not() {
+        // iPhone and common Android widths, points.
+        for width in [360.0, 390.0, 430.0] {
+            assert!(is_narrow(width));
+        }
+        // A phone on its side, a tablet, a desktop window.
+        for width in [844.0, 768.0, 1440.0] {
+            assert!(!is_narrow(width));
+        }
+    }
+
+    #[test]
+    fn simulation_times_read_naturally() {
+        assert_eq!(simulation_time(0.4), "0 ms");
+        assert_eq!(simulation_time(76.5), "76 ms");
+        assert_eq!(simulation_time(999.4), "999 ms");
+        assert_eq!(simulation_time(1840.0), "1.8 s");
+    }
 }

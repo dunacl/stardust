@@ -34,6 +34,10 @@ pub struct OrbitCamera {
     /// Yaw and pitch the camera is swinging toward, after a body is
     /// selected, so that it is seen from its day side. Dragging cancels it.
     pub swing: Option<(f32, f32)>,
+    /// The scene radius being kept in frame, until the user zooms or
+    /// selects something: the distance that fits it depends on the shape
+    /// of the window, which can change (a phone turned on its side).
+    pub framing: Option<f32>,
     /// Pixels the pointer has travelled since the button went down; a press
     /// that moves less than a few pixels counts as a click.
     drag_pixels: f32,
@@ -50,9 +54,19 @@ impl Default for OrbitCamera {
             distance: 8.0,
             goal_distance: 8.0,
             swing: None,
+            framing: None,
             drag_pixels: 0.0,
         }
     }
+}
+
+/// Distance from which a scene of radius `extent` fits a view of the given
+/// aspect ratio (width over height). The field of view is fixed
+/// vertically, so an upright window sees less to the sides and the camera
+/// must stand back in proportion.
+pub fn framing_distance(extent: f32, aspect: f32) -> f32 {
+    let narrower = (1.0 / aspect.max(0.05)).max(1.0);
+    (extent * 2.9 * narrower).clamp(MIN_DISTANCE, MAX_DISTANCE)
 }
 
 pub const MIN_DISTANCE: f32 = 2.0e-4;
@@ -64,7 +78,8 @@ impl OrbitCamera {
     /// Frames the whole system: `extent` is the scene radius to fit.
     pub fn frame(&mut self, extent: f32) {
         self.goal_focus = self.local(DVec3::ZERO);
-        self.goal_distance = (extent * 2.9).clamp(MIN_DISTANCE, MAX_DISTANCE);
+        self.goal_distance = framing_distance(extent, 1.6);
+        self.framing = Some(extent);
     }
 
     /// A point of the system relative to the origin.
@@ -111,6 +126,31 @@ pub(crate) fn spawn_camera(mut commands: Commands) {
     ));
 }
 
+/// Switches the camera's bloom and multisampling with the quality level.
+pub(crate) fn apply_quality(
+    mut commands: Commands,
+    settings: Res<crate::ViewSettings>,
+    camera: Single<Entity, With<Camera3d>>,
+    mut applied: Local<Option<crate::Quality>>,
+) {
+    let quality = settings.quality;
+    if *applied == Some(quality) {
+        return;
+    }
+    *applied = Some(quality);
+    let mut camera = commands.entity(*camera);
+    if quality.bloom() {
+        camera.insert(bevy::post_process::bloom::Bloom::NATURAL);
+    } else {
+        camera.remove::<bevy::post_process::bloom::Bloom>();
+    }
+    camera.insert(if quality.multisampling() {
+        Msaa::Sample4
+    } else {
+        Msaa::Off
+    });
+}
+
 pub(crate) fn rebase_camera(mut orbit: ResMut<OrbitCamera>) {
     orbit.rebase();
 }
@@ -141,6 +181,7 @@ pub(crate) fn control_camera(
             MouseScrollUnit::Line => scroll.delta.y,
             MouseScrollUnit::Pixel => scroll.delta.y / 40.0,
         };
+        orbit.framing = None;
         orbit.goal_distance =
             (orbit.goal_distance * (-0.12 * notches).exp()).clamp(MIN_DISTANCE, MAX_DISTANCE);
     }
@@ -197,6 +238,7 @@ pub(crate) fn touch_camera(
             orbit.pitch = (orbit.pitch + delta.y * TURN_PER_PIXEL).clamp(-1.55, 1.55);
         }
         Gesture::Pinch { zoom } => {
+            orbit.framing = None;
             orbit.goal_distance = (orbit.goal_distance * zoom).clamp(MIN_DISTANCE, MAX_DISTANCE);
         }
         Gesture::None => {}
@@ -215,9 +257,17 @@ pub(crate) fn apply_camera(
     selection: Res<Selection>,
     placements: Res<BodyPlacements>,
     time: Res<Time>,
+    window: Query<&Window, With<PrimaryWindow>>,
     mut camera: Single<&mut Transform, With<Camera3d>>,
     mut followed: Local<Option<Target>>,
 ) {
+    if selection.0.is_some() {
+        orbit.framing = None;
+    }
+    if let (Some(extent), Ok(window)) = (orbit.framing, window.single()) {
+        let aspect = window.width() / window.height().max(1.0);
+        orbit.goal_distance = framing_distance(extent, aspect);
+    }
     // How far the focus still is from where it is heading. Easing this
     // offset, rather than the focus itself, keeps a moving body centred:
     // easing toward a moving goal would trail behind it.
@@ -386,6 +436,19 @@ mod tests {
         // Framing the system looks back at its centre.
         camera.frame(10.0);
         assert!((camera.origin + camera.goal_focus.as_dvec3()).length() < 1e-5);
+    }
+
+    #[test]
+    fn an_upright_window_is_framed_from_further_back() {
+        // Landscape windows are limited by their height: one distance.
+        assert_eq!(framing_distance(10.0, 1.6), framing_distance(10.0, 2.4));
+        assert_eq!(framing_distance(10.0, 1.0), 29.0);
+        // A phone held upright (390 × 844) is limited by its width.
+        let upright = framing_distance(10.0, 390.0 / 844.0);
+        assert!((upright / 29.0 - 844.0 / 390.0).abs() < 1e-5);
+        let mut camera = OrbitCamera::default();
+        camera.frame(10.0);
+        assert_eq!(camera.framing, Some(10.0));
     }
 
     #[test]

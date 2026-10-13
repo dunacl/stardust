@@ -5,7 +5,7 @@
 //! `?seed=7&preset=red-dwarf&tier=classic&scale=schematic`, so a link can
 //! point at a particular system.
 
-use sg_render::ScaleMode;
+use sg_render::{Quality, ScaleMode};
 use sg_schema::{Fidelity, PresetId};
 use std::path::PathBuf;
 
@@ -26,6 +26,12 @@ pub struct Launch {
     /// Desktop only: measure the frame rate for this many seconds and exit.
     pub bench: Option<f32>,
     pub show_ui: bool,
+    /// Effects level; `None` leaves it to the platform's default.
+    pub quality: Option<Quality>,
+    /// Desktop only: window (or off-screen image) size in pixels.
+    pub size: Option<(u32, u32)>,
+    /// Start with the controls drawer open on a narrow screen.
+    pub drawer: bool,
 }
 
 impl Default for Launch {
@@ -41,6 +47,9 @@ impl Default for Launch {
             offscreen: false,
             bench: None,
             show_ui: true,
+            quality: None,
+            size: None,
+            drawer: false,
         }
     }
 }
@@ -86,6 +95,11 @@ impl Launch {
                 "time" => launch.time = value.parse().ok().filter(|t: &f64| t.is_finite()),
                 "select" => launch.select = value.parse().ok(),
                 "ui" => launch.show_ui = value != "0",
+                "quality" => match value {
+                    "full" => launch.quality = Some(Quality::Full),
+                    "reduced" => launch.quality = Some(Quality::Reduced),
+                    _ => {}
+                },
                 _ => {}
             }
         }
@@ -106,7 +120,8 @@ mod tests {
     #[test]
     fn query_sets_the_starting_system() {
         let launch = Launch::from_query(
-            "?seed=7&preset=red-dwarf&tier=classic&scale=schematic&select=3&time=0.5&ui=0",
+            "?seed=7&preset=red-dwarf&tier=classic&scale=schematic&select=3&time=0.5&ui=0\
+             &quality=reduced",
         );
         assert_eq!(
             launch,
@@ -121,6 +136,9 @@ mod tests {
                 offscreen: false,
                 bench: None,
                 show_ui: false,
+                quality: Some(Quality::Reduced),
+                size: None,
+                drawer: false,
             }
         );
     }
@@ -128,7 +146,7 @@ mod tests {
     #[test]
     fn bad_values_are_ignored() {
         let launch = Launch::from_query(
-            "seed=0&preset=quasar&tier=best&scale=&time=NaN&select=-1&other=1&novalue",
+            "seed=0&preset=quasar&tier=best&scale=&time=NaN&select=-1&other=1&novalue&quality=ultra",
         );
         assert_eq!(launch, Launch::default());
         assert_eq!(Launch::from_query("seed=abc&seed=9").seed, 9);

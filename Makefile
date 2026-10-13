@@ -82,6 +82,11 @@ serve: ## Serve target/web at http://localhost:8080, or PORT (run `make web` fir
 	@printf 'Stardust at http://localhost:%s  (add ?renderer=webgl2 to force the fallback)\n' '$(PORT)'
 	/usr/bin/python3 -m http.server $(PORT) --bind 127.0.0.1 --directory target/web
 
+.PHONY: serve-lan
+serve-lan: ## Serve target/web to other devices on this network (a phone): opens PORT to the local network
+	@printf 'On the phone, open  http://%s:%s\n' "$$(/usr/sbin/ipconfig getifaddr en0 || /usr/sbin/ipconfig getifaddr en1)" '$(PORT)'
+	/usr/bin/python3 -m http.server $(PORT) --bind 0.0.0.0 --directory target/web
+
 .PHONY: web-shot
 web-shot: ## Screenshot the served web app in headless Firefox (needs `make serve` running)
 	@mkdir -p $(SHOTS)
@@ -97,6 +102,10 @@ shot: ## One screenshot of the current SEED/PRESET/SCALE
 .PHONY: bench
 bench: ## Frame rate of the current SEED/PRESET/SCALE at 2560x1440, drawn off screen
 	$(CARGO) run -q --release -p sg-app -- $(APP_ARGS) --bench 6
+
+.PHONY: bench-sim
+bench-sim: ## Time the simulation of COUNT systems in the current TIER
+	$(CARGO) run -q --release -p sg-cli -- bench --count $(COUNT) --fidelity $(TIER)
 
 .PHONY: shots
 shots: ## The reference set: scales, formation, close-ups, red dwarf, binaries, triple, belt
@@ -122,6 +131,10 @@ shots: ## The reference set: scales, formation, close-ups, red dwarf, binaries, 
 	$(APP) --seed 42 --tier classic --scale true --select 16 --screenshot $(SHOTS)/far-planet-true-scale.png
 	$(APP) --seed 2 --preset hot-jupiter --scale schematic --time 0.25 --screenshot $(SHOTS)/disk-standard.png
 	$(APP) --seed 42 --tier classic --scale schematic --time 0.4 --screenshot $(SHOTS)/disk-classic.png
+	$(APP) --seed 42 --tier classic --size 390x844 --screenshot $(SHOTS)/phone.png
+	$(APP) --seed 42 --tier classic --size 390x844 --select 7 --screenshot $(SHOTS)/phone-card.png
+	$(APP) --seed 42 --tier classic --size 390x844 --drawer --screenshot $(SHOTS)/phone-drawer.png
+	$(APP) --seed 42 --tier classic --select 7 --quality reduced --screenshot $(SHOTS)/reduced.png
 	@printf 'screenshots written to %s\n' '$(SHOTS)'
 
 ##@ Individual checks

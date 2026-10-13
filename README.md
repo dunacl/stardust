@@ -50,8 +50,8 @@ make bench                                  # frame rate
 make ci                                     # every automated check
 ```
 
-In the app: drag to rotate, scroll to zoom, click a star or planet for its
-data card and a close look at it. The panel on the left chooses the model, the preset and its
+In the app: drag to rotate, scroll or pinch to zoom, click or tap a star or
+planet for its data card and a close look at it. The panel on the left chooses the model, the preset and its
 parameters; the bar at the bottom plays the formation back.
 
 ### In a browser
@@ -63,6 +63,8 @@ make serve    # then open http://localhost:8080
 ```
 
 A link can point at a system: `?seed=7&preset=red-dwarf&tier=classic&scale=schematic`.
+On a phone the same page shows a layout for small screens; `&quality=full`
+or `&quality=reduced` sets how much it draws.
 
 ## What is here
 

@@ -6,6 +6,14 @@ edition.workspace = true
 rust-version = "1.97.1" # Bevy 0.20
 publish.workspace = true
 
+[lib]
+name = "sg_app"
+path = "src/lib.rs"
+
+[[bin]]
+name = "sg-app"
+path = "src/main.rs"
+
 [dependencies]
 sg-schema.workspace = true
 sg-sim = { workspace = true, features = ["classic"] }
