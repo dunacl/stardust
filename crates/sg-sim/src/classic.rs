@@ -10,11 +10,12 @@
 //!   constant ecosphere;
 //! - orbital angles (Ω, ω, M₀), drawn from a ChaCha stream, since the model
 //!   is one-dimensional. Inclinations are zero;
+//! - names, from [`crate::names`];
 //! - a clock for the timeline: accretion events are spread evenly, in order,
 //!   over `timeline.classic_window_myr`.
 
 use crate::{
-    params_hash, Control, Diagnostics, SimError, SimObserver, SimulationResult, Stage,
+    names, params_hash, Control, Diagnostics, SimError, SimObserver, SimulationResult, Stage,
     MODEL_VERSION,
 };
 use sg_classic::consts::SUN_MASS_IN_EARTH_MASSES;
@@ -130,7 +131,13 @@ fn finite(value: f64) -> Option<f64> {
     value.is_finite().then_some(value)
 }
 
-fn body(p: &ClassicPlanet, seed: u64, angles: &mut RngStream, hz: Option<&HabitableZone>) -> Body {
+fn body(
+    p: &ClassicPlanet,
+    name: String,
+    seed: u64,
+    angles: &mut RngStream,
+    hz: Option<&HabitableZone>,
+) -> Body {
     let id = BodyId(p.id);
     let giant = p.planet_type.is_giant();
     let has_air = giant || p.surf_pressure_mb > 0.0;
@@ -180,6 +187,7 @@ fn body(p: &ClassicPlanet, seed: u64, angles: &mut RngStream, hz: Option<&Habita
 
     Body {
         id,
+        name,
         kind: BodyKind::Planet,
         host: HostRef::Star(STAR),
         orbit: Orbit {
@@ -397,11 +405,16 @@ pub(crate) fn simulate(
         }
     };
 
+    let star_name = names::star_name(params.seed);
     let mut angles = RngStream::new(params.seed, ModuleId::ORBIT_ANGLES);
     let bodies = system
         .planets
         .iter()
-        .map(|p| body(p, params.seed, &mut angles, habitable_zones.first()))
+        .enumerate()
+        .map(|(index, p)| {
+            let name = names::planet_name(&star_name, index);
+            body(p, name, params.seed, &mut angles, habitable_zones.first())
+        })
         .collect();
 
     check(observer, Stage::Assembly, 0.95)?;
@@ -413,6 +426,7 @@ pub(crate) fn simulate(
         age_gyr,
         hierarchy: HierarchyNode::Star(Star {
             id: STAR,
+            name: star_name,
             mass_msun: system.star.mass_msun,
             luminosity_lsun: system.star.luminosity_lsun,
             radius_rsun: radius.0,

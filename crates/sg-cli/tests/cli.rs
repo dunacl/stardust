@@ -40,7 +40,7 @@ fn simulate_prints_a_summary_and_json() {
     let output = sg_cli(&["simulate", "--seed", "42", "--fidelity", "classic"]);
     assert!(output.status.success());
     let text = String::from_utf8_lossy(&output.stdout);
-    assert!(text.contains("Star: G2 1.00 Msun"), "{text}");
+    assert!(text.contains("Star Vorus: G2 1.00 Msun"), "{text}");
     assert!(text.contains("16 bodies"), "{text}");
 
     let output = sg_cli(&["simulate", "--seed", "42", "--json"]);

@@ -35,7 +35,7 @@ fn same_params_give_identical_results() {
 /// (Linux, macOS, Windows, WASM) for this model version. If a deliberate
 /// model change alters them, bump `MODEL_VERSION` and update the values; a
 /// schema change (which also changes the serialised snapshot) updates the
-/// values only. Last updated for schema 0.2.0.
+/// values only. Last updated for schema 0.3.0.
 #[test]
 fn snapshot_hashes_are_pinned() {
     assert_eq!(MODEL_VERSION, "0.1.0");
@@ -48,9 +48,9 @@ fn snapshot_hashes_are_pinned() {
 }
 
 const PINNED: [(u64, f64, &str); 3] = [
-    (1, 1.0, "2ff334029fbcb1e2"),
-    (42, 1.0, "41ae9c0cfa1d5287"),
-    (7, 0.3, "157d0eeccda95d39"),
+    (1, 1.0, "e171aed07921a126"),
+    (42, 1.0, "f795e26f4c68651c"),
+    (7, 0.3, "f48cb0813da45ec1"),
 ];
 
 #[test]

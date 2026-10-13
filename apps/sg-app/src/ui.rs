@@ -1,4 +1,5 @@
-//! The egui panels: controls, formation timeline and data card.
+//! The egui layer: controls, formation timeline, data card, and the name
+//! labels beside the star and planets.
 
 use crate::cards::{self, Card};
 use crate::state::{run_simulation, AppState, SimulationTargets, DEFAULT_PLAYBACK_SECS};
@@ -6,7 +7,7 @@ use bevy::prelude::*;
 use bevy_egui::egui::{self, Align2, Color32, RichText};
 use bevy_egui::EguiContexts;
 use sg_render::scene::system_extent;
-use sg_render::{PointerCaptured, ScaleMode, Target};
+use sg_render::{BodyPlacements, PointerCaptured, ScaleMode, Target};
 use sg_schema::{Fidelity, PresetId};
 use sg_sim::{preset_availability, PresetAvailability, ALL_PRESETS, MODEL_VERSION};
 
@@ -151,6 +152,11 @@ fn controls(ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTar
         ui.checkbox(&mut targets.settings.show_orbits, "Orbits");
         ui.checkbox(&mut targets.settings.show_habitable_zone, "Habitable zone");
         ui.checkbox(&mut targets.playback.orbits_running, "Orbital motion");
+    });
+    ui.horizontal(|ui| {
+        ui.checkbox(&mut targets.settings.show_labels, "Names");
+        ui.checkbox(&mut targets.settings.show_backdrop, "Sky backdrop")
+            .on_hover_text("Scenery: the stars and galaxies behind the system are not simulated.");
     });
     ui.add(
         egui::Slider::new(&mut targets.playback.days_per_second, 1.0..=3000.0)
@@ -302,13 +308,108 @@ fn selected_card(targets: &SimulationTargets) -> Option<Card> {
     }
 }
 
+/// A name to draw: where, what, and how much it matters when names collide.
+struct Label {
+    anchor: egui::Pos2,
+    text: String,
+    selected: bool,
+    mass_mearth: f64,
+}
+
+const LABEL_FONT_SIZE: f32 = 13.0;
+
+/// Names beside the star and the finished planets, under the panels. Where
+/// two would overlap, the selected body wins, then the heavier one.
+fn labels(
+    ctx: &egui::Context,
+    targets: &SimulationTargets,
+    placements: &BodyPlacements,
+    camera: &Camera,
+    camera_transform: &GlobalTransform,
+) {
+    let Some(result) = targets.view.result() else {
+        return;
+    };
+    // Embryos have no names: only the finished system is labelled.
+    let finished = targets.playback.t_myr >= targets.view.timeline_end_myr();
+    let eye = camera_transform.translation();
+
+    let mut wanted: Vec<Label> = Vec::new();
+    for (target, placement) in placements.iter() {
+        let (text, mass_mearth) = match target {
+            Target::Star => match targets.view.star() {
+                Some(star) => (star.name.clone(), f64::INFINITY),
+                None => continue,
+            },
+            Target::Body(id) => match result.snapshot.bodies.iter().find(|b| b.id == id) {
+                Some(body) if finished => (body.name.clone(), body.mass_mearth),
+                _ => continue,
+            },
+        };
+        // Anchor at the body's upper-right edge as seen on screen.
+        let edge = placement.position
+            + (*camera_transform.right() + *camera_transform.up()) * (placement.radius * 0.75);
+        if (edge - eye).dot(*camera_transform.forward()) <= 0.0 {
+            continue;
+        }
+        let Ok(at) = camera.world_to_viewport(camera_transform, edge) else {
+            continue;
+        };
+        wanted.push(Label {
+            anchor: egui::pos2(at.x + 4.0, at.y - 4.0),
+            text,
+            selected: targets.selection.0 == Some(target),
+            mass_mearth,
+        });
+    }
+    wanted.sort_by(|a, b| {
+        b.selected
+            .cmp(&a.selected)
+            .then(b.mass_mearth.total_cmp(&a.mass_mearth))
+    });
+
+    let painter = ctx.layer_painter(egui::LayerId::background());
+    let font = egui::FontId::proportional(LABEL_FONT_SIZE);
+    let mut taken: Vec<egui::Rect> = Vec::new();
+    for label in wanted {
+        let color = if label.selected {
+            Color32::from_rgb(255, 235, 140)
+        } else {
+            Color32::from_rgba_unmultiplied(205, 214, 230, 215)
+        };
+        let galley = painter.layout_no_wrap(label.text, font.clone(), color);
+        let rect = egui::Rect::from_min_size(
+            label.anchor - egui::vec2(0.0, galley.size().y),
+            galley.size(),
+        );
+        if taken.iter().any(|other| other.intersects(rect)) {
+            continue;
+        }
+        // A dark copy underneath keeps the text readable over bright things.
+        let shadow = painter.layout_no_wrap(
+            galley.text().to_string(),
+            font.clone(),
+            Color32::from_black_alpha(200),
+        );
+        painter.galley(rect.min + egui::vec2(1.0, 1.0), shadow, Color32::BLACK);
+        painter.galley(rect.min, galley, color);
+        taken.push(rect.expand(2.0));
+    }
+}
+
 pub fn draw(
     mut contexts: EguiContexts,
     mut state: ResMut<AppState>,
     mut targets: SimulationTargets,
     mut captured: ResMut<PointerCaptured>,
+    placements: Res<BodyPlacements>,
+    camera: Single<(&Camera, &GlobalTransform), With<Camera3d>>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
+    if targets.settings.show_labels {
+        let (camera, camera_transform) = *camera;
+        labels(ctx, &targets, &placements, camera, camera_transform);
+    }
     if !state.show_ui {
         captured.0 = false;
         return Ok(());

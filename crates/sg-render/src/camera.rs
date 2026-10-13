@@ -129,7 +129,7 @@ pub(crate) fn apply_camera(
             orbit.goal_focus = placement.position;
             if *followed != Some(target) {
                 orbit.goal_distance =
-                    (placement.body_radius * 9.0).clamp(MIN_DISTANCE, MAX_DISTANCE);
+                    (placement.focus_radius * 9.0).clamp(MIN_DISTANCE, MAX_DISTANCE);
                 *followed = Some(target);
             }
         }

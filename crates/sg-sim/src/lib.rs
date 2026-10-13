@@ -10,6 +10,7 @@
 
 #[cfg(feature = "classic")]
 mod classic;
+pub mod names;
 mod presets;
 
 pub use presets::{preset_availability, preset_params, PresetAvailability, ALL_PRESETS};

@@ -15,7 +15,7 @@ mod ui;
 
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{save_to_disk, Screenshot};
-use bevy::window::WindowResolution;
+use bevy::window::{WindowLevel, WindowOccluded, WindowResolution};
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 use clap::{Parser, ValueEnum};
 use sg_render::{ScaleMode, StarGenRenderPlugin, Target};
@@ -69,25 +69,62 @@ enum ScaleArg {
     Schematic,
 }
 
-/// Screenshot mode: frames to wait before capturing, then before exiting.
-#[derive(Resource)]
+/// Screenshot mode. The capture waits for the window to have been visible
+/// for both a number of frames and an amount of time: shaders compile in the
+/// background, and a window hidden behind others is not drawn at all, so a
+/// frame count alone can pass with nothing on screen.
+#[derive(Resource, Default)]
 struct Capture {
     path: PathBuf,
-    frame: u32,
+    occluded: bool,
+    /// Frames drawn, and the time, since the window was last uncovered.
+    visible_frames: u32,
+    visible_since_secs: f32,
+    /// Seconds since startup at which the screenshot was requested.
+    captured_at_secs: Option<f32>,
 }
 
-const CAPTURE_AT_FRAME: u32 = 90;
-const EXIT_AT_FRAME: u32 = 130;
+const CAPTURE_AFTER_FRAMES: u32 = 90;
+const CAPTURE_AFTER_SECS: f32 = 2.5;
+/// Time allowed for the screenshot to be written before exiting.
+const EXIT_AFTER_CAPTURE_SECS: f32 = 1.0;
+/// Give up if the window stays hidden this long.
+const CAPTURE_TIMEOUT_SECS: f32 = 30.0;
 
-fn capture(mut commands: Commands, mut capture: ResMut<Capture>, mut exit: MessageWriter<AppExit>) {
-    capture.frame += 1;
-    if capture.frame == CAPTURE_AT_FRAME {
+fn capture(
+    mut commands: Commands,
+    mut capture: ResMut<Capture>,
+    mut occlusion: MessageReader<WindowOccluded>,
+    time: Res<Time<Real>>,
+    mut exit: MessageWriter<AppExit>,
+) {
+    let now = time.elapsed_secs();
+    for change in occlusion.read() {
+        capture.occluded = change.occluded;
+        capture.visible_frames = 0;
+        capture.visible_since_secs = now;
+    }
+    if let Some(at) = capture.captured_at_secs {
+        if now >= at + EXIT_AFTER_CAPTURE_SECS {
+            exit.write(AppExit::Success);
+        }
+        return;
+    }
+    if capture.occluded {
+        if now >= CAPTURE_TIMEOUT_SECS {
+            error!("no screenshot: the window stayed hidden behind other windows");
+            exit.write(AppExit::error());
+        }
+        return;
+    }
+    capture.visible_frames += 1;
+    if capture.visible_frames >= CAPTURE_AFTER_FRAMES
+        && now >= capture.visible_since_secs + CAPTURE_AFTER_SECS
+    {
         commands
             .spawn(Screenshot::primary_window())
             .observe(save_to_disk(capture.path.clone()));
-    }
-    if capture.frame >= EXIT_AT_FRAME {
-        exit.write(AppExit::Success);
+        capture.captured_at_secs = Some(now);
     }
 }
 
@@ -120,6 +157,13 @@ fn main() -> anyhow::Result<()> {
         primary_window: Some(Window {
             title: "StarGen-NG".into(),
             resolution: WindowResolution::new(1440, 900),
+            // A screenshot needs the window drawn, and a covered window is
+            // not: keep it in front for the few seconds it exists.
+            window_level: if args.screenshot.is_some() {
+                WindowLevel::AlwaysOnTop
+            } else {
+                WindowLevel::Normal
+            },
             ..default()
         }),
         ..default()
@@ -131,7 +175,7 @@ fn main() -> anyhow::Result<()> {
     .add_systems(EguiPrimaryContextPass, ui::draw);
 
     if let Some(path) = args.screenshot {
-        app.insert_resource(Capture { path, frame: 0 })
+        app.insert_resource(Capture { path, ..default() })
             .add_systems(Update, capture);
     }
 

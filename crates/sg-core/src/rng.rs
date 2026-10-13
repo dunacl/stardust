@@ -25,6 +25,8 @@ impl ModuleId {
     /// Orbital angles the Classic tier does not model (PLAN.md §7.3).
     pub const ORBIT_ANGLES: ModuleId = ModuleId(6);
     pub const VISUAL: ModuleId = ModuleId(7);
+    /// Names of stars and planets.
+    pub const NAMES: ModuleId = ModuleId(8);
 }
 
 /// One SplitMix64 step (Steele, Lea & Flood 2014). Used only to spread the

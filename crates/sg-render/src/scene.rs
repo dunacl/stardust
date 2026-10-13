@@ -1,9 +1,11 @@
-//! The 3D scene: star, bodies, orbit lines and formation highlights.
+//! The 3D scene: star, bodies, orbit lines and formation highlights. Belts
+//! are in [`crate::belt`] and the sky in [`crate::sky`].
 
 use crate::camera::{self, OrbitCamera, PointerCaptured};
 use crate::display::{self, DisplayBody, Highlight};
 use crate::palette;
 use crate::scale::ScaleBlend;
+use crate::{belt, sky};
 use bevy::light::GlobalAmbientLight;
 use bevy::prelude::*;
 use sg_core::units::{Au, SolarMass};
@@ -97,6 +99,10 @@ pub struct ViewSettings {
     pub show_orbits: bool,
     pub show_habitable_zone: bool,
     pub show_formation_highlights: bool,
+    /// The sky behind the system ([`crate::sky`]): scenery, not simulation.
+    pub show_backdrop: bool,
+    /// Names beside the star and planets. Drawn by the app.
+    pub show_labels: bool,
 }
 
 impl Default for ViewSettings {
@@ -106,6 +112,8 @@ impl Default for ViewSettings {
             show_orbits: true,
             show_habitable_zone: true,
             show_formation_highlights: true,
+            show_backdrop: true,
+            show_labels: true,
         }
     }
 }
@@ -118,6 +126,9 @@ pub struct Placement {
     pub radius: f32,
     /// Radius the scale mode assigns, before the minimum apparent size.
     pub body_radius: f32,
+    /// Size of what the camera should frame when this is selected: the body
+    /// itself, or for a belt a stretch of the belt.
+    pub focus_radius: f32,
 }
 
 /// Scene position and drawn radius of everything selectable, refreshed
@@ -163,8 +174,18 @@ struct SceneEntities {
 /// what you see until you are very close.
 const MIN_APPARENT_RADIUS: f32 = 0.0035;
 const ORBIT_SEGMENTS: usize = 128;
+/// Illuminance the star gives the body being followed, and the reference
+/// distance of the overview. Exposure conventions, not physics.
+const FOLLOWED_LUX: f32 = 20_000.0;
+const OVERVIEW_LUX: f32 = 2200.0;
 /// How long a formation highlight lingers, as a fraction of the timeline.
 const HIGHLIGHT_LOOKBACK: f64 = 0.02;
+
+/// Smallest radius at which something at `position` is drawn, seen from
+/// `eye`.
+pub(crate) fn apparent_floor(eye: Vec3, position: Vec3) -> f32 {
+    (position - eye).length() * MIN_APPARENT_RADIUS
+}
 
 /// Simulation frame (z up, AU) to scene frame (y up).
 fn to_scene(p: [f64; 3]) -> Vec3 {
@@ -172,7 +193,7 @@ fn to_scene(p: [f64; 3]) -> Vec3 {
 }
 
 /// Applies the scale mode's radial mapping to a position in AU.
-fn map_position(scale: &ScaleBlend, p: [f64; 3]) -> Vec3 {
+pub(crate) fn map_position(scale: &ScaleBlend, p: [f64; 3]) -> Vec3 {
     let v = to_scene(p);
     let r = v.length();
     if r <= f32::EPSILON {
@@ -288,7 +309,7 @@ fn sync_scene(
 
     let scale = &settings.scale;
     let eye = orbit.eye();
-    let apparent_floor = |position: Vec3| (position - eye).length() * MIN_APPARENT_RADIUS;
+    let apparent_floor = |position: Vec3| apparent_floor(eye, position);
 
     // The star.
     let star_color = palette::star_color(star.color_linear_rgb);
@@ -323,18 +344,9 @@ fn sync_scene(
             position: Vec3::ZERO,
             radius: star_radius,
             body_radius: star_body_radius,
+            focus_radius: star_body_radius,
         },
     );
-
-    // Light the scene so that whatever the camera is looking at is well
-    // exposed: about 2200 lux at the focus distance (a point light of Φ
-    // lumens gives Φ/4πd² lux), never less than a third of the way out.
-    // Real sunlight falls off as 1/d²; a fixed physical brightness would
-    // leave either the inner or the outer system unreadable.
-    let extent = system_extent(result, scale);
-    let reference = orbit.goal_focus.length().max(0.3 * extent);
-    light.color = Color::LinearRgba(star_color);
-    light.intensity = 2200.0 * 4.0 * std::f32::consts::PI * reference * reference;
 
     // The bodies.
     let shown = display::bodies_at(result, playback.t_myr);
@@ -388,6 +400,12 @@ fn sync_scene(
                 position,
                 radius,
                 body_radius,
+                focus_radius: match body.class {
+                    Some(class) if belt::is_belt_sized(class, body.mass_mearth) => {
+                        position.length() * belt::SELECTED_VIEW_FRACTION
+                    }
+                    _ => body_radius,
+                },
             },
         );
     }
@@ -402,6 +420,22 @@ fn sync_scene(
             selection.0 = None;
         }
     }
+
+    // Light the scene so that whatever the camera is looking at is well
+    // exposed (a point light of Φ lumens gives Φ/4πd² lux at distance d):
+    // `FOLLOWED_LUX` at the body being followed, or `OVERVIEW_LUX` a third
+    // of the way out when the whole system is in view. Real sunlight falls
+    // off as 1/d²; a fixed physical brightness would leave either the inner
+    // or the outer system unreadable.
+    let extent = system_extent(result, scale);
+    let (lux, reference) = match selection.0.and_then(|target| placements.0.get(&target)) {
+        Some(followed) if followed.position.length() > star_radius => {
+            (FOLLOWED_LUX, followed.position.length())
+        }
+        _ => (OVERVIEW_LUX, 0.3 * extent),
+    };
+    light.color = Color::LinearRgba(star_color);
+    light.intensity = lux * 4.0 * std::f32::consts::PI * reference * reference;
 }
 
 fn ring(gizmos: &mut Gizmos, radius: f32, color: Color) {
@@ -492,6 +526,8 @@ impl Plugin for StarGenRenderPlugin {
             .init_resource::<SceneEntities>()
             .init_resource::<OrbitCamera>()
             .init_resource::<PointerCaptured>()
+            .init_resource::<belt::BeltEntities>()
+            .init_resource::<sky::SkyState>()
             .add_systems(Startup, (setup, camera::spawn_camera))
             .add_systems(
                 Update,
@@ -499,7 +535,9 @@ impl Plugin for StarGenRenderPlugin {
                     camera::control_camera,
                     advance,
                     sync_scene,
+                    belt::sync_belts,
                     camera::apply_camera,
+                    sky::sync_sky,
                     camera::pick,
                     draw_overlays,
                 )

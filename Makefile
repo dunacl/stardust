@@ -71,7 +71,7 @@ shot: ## One screenshot of the current SEED/PRESET/SCALE
 	$(APP) $(APP_ARGS) --screenshot $(SHOTS)/shot.png
 
 .PHONY: shots
-shots: ## The reference set: three scales, formation, close-ups, red dwarf
+shots: ## The reference set: three scales, formation, close-ups, red dwarf, belt
 	@mkdir -p $(SHOTS)
 	$(APP) --seed $(SEED) --scale enlarged  --screenshot $(SHOTS)/overview-enlarged.png
 	$(APP) --seed $(SEED) --scale schematic --screenshot $(SHOTS)/overview-schematic.png
@@ -82,6 +82,7 @@ shots: ## The reference set: three scales, formation, close-ups, red dwarf
 	$(APP) --seed $(SEED) --select 3 --screenshot $(SHOTS)/planet-3.png
 	$(APP) --seed $(SEED) --select 7 --screenshot $(SHOTS)/planet-7.png
 	$(APP) --seed $(SEED) --preset red-dwarf --scale schematic --screenshot $(SHOTS)/red-dwarf.png
+	$(APP) --seed 736 --select 3 --screenshot $(SHOTS)/asteroid-belt.png
 	@printf 'screenshots written to %s\n' '$(SHOTS)'
 
 ##@ Individual checks

@@ -210,7 +210,8 @@ fn summary(result: &SimulationResult) -> String {
     if let HierarchyNode::Star(star) = &snap.hierarchy {
         let _ = writeln!(
             out,
-            "Star: {} {:.2} Msun, {:.3} Lsun, {:.2} Rsun, {:.0} K, age {:.2} Gyr",
+            "Star {}: {} {:.2} Msun, {:.3} Lsun, {:.2} Rsun, {:.0} K, age {:.2} Gyr",
+            star.name,
             star.spectral_class,
             star.mass_msun,
             star.luminosity_lsun,

@@ -51,6 +51,8 @@ pub enum HierarchyNode {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Star {
     pub id: StarId,
+    /// Generated proper name, e.g. `Velora`. A label only.
+    pub name: String,
     pub mass_msun: f64,
     pub luminosity_lsun: f64,
     pub radius_rsun: f64,
@@ -103,6 +105,9 @@ pub enum HostRef {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Body {
     pub id: BodyId,
+    /// Designation, e.g. `Velora b`: the host's name and a letter running
+    /// outward from `b`. A label only.
+    pub name: String,
     pub kind: BodyKind,
     pub host: HostRef,
     pub orbit: Orbit,

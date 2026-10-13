@@ -26,6 +26,10 @@ pub fn class_color(class: PlanetClass) -> Color {
     Color::srgb(r, g, b)
 }
 
+/// Rocks of a belt: lighter than the class swatch, since they are drawn
+/// only a pixel or two across.
+pub const BELT_ROCK_COLOR: Color = Color::srgb(0.66, 0.62, 0.57);
+
 /// Colour of a body that is still forming.
 pub const EMBRYO_COLOR: Color = Color::srgb(0.62, 0.50, 0.40);
 

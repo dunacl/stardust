@@ -3,6 +3,7 @@
 //! Pure text formatting over the snapshot, so it is unit-tested without a
 //! window.
 
+use sg_render::belt::is_belt;
 use sg_schema::{Body, HabitableZone, PlanetClass, Star};
 
 /// A titled list of label/value rows, plus free-text notes.
@@ -45,6 +46,28 @@ pub fn duration(hours: f64) -> String {
         format!("{:.1} days", hours / 24.0)
     } else {
         format!("{:.2} years", hours / (24.0 * 365.25))
+    }
+}
+
+/// `1st`, `2nd`, `3rd`, `4th`, … `11th`, `12th`, `13th`, … `21st`.
+pub fn ordinal(n: usize) -> String {
+    let suffix = match (n % 10, n % 100) {
+        (_, 11..=13) => "th",
+        (1, _) => "st",
+        (2, _) => "nd",
+        (3, _) => "rd",
+        _ => "th",
+    };
+    format!("{n}{suffix}")
+}
+
+/// A mass in Earth masses: three decimals, or scientific notation when
+/// that would round to nothing.
+pub fn mass(mass_mearth: f64) -> String {
+    if mass_mearth < 0.01 {
+        format!("{mass_mearth:.1e}")
+    } else {
+        format!("{mass_mearth:.3}")
     }
 }
 
@@ -94,8 +117,8 @@ pub fn star_card(star: &Star, hz: Option<&HabitableZone>, planets: usize) -> Car
         });
     }
     Card {
-        title: format!("{} star", star.spectral_class),
-        subtitle: "Main sequence".into(),
+        title: star.name.clone(),
+        subtitle: format!("{} main-sequence star", star.spectral_class),
         sections,
         notes: Vec::new(),
     }
@@ -116,7 +139,7 @@ pub fn body_card(body: &Body, number: usize) -> Card {
             heading: "Body",
             rows: {
                 let mut rows = vec![
-                    ("Mass", format!("{:.3} Earth masses", body.mass_mearth)),
+                    ("Mass", format!("{} Earth masses", mass(body.mass_mearth))),
                     (
                         "Radius",
                         format!(
@@ -203,6 +226,25 @@ pub fn body_card(body: &Body, number: usize) -> Card {
     }
 
     let mut notes = Vec::new();
+    let kind = if is_belt(body) {
+        notes.push(
+            "Too little mass for a planet: drawn as a belt. The model gives the belt's \
+             orbit and total mass; the rocks shown are illustrative."
+                .into(),
+        );
+        class_name(body.class)
+    } else if body.class == PlanetClass::Asteroids {
+        // The Classic model applies this label at random to airless bodies
+        // of any mass (docs/classic-constants.md §12).
+        notes.push(
+            "The Classic model labels this body \"Asteroids\", but at this mass it is a \
+             single airless world."
+                .into(),
+        );
+        class_name(PlanetClass::Rock)
+    } else {
+        class_name(body.class)
+    };
     let f = &body.formation;
     let mut story = format!("Grew from a nucleus injected at {:.2} AU", f.origin_a_au);
     match f.mergers {
@@ -232,8 +274,8 @@ pub fn body_card(body: &Body, number: usize) -> Card {
     }
 
     Card {
-        title: format!("Planet {number}"),
-        subtitle: class_name(body.class).into(),
+        title: body.name.clone(),
+        subtitle: format!("{kind} · {} from the star", ordinal(number)),
         sections,
         notes,
     }
@@ -266,7 +308,8 @@ mod tests {
             panic!("single star");
         };
         let card = star_card(star, result.snapshot.habitable_zones.first(), 16);
-        assert_eq!(card.title, "G2 star");
+        assert_eq!(card.title, "Vorus");
+        assert_eq!(card.subtitle, "G2 main-sequence star");
         let rows: Vec<_> = card.sections.iter().flat_map(|s| s.rows.clone()).collect();
         assert!(rows.contains(&("Mass", "1.00 M☉".to_string())));
         assert!(rows.contains(&("Temperature", "5772 K".to_string())));
@@ -284,8 +327,8 @@ mod tests {
             .find(|(_, b)| b.class == PlanetClass::Terrestrial)
             .expect("seed 42 has a terrestrial planet");
         let card = body_card(body, index + 1);
-        assert_eq!(card.title, "Planet 7");
-        assert_eq!(card.subtitle, "Terrestrial");
+        assert_eq!(card.title, "Vorus h");
+        assert_eq!(card.subtitle, "Terrestrial · 7th from the star");
         let headings: Vec<_> = card.sections.iter().map(|s| s.heading).collect();
         assert_eq!(headings, ["Orbit", "Body", "Surface"]);
         let surface = &card.sections[2].rows;
@@ -294,6 +337,60 @@ mod tests {
             .any(|(k, v)| *k == "Atmosphere" && v.starts_with("N ")));
         assert!(card.notes[0].starts_with("Grew from a nucleus injected at"));
         assert!(card.notes.iter().any(|n| n.contains("habitable zone")));
+    }
+
+    #[test]
+    fn small_masses_do_not_round_to_zero() {
+        assert_eq!(mass(1.0), "1.000");
+        assert_eq!(mass(0.0123), "0.012");
+        assert_eq!(mass(2.95e-4), "3.0e-4");
+    }
+
+    #[test]
+    fn ordinals_read_naturally() {
+        let got: Vec<String> = [1, 2, 3, 4, 11, 12, 13, 21, 22, 101, 111]
+            .into_iter()
+            .map(ordinal)
+            .collect();
+        assert_eq!(
+            got,
+            [
+                "1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "22nd", "101st",
+                "111th"
+            ]
+        );
+    }
+
+    /// The Classic model's "Asteroids" label is a random draw: only a body
+    /// light enough is presented as a belt (seed 736, third body).
+    #[test]
+    fn asteroid_label_is_only_shown_for_belt_sized_bodies() {
+        let seed = |seed| {
+            sg_sim::simulate(&SimulationParams {
+                seed,
+                ..SimulationParams::default()
+            })
+            .unwrap()
+        };
+        // Seed 2's innermost body is labelled Asteroids at 0.1 Earth masses.
+        let heavy = seed(2);
+        let (index, body) = (0, &heavy.snapshot.bodies[0]);
+        assert_eq!(body.class, PlanetClass::Asteroids);
+        let card = body_card(body, index + 1);
+        assert!(
+            card.subtitle.starts_with("Airless rock"),
+            "{}",
+            card.subtitle
+        );
+        assert!(card
+            .notes
+            .iter()
+            .any(|n| n.contains("single airless world")));
+
+        let light = seed(736);
+        let card = body_card(&light.snapshot.bodies[2], 3);
+        assert_eq!(card.subtitle, "Asteroid field · 3rd from the star");
+        assert!(card.notes.iter().any(|n| n.contains("drawn as a belt")));
     }
 
     #[test]

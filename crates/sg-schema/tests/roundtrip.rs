@@ -5,6 +5,7 @@ use sg_schema::*;
 fn sample_body() -> Body {
     Body {
         id: BodyId(3),
+        name: "Velora d".into(),
         kind: BodyKind::Planet,
         host: HostRef::Star(StarId(0)),
         orbit: Orbit {
@@ -94,6 +95,7 @@ fn sample_snapshot() -> SystemSnapshot {
             id: NodeId(2),
             a: Box::new(HierarchyNode::Star(Star {
                 id: StarId(0),
+                name: "Velora A".into(),
                 mass_msun: 1.0,
                 luminosity_lsun: 1.0,
                 radius_rsun: 1.0,
@@ -105,6 +107,7 @@ fn sample_snapshot() -> SystemSnapshot {
             })),
             b: Box::new(HierarchyNode::Star(Star {
                 id: StarId(1),
+                name: "Velora B".into(),
                 mass_msun: 0.5,
                 luminosity_lsun: 0.06,
                 radius_rsun: 0.57,
