@@ -88,10 +88,12 @@ fn main() {
     app.run();
 }
 
-/// Resolves `--select N` against a finished system.
+/// Resolves `--select N` against a finished system: the Nth planet in the
+/// snapshot's order, or for 0 the first star.
 pub(crate) fn nth_target(result: &sg_sim::SimulationResult, n: usize) -> Option<Target> {
     if n == 0 {
-        return Some(Target::Star);
+        let stars = sg_render::layout::stars(&result.snapshot.hierarchy);
+        return stars.first().map(|star| Target::Star(star.id));
     }
     let id: BodyId = result.snapshot.bodies.get(n - 1)?.id;
     Some(Target::Body(id))

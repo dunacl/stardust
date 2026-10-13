@@ -1,15 +1,15 @@
 //! The egui layer: controls, formation timeline, data card, and the name
 //! labels beside the star and planets.
 
-use crate::cards::{self, Card};
+use crate::cards::{self, Card, Companion};
 use crate::state::{run_simulation, AppState, SimulationTargets, DEFAULT_PLAYBACK_SECS};
 use bevy::prelude::*;
 use bevy_egui::egui::{self, Align2, Color32, RichText};
 use bevy_egui::EguiContexts;
 use sg_render::scene::system_extent;
-use sg_render::{BodyPlacements, PointerCaptured, ScaleMode, Target};
-use sg_schema::{Fidelity, PresetId};
-use sg_sim::{preset_availability, PresetAvailability, ALL_PRESETS, MODEL_VERSION};
+use sg_render::{layout, BodyPlacements, PointerCaptured, ScaleMode, Target};
+use sg_schema::{Fidelity, HostRef, PresetId, StarNode, SystemSpec};
+use sg_sim::{preset_availability, PresetAvailability, StellarModel, ALL_PRESETS, MODEL_VERSION};
 
 fn preset_name(preset: PresetId) -> &'static str {
     match preset {
@@ -27,8 +27,91 @@ fn preset_name(preset: PresetId) -> &'static str {
 
 const MUTED: Color32 = Color32::from_rgb(150, 156, 170);
 
+fn mass_slider(ui: &mut egui::Ui, mass: &mut f64, label: &str) {
+    ui.add(
+        egui::Slider::new(mass, 0.1..=3.0)
+            .logarithmic(true)
+            .text(label)
+            .fixed_decimals(2),
+    );
+}
+
+/// Sliders for an explicit hierarchy: a mass per star, a separation and an
+/// eccentricity per pair. `next` numbers the stars in the order shown.
+fn hierarchy_controls(ui: &mut egui::Ui, node: &mut StarNode, next: &mut u32) {
+    match node {
+        StarNode::Star(spec) => {
+            *next += 1;
+            mass_slider(ui, &mut spec.mass_msun, &format!("Star {next} mass (M☉)"));
+        }
+        StarNode::Pair { a, b, orbit } => {
+            ui.push_id(*next, |ui| {
+                hierarchy_controls(ui, a, next);
+                hierarchy_controls(ui, b, next);
+                ui.add(
+                    egui::Slider::new(&mut orbit.a_au, 0.03..=500.0)
+                        .logarithmic(true)
+                        .text("Separation (AU)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut orbit.e, 0.0..=0.8)
+                        .text("Eccentricity")
+                        .fixed_decimals(2),
+                );
+            });
+        }
+    }
+}
+
+fn system_controls(ui: &mut egui::Ui, system: &mut SystemSpec) {
+    match system {
+        SystemSpec::Auto {
+            primary_mass_msun: Some(mass),
+            ..
+        } => {
+            mass_slider(ui, mass, "Star mass (M☉)");
+            if !(0.2..=1.5).contains(mass) {
+                ui.label(
+                    RichText::new("Outside StarGen's 0.2–1.5 M☉: the star is evolved instead.")
+                        .small()
+                        .color(MUTED),
+                );
+            }
+        }
+        SystemSpec::Auto {
+            primary_mass_msun: None,
+            multiplicity: None,
+        } => {
+            ui.label(
+                RichText::new("Stars drawn from the mass function and multiplicity statistics")
+                    .color(MUTED),
+            );
+        }
+        SystemSpec::Auto { .. } => {
+            ui.label(RichText::new("Star mass: drawn at random (0.7–1.4 M☉)").color(MUTED));
+        }
+        SystemSpec::Explicit(node) => {
+            hierarchy_controls(ui, node, &mut 0);
+        }
+    }
+}
+
 fn controls(ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTargets) {
-    ui.label(RichText::new(format!("Classic tier · model {MODEL_VERSION}")).color(MUTED));
+    let stars = match targets.view.result().map(|r| r.diagnostics.stellar_model) {
+        Some(StellarModel::HurleyPolsTout2000) => "evolved stars",
+        _ => "StarGen stars",
+    };
+    ui.label(
+        RichText::new(format!(
+            "Classic accretion · {stars} · model {MODEL_VERSION}"
+        ))
+        .color(MUTED),
+    )
+    .on_hover_text(
+        "Planets form by the Classic (Dole/StarGen) accretion model. A single star of \
+         0.2–1.5 M☉ is modelled exactly as StarGen does; other stars, and all multiple \
+         systems, use main-sequence evolution fits and orbital-stability limits.",
+    );
     ui.separator();
 
     egui::ComboBox::from_label("Preset")
@@ -60,18 +143,7 @@ fn controls(ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTar
         }
     });
 
-    match state.mass_mut() {
-        Some(mass) => {
-            ui.add(
-                egui::Slider::new(mass, 0.2..=1.5)
-                    .text("Star mass (M☉)")
-                    .fixed_decimals(2),
-            );
-        }
-        None => {
-            ui.label(RichText::new("Star mass: drawn at random (0.7–1.4 M☉)").color(MUTED));
-        }
-    }
+    system_controls(ui, &mut state.params.system);
 
     let mut fixed_age = state.params.age_gyr.is_some();
     ui.horizontal(|ui| {
@@ -85,7 +157,7 @@ fn controls(ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTar
                     .fixed_decimals(1),
             );
         } else {
-            ui.label(RichText::new("sampled, 1–6 Gyr").color(MUTED));
+            ui.label(RichText::new("sampled").color(MUTED));
         }
     });
 
@@ -151,6 +223,11 @@ fn controls(ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTar
     ui.horizontal(|ui| {
         ui.checkbox(&mut targets.settings.show_orbits, "Orbits");
         ui.checkbox(&mut targets.settings.show_habitable_zone, "Habitable zone");
+        ui.checkbox(&mut targets.settings.show_stability_limits, "Limits")
+            .on_hover_text(
+                "Red rings: where a companion star's pull ends the zone in which \
+                 planets keep stable orbits.",
+            );
         ui.checkbox(&mut targets.playback.orbits_running, "Orbital motion");
     });
     ui.horizontal(|ui| {
@@ -287,23 +364,48 @@ fn card(ui: &mut egui::Ui, card: &Card) {
 
 fn selected_card(targets: &SimulationTargets) -> Option<Card> {
     let result = targets.view.result()?;
+    let snapshot = &result.snapshot;
     match targets.selection.0? {
-        Target::Star => {
-            let star = targets.view.star()?;
+        Target::Star(id) => {
+            let star = targets.view.star(id)?;
+            let host = HostRef::Star(id);
+            let companion = layout::parent_orbit(&snapshot.hierarchy, host).map(
+                |(pair, orbit, _own_mass, sibling_mass)| {
+                    // Its companions: the other stars under the same pair.
+                    let names: Vec<&str> =
+                        layout::find_host(&snapshot.hierarchy, HostRef::Barycenter(pair))
+                            .map(layout::stars)
+                            .unwrap_or_default()
+                            .into_iter()
+                            .filter(|other| other.id != id)
+                            .map(|other| other.name.as_str())
+                            .collect();
+                    Companion {
+                        name: names.join(" + "),
+                        separation_au: orbit.a_au,
+                        eccentricity: orbit.e,
+                        period_days: orbit.period_days,
+                        mass_msun: sibling_mass,
+                    }
+                },
+            );
             Some(cards::star_card(
                 star,
-                result.snapshot.habitable_zones.first(),
-                result.snapshot.bodies.len(),
+                snapshot.habitable_zones.iter().find(|hz| hz.host == host),
+                snapshot.planet_zones.iter().find(|zone| zone.host == host),
+                snapshot.bodies.iter().filter(|b| b.host == host).count(),
+                companion.as_ref(),
             ))
         }
         Target::Body(id) => {
-            let (index, body) = result
-                .snapshot
+            let body = snapshot.bodies.iter().find(|b| b.id == id)?;
+            // Counted outward among the planets of the same host.
+            let number = snapshot
                 .bodies
                 .iter()
-                .enumerate()
-                .find(|(_, b)| b.id == id)?;
-            Some(cards::body_card(body, index + 1))
+                .filter(|b| b.host == body.host && b.orbit.a_au <= body.orbit.a_au)
+                .count();
+            Some(cards::body_card(body, number))
         }
     }
 }
@@ -337,7 +439,7 @@ fn labels(
     let mut wanted: Vec<Label> = Vec::new();
     for (target, placement) in placements.iter() {
         let (text, mass_mearth) = match target {
-            Target::Star => match targets.view.star() {
+            Target::Star(id) => match targets.view.star(id) {
                 Some(star) => (star.name.clone(), f64::INFINITY),
                 None => continue,
             },

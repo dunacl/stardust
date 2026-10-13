@@ -45,6 +45,10 @@ struct Args {
 enum PresetArg {
     SunLike,
     RedDwarf,
+    MassiveAStar,
+    Circumbinary,
+    STypeBinary,
+    HierarchicalTriple,
     Random,
 }
 
@@ -122,6 +126,10 @@ pub fn launch() -> Launch {
         preset: match args.preset {
             PresetArg::SunLike => PresetId::SunLike,
             PresetArg::RedDwarf => PresetId::RedDwarf,
+            PresetArg::MassiveAStar => PresetId::MassiveAStar,
+            PresetArg::Circumbinary => PresetId::Circumbinary,
+            PresetArg::STypeBinary => PresetId::STypeBinary,
+            PresetArg::HierarchicalTriple => PresetId::HierarchicalTriple,
             PresetArg::Random => PresetId::Random,
         },
         scale: match args.scale {

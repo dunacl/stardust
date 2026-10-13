@@ -42,7 +42,8 @@ impl Default for OrbitCamera {
 }
 
 pub const MIN_DISTANCE: f32 = 2.0e-4;
-pub const MAX_DISTANCE: f32 = 600.0;
+/// Far enough to frame the widest binaries drawn (several thousand AU).
+pub const MAX_DISTANCE: f32 = 1.0e5;
 const CLICK_SLOP_PIXELS: f32 = 4.0;
 
 impl OrbitCamera {
@@ -75,7 +76,7 @@ pub(crate) fn spawn_camera(mut commands: Commands) {
         Projection::Perspective(PerspectiveProjection {
             // Small enough to approach a true-scale planet (radius ~1e-5).
             near: 2.0e-5,
-            far: 5.0e3,
+            far: 1.0e7,
             ..default()
         }),
         bevy::core_pipeline::tonemapping::Tonemapping::TonyMcMapface,

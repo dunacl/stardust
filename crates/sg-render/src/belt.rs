@@ -16,13 +16,14 @@
 //! are a drawing: their number, sizes and orbital scatter are chosen here,
 //! and their drawn size is far larger than life so they can be seen at all.
 
+use crate::layout::{self, Layout};
 use crate::scene::{self, Playback, SystemView, ViewSettings};
 use crate::OrbitCamera;
 use bevy::prelude::*;
 use sg_core::rng::{ModuleId, RngStream};
 use sg_core::units::{Au, SolarMass};
 use sg_dynamics::kepler::{self, Elements};
-use sg_schema::{Body, PlanetClass, SystemSnapshot};
+use sg_schema::{Body, HostRef, PlanetClass, SystemSnapshot};
 use std::f64::consts::TAU;
 
 /// StarGen's `ASTEROID_MASS_LIMIT` (`docs/classic-constants.md`), Earth
@@ -70,14 +71,15 @@ pub struct Rock {
     pub spin: [f32; 3],
 }
 
-/// Where the snapshot has belts to draw: `(seed, inner_au, outer_au)`.
-pub fn belt_zones(snapshot: &SystemSnapshot) -> Vec<(u64, f64, f64)> {
-    let mut zones: Vec<(u64, f64, f64)> = snapshot
+/// Where the snapshot has belts to draw: `(host, seed, inner_au, outer_au)`.
+pub fn belt_zones(snapshot: &SystemSnapshot) -> Vec<(HostRef, u64, f64, f64)> {
+    let mut zones: Vec<(HostRef, u64, f64, f64)> = snapshot
         .bodies
         .iter()
         .filter(|b| is_belt(b))
         .map(|b| {
             (
+                b.host,
                 b.visual.texture_seed,
                 b.orbit.a_au * (1.0 - BODY_BELT_HALF_WIDTH),
                 b.orbit.a_au * (1.0 + BODY_BELT_HALF_WIDTH),
@@ -89,7 +91,7 @@ pub fn belt_zones(snapshot: &SystemSnapshot) -> Vec<(u64, f64, f64)> {
             .belts
             .iter()
             .enumerate()
-            .map(|(index, belt)| (index as u64 + 1, belt.inner_au, belt.outer_au)),
+            .map(|(index, belt)| (belt.host, index as u64 + 1, belt.inner_au, belt.outer_au)),
     );
     zones
 }
@@ -126,7 +128,10 @@ pub fn rocks(seed: u64, inner_au: f64, outer_au: f64, count: usize) -> Vec<Rock>
 }
 
 #[derive(Component)]
-pub(crate) struct BeltRock(Rock);
+pub(crate) struct BeltRock {
+    host: HostRef,
+    rock: Rock,
+}
 
 #[derive(Resource, Default)]
 pub(crate) struct BeltEntities {
@@ -149,9 +154,10 @@ pub(crate) fn sync_belts(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut rocks_query: Query<(&BeltRock, &mut Transform, &mut Visibility)>,
 ) {
-    let (Some(result), Some(star)) = (view.result(), view.star()) else {
+    let Some(result) = view.result() else {
         return;
     };
+    let snapshot = &result.snapshot;
 
     if entities.generation != view.generation() {
         for entity in std::mem::take(&mut entities.rocks) {
@@ -166,11 +172,11 @@ pub(crate) fn sync_belts(
                 perceptual_roughness: 1.0,
                 ..default()
             });
-            for (seed, inner_au, outer_au) in zones {
+            for (host, seed, inner_au, outer_au) in zones {
                 for rock in rocks(seed, inner_au, outer_au, ROCKS_PER_BELT) {
                     let entity = commands
                         .spawn((
-                            BeltRock(rock),
+                            BeltRock { host, rock },
                             Mesh3d(mesh.clone()),
                             MeshMaterial3d(material.clone()),
                             Transform::default(),
@@ -185,7 +191,8 @@ pub(crate) fn sync_belts(
 
     let finished = playback.t_myr >= view.timeline_end_myr();
     let eye = orbit.eye();
-    for (rock, mut transform, mut visibility) in &mut rocks_query {
+    let layout = Layout::at(&snapshot.hierarchy, &settings.scale, playback.orbit_days);
+    for (belt_rock, mut transform, mut visibility) in &mut rocks_query {
         let wanted = if finished {
             Visibility::Visible
         } else {
@@ -197,19 +204,26 @@ pub(crate) fn sync_belts(
         if !finished {
             continue;
         }
-        let rock = rock.0;
-        let period = kepler::orbital_period(Au(rock.a_au), SolarMass(star.mass_msun)).0;
-        let position = scene::map_position(
-            &settings.scale,
-            kepler::position(Elements {
-                a: Au(rock.a_au),
-                e: rock.e,
-                i: rock.i_rad,
-                long_asc_node: rock.long_asc_node_rad,
-                arg_periapsis: rock.arg_periapsis_rad,
-                mean_anomaly: rock.mean_anomaly_rad + TAU * (playback.orbit_days / period),
-            }),
-        );
+        let rock = belt_rock.rock;
+        let (Some(centre), Some(host_mass)) = (
+            layout.host(belt_rock.host),
+            layout::host_mass(snapshot, belt_rock.host),
+        ) else {
+            continue;
+        };
+        let period = kepler::orbital_period(Au(rock.a_au), SolarMass(host_mass)).0;
+        let position = centre
+            + layout::map_offset(
+                &settings.scale,
+                kepler::position(Elements {
+                    a: Au(rock.a_au),
+                    e: rock.e,
+                    i: rock.i_rad,
+                    long_asc_node: rock.long_asc_node_rad,
+                    arg_periapsis: rock.arg_periapsis_rad,
+                    mean_anomaly: rock.mean_anomaly_rad + TAU * (playback.orbit_days / period),
+                }),
+            );
         let radius = scene::apparent_floor(eye, position) * ROCK_APPARENT_SIZE * rock.size;
         *transform = Transform {
             translation: position,
@@ -271,7 +285,7 @@ mod tests {
         assert_eq!(zones.len(), 1);
         let body = light.snapshot.bodies.iter().find(|b| is_belt(b)).unwrap();
         assert!(body.mass_mearth < BELT_MASS_LIMIT_MEARTH);
-        let (_, inner, outer) = zones[0];
+        let (_, _, inner, outer) = zones[0];
         assert!(inner < body.orbit.a_au && body.orbit.a_au < outer);
         assert!((outer - inner) / body.orbit.a_au < 0.2);
     }
@@ -287,6 +301,6 @@ mod tests {
         });
         let zones = belt_zones(&result.snapshot);
         assert_eq!(zones.len(), 1);
-        assert_eq!((zones[0].1, zones[0].2), (2.1, 3.3));
+        assert_eq!((zones[0].2, zones[0].3), (2.1, 3.3));
     }
 }

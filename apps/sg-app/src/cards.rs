@@ -4,7 +4,7 @@
 //! window.
 
 use sg_render::belt::is_belt;
-use sg_schema::{Body, HabitableZone, PlanetClass, Star};
+use sg_schema::{Body, HabitableZone, PlanetClass, PlanetZone, Star};
 
 /// A titled list of label/value rows, plus free-text notes.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -79,7 +79,25 @@ fn percent(fraction: f64) -> String {
     format!("{:.0}%", fraction * 100.0)
 }
 
-pub fn star_card(star: &Star, hz: Option<&HabitableZone>, planets: usize) -> Card {
+/// A star's place in a multiple system, for its card.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Companion {
+    /// Names of the star or stars it orbits with.
+    pub name: String,
+    pub separation_au: f64,
+    pub eccentricity: f64,
+    pub period_days: f64,
+    /// Combined mass of the companion side, M☉.
+    pub mass_msun: f64,
+}
+
+pub fn star_card(
+    star: &Star,
+    hz: Option<&HabitableZone>,
+    zone: Option<&PlanetZone>,
+    planets: usize,
+    companion: Option<&Companion>,
+) -> Card {
     let mut sections = vec![Section {
         heading: "Star",
         rows: vec![
@@ -95,6 +113,29 @@ pub fn star_card(star: &Star, hz: Option<&HabitableZone>, planets: usize) -> Car
             ("Planets", planets.to_string()),
         ],
     }];
+    let mut notes = Vec::new();
+    if let Some(companion) = companion {
+        sections.push(Section {
+            heading: "Companion",
+            rows: vec![
+                ("Orbits with", companion.name.clone()),
+                ("Companion mass", format!("{:.2} M☉", companion.mass_msun)),
+                ("Separation", format!("{} AU", au(companion.separation_au))),
+                ("Eccentricity", format!("{:.2}", companion.eccentricity)),
+                ("Period", duration(companion.period_days * 24.0)),
+            ],
+        });
+        match zone {
+            Some(zone) if zone.limited_outside => notes.push(format!(
+                "Its companion leaves stable orbits for planets only within {} AU.",
+                au(zone.outer_au)
+            )),
+            Some(_) => {}
+            None => notes.push(
+                "Its companion is too close for this star to keep planets of its own.".into(),
+            ),
+        }
+    }
     if let Some(hz) = hz {
         sections.push(Section {
             heading: "Habitable zone",
@@ -120,11 +161,30 @@ pub fn star_card(star: &Star, hz: Option<&HabitableZone>, planets: usize) -> Car
         title: star.name.clone(),
         subtitle: format!("{} main-sequence star", star.spectral_class),
         sections,
-        notes: Vec::new(),
+        notes,
     }
 }
 
-/// `number` is the planet's 1-based position counting outward.
+/// A distance in AU with digits suited to its size.
+pub fn au(distance_au: f64) -> String {
+    if distance_au < 1.0 {
+        format!("{distance_au:.3}")
+    } else if distance_au < 100.0 {
+        format!("{distance_au:.2}")
+    } else {
+        format!("{distance_au:.0}")
+    }
+}
+
+/// What a planet orbits, read off its designation: `Vorus AB d` orbits
+/// `Vorus AB`.
+fn host_label(body: &Body) -> &str {
+    body.name
+        .rsplit_once(' ')
+        .map_or("its star", |(host, _)| host)
+}
+
+/// `number` is the planet's 1-based position counting outward from its host.
 pub fn body_card(body: &Body, number: usize) -> Card {
     let mut sections = vec![
         Section {
@@ -275,7 +335,11 @@ pub fn body_card(body: &Body, number: usize) -> Card {
 
     Card {
         title: body.name.clone(),
-        subtitle: format!("{kind} · {} from the star", ordinal(number)),
+        subtitle: format!(
+            "{kind} · {} planet of {}",
+            ordinal(number),
+            host_label(body)
+        ),
         sections,
         notes,
     }
@@ -307,7 +371,14 @@ mod tests {
         let HierarchyNode::Star(star) = &result.snapshot.hierarchy else {
             panic!("single star");
         };
-        let card = star_card(star, result.snapshot.habitable_zones.first(), 16);
+        let card = star_card(
+            star,
+            result.snapshot.habitable_zones.first(),
+            result.snapshot.planet_zones.first(),
+            16,
+            None,
+        );
+        assert!(card.notes.is_empty());
         assert_eq!(card.title, "Vorus");
         assert_eq!(card.subtitle, "G2 main-sequence star");
         let rows: Vec<_> = card.sections.iter().flat_map(|s| s.rows.clone()).collect();
@@ -328,7 +399,7 @@ mod tests {
             .expect("seed 42 has a terrestrial planet");
         let card = body_card(body, index + 1);
         assert_eq!(card.title, "Vorus h");
-        assert_eq!(card.subtitle, "Terrestrial · 7th from the star");
+        assert_eq!(card.subtitle, "Terrestrial · 7th planet of Vorus");
         let headings: Vec<_> = card.sections.iter().map(|s| s.heading).collect();
         assert_eq!(headings, ["Orbit", "Body", "Surface"]);
         let surface = &card.sections[2].rows;
@@ -337,6 +408,62 @@ mod tests {
             .any(|(k, v)| *k == "Atmosphere" && v.starts_with("N ")));
         assert!(card.notes[0].starts_with("Grew from a nucleus injected at"));
         assert!(card.notes.iter().any(|n| n.contains("habitable zone")));
+    }
+
+    /// α Centauri-like: each star's card names its companion and the limit
+    /// it sets; its planets are counted from their own star.
+    #[test]
+    fn cards_of_a_binary_describe_the_companion() {
+        use sg_schema::{Fidelity, HostRef, PresetId, StarId};
+        let result = sg_sim::simulate(&sg_sim::preset_params(
+            PresetId::STypeBinary,
+            42,
+            Fidelity::Classic,
+        ))
+        .unwrap();
+        let snap = &result.snapshot;
+        let stars = sg_render::layout::stars(&snap.hierarchy);
+        let companion = Companion {
+            name: stars[1].name.clone(),
+            separation_au: 23.5,
+            eccentricity: 0.52,
+            period_days: 29_496.0,
+            mass_msun: 0.91,
+        };
+        let host = HostRef::Star(StarId(0));
+        let zone = snap.planet_zones.iter().find(|z| z.host == host);
+        let card = star_card(stars[0], None, zone, 8, Some(&companion));
+        assert_eq!(card.title, "Vorus A");
+        let rows: Vec<_> = card.sections.iter().flat_map(|s| s.rows.clone()).collect();
+        assert!(rows.contains(&("Orbits with", "Vorus B".to_string())));
+        assert!(rows.contains(&("Separation", "23.50 AU".to_string())));
+        assert!(rows.contains(&("Period", "80.76 years".to_string())));
+        assert!(
+            card.notes[0].contains("only within 2.76 AU"),
+            "{}",
+            card.notes[0]
+        );
+        // Without a zone, the star keeps no planets.
+        let card = star_card(stars[0], None, None, 0, Some(&companion));
+        assert!(card.notes[0].contains("too close"));
+
+        let third_of_b = snap
+            .bodies
+            .iter()
+            .filter(|b| b.host == HostRef::Star(StarId(1)))
+            .nth(2)
+            .unwrap();
+        let card = body_card(third_of_b, 3);
+        assert_eq!(card.title, "Vorus B d");
+        assert!(
+            card.subtitle.ends_with("· 3rd planet of Vorus B"),
+            "{}",
+            card.subtitle
+        );
+        assert_eq!(
+            (au(0.2243), au(23.5), au(8700.0)),
+            ("0.224".into(), "23.50".into(), "8700".into())
+        );
     }
 
     #[test]
@@ -389,7 +516,7 @@ mod tests {
 
         let light = seed(736);
         let card = body_card(&light.snapshot.bodies[2], 3);
-        assert_eq!(card.subtitle, "Asteroid field · 3rd from the star");
+        assert_eq!(card.subtitle, "Asteroid field · 3rd planet of Raloara");
         assert!(card.notes.iter().any(|n| n.contains("drawn as a belt")));
     }
 

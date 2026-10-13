@@ -31,7 +31,8 @@ help: ## List the targets
 		/^[a-z0-9-]+:.*## / { printf "  %-16s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 	@printf '\nVariables: SEED=%s PRESET=%s SCALE=%s MASS=%s COUNT=%s PORT=%s\n' \
 		'$(SEED)' '$(PRESET)' '$(SCALE)' '$(MASS)' '$(COUNT)' '$(PORT)'
-	@printf '  PRESET: sun-like | red-dwarf | random    SCALE: true | enlarged | schematic\n'
+	@printf '  PRESET: sun-like | red-dwarf | massive-a-star | circumbinary | s-type-binary |\n'
+	@printf '          hierarchical-triple | random        SCALE: true | enlarged | schematic\n'
 
 ##@ Everything
 
@@ -89,7 +90,7 @@ shot: ## One screenshot of the current SEED/PRESET/SCALE
 	$(APP) $(APP_ARGS) --screenshot $(SHOTS)/shot.png
 
 .PHONY: shots
-shots: ## The reference set: three scales, formation, close-ups, red dwarf, belt
+shots: ## The reference set: scales, formation, close-ups, red dwarf, binaries, triple, belt
 	@mkdir -p $(SHOTS)
 	$(APP) --seed $(SEED) --scale enlarged  --screenshot $(SHOTS)/overview-enlarged.png
 	$(APP) --seed $(SEED) --scale schematic --screenshot $(SHOTS)/overview-schematic.png
@@ -100,6 +101,10 @@ shots: ## The reference set: three scales, formation, close-ups, red dwarf, belt
 	$(APP) --seed $(SEED) --select 3 --screenshot $(SHOTS)/planet-3.png
 	$(APP) --seed $(SEED) --select 7 --screenshot $(SHOTS)/planet-7.png
 	$(APP) --seed $(SEED) --preset red-dwarf --scale schematic --screenshot $(SHOTS)/red-dwarf.png
+	$(APP) --seed $(SEED) --preset s-type-binary --screenshot $(SHOTS)/binary-s-type.png
+	$(APP) --seed $(SEED) --preset circumbinary --scale schematic --screenshot $(SHOTS)/binary-circumbinary.png
+	$(APP) --seed $(SEED) --preset hierarchical-triple --scale schematic --screenshot $(SHOTS)/triple.png
+	$(APP) --seed $(SEED) --preset s-type-binary --select 0 --screenshot $(SHOTS)/binary-star-card.png
 	$(APP) --seed 736 --select 3 --screenshot $(SHOTS)/asteroid-belt.png
 	@printf 'screenshots written to %s\n' '$(SHOTS)'
 

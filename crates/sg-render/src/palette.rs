@@ -37,6 +37,10 @@ pub const ORBIT_COLOR: Color = Color::srgba(0.55, 0.62, 0.75, 0.35);
 pub const ORBIT_SELECTED_COLOR: Color = Color::srgba(1.0, 0.92, 0.55, 0.95);
 pub const HZ_COLOR: Color = Color::srgba(0.30, 0.85, 0.45, 0.55);
 pub const HZ_OPTIMISTIC_COLOR: Color = Color::srgba(0.30, 0.85, 0.45, 0.22);
+/// Paths of the stars of a pair around their centre of mass.
+pub const STAR_ORBIT_COLOR: Color = Color::srgba(0.95, 0.80, 0.45, 0.45);
+/// Edge of the zone open to planets, where a companion star sets it.
+pub const STABILITY_LIMIT_COLOR: Color = Color::srgba(0.90, 0.35, 0.30, 0.40);
 pub const SWEEP_COLOR: Color = Color::srgb(0.95, 0.70, 0.30);
 pub const COLLISION_COLOR: Color = Color::srgb(1.0, 1.0, 1.0);
 

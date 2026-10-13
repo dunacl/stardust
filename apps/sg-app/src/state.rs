@@ -6,7 +6,7 @@ use sg_render::scene::system_extent;
 use sg_render::{
     OrbitCamera, Playback, ScaleBlend, ScaleMode, Selection, SystemView, ViewSettings,
 };
-use sg_schema::{Fidelity, PresetId, SimulationParams, SystemSpec};
+use sg_schema::{Fidelity, PresetId, SimulationParams};
 use sg_sim::{preset_params, SimulationResult};
 
 /// Seconds a full formation playback lasts at the default speed.
@@ -58,16 +58,6 @@ impl AppState {
     pub fn next_seed(&mut self) {
         let next = fnv1a64(&self.params.seed.to_le_bytes()) % 1_000_000;
         self.params.seed = next.max(1);
-    }
-
-    /// The stellar mass being edited, if the preset fixes one.
-    pub fn mass_mut(&mut self) -> Option<&mut f64> {
-        match &mut self.params.system {
-            SystemSpec::Auto {
-                primary_mass_msun, ..
-            } => primary_mass_msun.as_mut(),
-            SystemSpec::Explicit(_) => None,
-        }
     }
 }
 

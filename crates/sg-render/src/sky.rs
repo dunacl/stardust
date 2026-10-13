@@ -25,7 +25,7 @@ use std::f32::consts::{PI, TAU};
 
 /// Distance of the sky from the camera, scene units. It only has to be
 /// farther than anything in the system; the sky moves with the camera.
-const SKY_RADIUS: f32 = 3000.0;
+const SKY_RADIUS: f32 = 1.0e6;
 const DOME_WIDTH: u32 = 1024;
 const DOME_HEIGHT: u32 = 512;
 const STAR_COUNT: usize = 9000;

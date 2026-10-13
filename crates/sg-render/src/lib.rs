@@ -18,6 +18,7 @@
 pub mod belt;
 pub mod camera;
 pub mod display;
+pub mod layout;
 pub mod palette;
 pub mod scale;
 pub mod scene;

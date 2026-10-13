@@ -9,7 +9,7 @@
 //! is silent, and those cases are marked.
 
 use sg_core::hash::fnv1a64;
-use sg_schema::{BodyId, EventKind, Keyframe, KeyframeBody, PlanetClass, SystemSnapshot};
+use sg_schema::{BodyId, EventKind, HostRef, Keyframe, KeyframeBody, PlanetClass, SystemSnapshot};
 use sg_sim::SimulationResult;
 use std::collections::BTreeMap;
 
@@ -19,6 +19,8 @@ const EARTH_RADIUS_KM: f64 = 6378.0;
 #[derive(Debug, Clone, PartialEq)]
 pub struct DisplayBody {
     pub id: BodyId,
+    /// The star or pair it orbits.
+    pub host: HostRef,
     pub a_au: f64,
     pub e: f64,
     pub mass_mearth: f64,
@@ -61,6 +63,7 @@ fn final_bodies(snapshot: &SystemSnapshot) -> Vec<DisplayBody> {
         .iter()
         .map(|b| DisplayBody {
             id: b.id,
+            host: b.host,
             a_au: b.orbit.a_au,
             e: b.orbit.e,
             mass_mearth: b.mass_mearth,
@@ -115,7 +118,8 @@ pub fn bodies_at(result: &SimulationResult, t_myr: f64) -> Vec<DisplayBody> {
         before.bodies.iter().map(|b| (b.id, b)).collect();
     let lerp = |a: f64, b: f64| a + (b - a) * frac;
 
-    let make = |id: BodyId, a_au: f64, e: f64, mass_mearth: f64, presence: f64| {
+    let make = |from: &KeyframeBody, a_au: f64, e: f64, mass_mearth: f64, presence: f64| {
+        let id = from.id;
         let mut radius_km = embryo_radius_km(mass_mearth);
         if approaching_final {
             // Ease into the finished planet's modelled radius.
@@ -127,6 +131,7 @@ pub fn bodies_at(result: &SimulationResult, t_myr: f64) -> Vec<DisplayBody> {
             angles_for(id, &result.snapshot);
         DisplayBody {
             id,
+            host: from.host,
             a_au,
             e,
             mass_mearth,
@@ -143,19 +148,19 @@ pub fn bodies_at(result: &SimulationResult, t_myr: f64) -> Vec<DisplayBody> {
     for b in &before.bodies {
         bodies.push(match later.get(&b.id) {
             Some(n) => make(
-                b.id,
+                b,
                 lerp(b.a_au, n.a_au),
                 lerp(b.e, n.e),
                 lerp(b.mass_mearth, n.mass_mearth),
                 1.0,
             ),
             // Absorbed by another body before the next keyframe.
-            None => make(b.id, b.a_au, b.e, b.mass_mearth, 1.0 - frac),
+            None => make(b, b.a_au, b.e, b.mass_mearth, 1.0 - frac),
         });
     }
     for n in &after.bodies {
         if !earlier.contains_key(&n.id) {
-            bodies.push(make(n.id, n.a_au, n.e, n.mass_mearth, frac));
+            bodies.push(make(n, n.a_au, n.e, n.mass_mearth, frac));
         }
     }
     // Not yet appeared, or fully absorbed.
@@ -164,13 +169,40 @@ pub fn bodies_at(result: &SimulationResult, t_myr: f64) -> Vec<DisplayBody> {
     bodies
 }
 
+/// What a body orbits, whether or not it survives to the finished system:
+/// from the snapshot, else from the event that injected it, else from the
+/// keyframes.
+pub fn host_of(result: &SimulationResult, id: BodyId) -> Option<HostRef> {
+    if let Some(body) = result.snapshot.bodies.iter().find(|b| b.id == id) {
+        return Some(body.host);
+    }
+    let injected = result
+        .timeline
+        .events
+        .iter()
+        .find_map(|event| match event.kind {
+            EventKind::EmbryoInjected { body, host, .. } if body == id => Some(host),
+            _ => None,
+        });
+    injected.or_else(|| {
+        result
+            .timeline
+            .keyframes
+            .iter()
+            .flat_map(|k| &k.bodies)
+            .find(|b| b.id == id)
+            .map(|b| b.host)
+    })
+}
+
 /// A formation event worth flashing on screen.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Highlight {
-    /// Two bodies merged at about this orbital distance.
-    Collision { a_au: f64, age: f32 },
-    /// A body cleared the dust between these distances.
+    /// Two bodies merged at about this orbital distance from `host`.
+    Collision { host: HostRef, a_au: f64, age: f32 },
+    /// A body cleared the dust between these distances from `host`.
     Sweep {
+        host: HostRef,
         inner_au: f64,
         outer_au: f64,
         age: f32,
@@ -197,10 +229,18 @@ pub fn highlights_at(result: &SimulationResult, t_myr: f64, lookback_myr: f64) -
                 } => bodies
                     .iter()
                     .find(|b| b.id == survivor)
-                    .map(|b| Highlight::Collision { a_au: b.a_au, age }),
+                    .map(|b| Highlight::Collision {
+                        host: b.host,
+                        a_au: b.a_au,
+                        age,
+                    }),
                 EventKind::DustSwept {
-                    inner_au, outer_au, ..
+                    body,
+                    inner_au,
+                    outer_au,
+                    ..
                 } => Some(Highlight::Sweep {
+                    host: host_of(result, body)?,
                     inner_au,
                     outer_au,
                     age,

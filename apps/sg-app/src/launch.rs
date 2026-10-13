@@ -55,6 +55,10 @@ impl Launch {
                 "preset" => match value {
                     "sun-like" => launch.preset = PresetId::SunLike,
                     "red-dwarf" => launch.preset = PresetId::RedDwarf,
+                    "massive-a-star" => launch.preset = PresetId::MassiveAStar,
+                    "circumbinary" => launch.preset = PresetId::Circumbinary,
+                    "s-type-binary" => launch.preset = PresetId::STypeBinary,
+                    "hierarchical-triple" => launch.preset = PresetId::HierarchicalTriple,
                     "random" => launch.preset = PresetId::Random,
                     _ => {}
                 },
