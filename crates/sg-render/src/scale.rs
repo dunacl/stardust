@@ -39,6 +39,17 @@ impl ScaleMode {
         }
     }
 
+    /// [`Self::distance`] in double precision, for positions (PLAN.md §8.1).
+    pub fn distance_f64(self, r_au: f64) -> f64 {
+        match self {
+            ScaleMode::True | ScaleMode::Exaggerated => r_au,
+            ScaleMode::Schematic => {
+                f64::from(SCHEMATIC_UNITS_PER_EFOLD)
+                    * (1.0 + r_au / f64::from(SCHEMATIC_KNEE_AU)).ln()
+            }
+        }
+    }
+
     /// Scene radius of a planet of the given real radius.
     pub fn planet_radius(self, radius_km: f32) -> f32 {
         let earths = (radius_km / EARTH_RADIUS_KM).max(0.0);
@@ -137,6 +148,12 @@ impl ScaleBlend {
 
     pub fn distance(&self, r_au: f32) -> f32 {
         self.mix(self.from.distance(r_au), self.to.distance(r_au))
+    }
+
+    /// [`Self::distance`] in double precision, for positions.
+    pub fn distance_f64(&self, r_au: f64) -> f64 {
+        let (a, b) = (self.from.distance_f64(r_au), self.to.distance_f64(r_au));
+        a + (b - a) * f64::from(self.weight())
     }
 
     /// Body radii are blended geometrically: they differ by orders of

@@ -2,6 +2,7 @@
 
 use crate::scene::{BodyPlacements, Selection, Target};
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit};
+use bevy::math::DVec3;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
@@ -14,6 +15,12 @@ pub struct PointerCaptured(pub bool);
 /// live values ease toward them.
 #[derive(Resource, Debug, Clone, PartialEq)]
 pub struct OrbitCamera {
+    /// The point of the system, in double precision, that is drawn at the
+    /// renderer's origin. Everything else here and everything drawn is
+    /// relative to it, in single precision; [`OrbitCamera::rebase`] moves
+    /// it to the focus every frame, so that whatever the camera is looking
+    /// at is placed exactly (PLAN.md §8.1).
+    pub origin: DVec3,
     pub focus: Vec3,
     pub goal_focus: Vec3,
     /// Radians about the vertical axis.
@@ -33,6 +40,7 @@ pub struct OrbitCamera {
 impl Default for OrbitCamera {
     fn default() -> Self {
         Self {
+            origin: DVec3::ZERO,
             focus: Vec3::ZERO,
             goal_focus: Vec3::ZERO,
             yaw: 0.6,
@@ -53,8 +61,20 @@ const CLICK_SLOP_PIXELS: f32 = 4.0;
 impl OrbitCamera {
     /// Frames the whole system: `extent` is the scene radius to fit.
     pub fn frame(&mut self, extent: f32) {
-        self.goal_focus = Vec3::ZERO;
+        self.goal_focus = self.local(DVec3::ZERO);
         self.goal_distance = (extent * 2.9).clamp(MIN_DISTANCE, MAX_DISTANCE);
+    }
+
+    /// A point of the system relative to the origin.
+    pub fn local(&self, world: DVec3) -> Vec3 {
+        (world - self.origin).as_vec3()
+    }
+
+    /// Moves the origin to the focus, keeping the view the same.
+    pub fn rebase(&mut self) {
+        self.origin += self.focus.as_dvec3();
+        self.goal_focus -= self.focus;
+        self.focus = Vec3::ZERO;
     }
 
     /// Jumps to the goals without easing.
@@ -87,6 +107,10 @@ pub(crate) fn spawn_camera(mut commands: Commands) {
         bevy::post_process::bloom::Bloom::NATURAL,
         Transform::default(),
     ));
+}
+
+pub(crate) fn rebase_camera(mut orbit: ResMut<OrbitCamera>) {
+    orbit.rebase();
 }
 
 pub(crate) fn control_camera(
@@ -263,6 +287,30 @@ mod tests {
             let phase = camera.eye().normalize().dot(to_star.normalize()).acos();
             assert!(phase > 0.5 && phase < 1.0, "{phase}");
         }
+    }
+
+    #[test]
+    fn rebasing_keeps_the_view_and_the_precision() {
+        // Following something 30 AU out, a metre at a time.
+        let far = DVec3::new(30.0, 0.0, -4.0);
+        let mut camera = OrbitCamera::default();
+        camera.goal_focus = camera.local(far);
+        camera.snap();
+        let eye_before = camera.origin + camera.eye().as_dvec3();
+        camera.rebase();
+        assert_eq!(camera.focus, Vec3::ZERO);
+        assert!((camera.origin - far).length() < 1e-5);
+        let eye_after = camera.origin + camera.eye().as_dvec3();
+        assert!((eye_before - eye_after).length() < 1e-4);
+        // A point one metre (6.7e-12 AU) from the focus is still resolved,
+        // to the few millimetres double precision allows at 30 AU. Single
+        // precision there is good to about 300 km.
+        let metre = 6.7e-12;
+        let near = camera.local(camera.origin + DVec3::new(metre, 0.0, 0.0));
+        assert!((f64::from(near.x) / metre - 1.0).abs() < 5e-3);
+        // Framing the system looks back at its centre.
+        camera.frame(10.0);
+        assert!((camera.origin + camera.goal_focus.as_dvec3()).length() < 1e-5);
     }
 
     #[test]

@@ -11,9 +11,13 @@
 //! nothing; in the schematic mode it keeps every orbit a recognisable
 //! ellipse around its own centre, at the price of distances between
 //! different centres no longer being comparable.
+//!
+//! Positions are double precision (PLAN.md §8.1): single precision cannot
+//! place a planet at 30 AU to better than a few hundred kilometres. The
+//! scene subtracts the camera's origin before converting ([`crate::camera`]).
 
 use crate::scale::ScaleBlend;
-use bevy::math::Vec3;
+use bevy::math::DVec3;
 use sg_core::units::Au;
 use sg_dynamics::kepler::{self, Elements};
 use sg_schema::{HierarchyNode, HostRef, NodeId, Orbit, Star, StarId, SystemSnapshot};
@@ -21,19 +25,19 @@ use std::collections::BTreeMap;
 use std::f64::consts::TAU;
 
 /// Simulation frame (z up, AU) to scene frame (y up).
-pub fn to_scene(p: [f64; 3]) -> Vec3 {
-    Vec3::new(p[0] as f32, p[2] as f32, -p[1] as f32)
+pub fn to_scene(p: [f64; 3]) -> DVec3 {
+    DVec3::new(p[0], p[2], -p[1])
 }
 
 /// Applies the scale mode's distance mapping to an offset in AU from the
 /// centre it is measured from.
-pub fn map_offset(scale: &ScaleBlend, p: [f64; 3]) -> Vec3 {
+pub fn map_offset(scale: &ScaleBlend, p: [f64; 3]) -> DVec3 {
     let v = to_scene(p);
     let r = v.length();
-    if r <= f32::EPSILON {
-        return Vec3::ZERO;
+    if r <= f64::EPSILON {
+        return DVec3::ZERO;
     }
-    v * (scale.distance(r) / r)
+    v * (scale.distance_f64(r) / r)
 }
 
 /// Orbital elements for an orbit of the snapshot at a time on the orbital
@@ -109,19 +113,19 @@ pub fn parent_orbit(node: &HierarchyNode, host: HostRef) -> Option<(NodeId, &Orb
 /// Scene positions of every star and every pair's centre of mass.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Layout {
-    pub stars: BTreeMap<StarId, Vec3>,
-    pub centres: BTreeMap<NodeId, Vec3>,
+    pub stars: BTreeMap<StarId, DVec3>,
+    pub centres: BTreeMap<NodeId, DVec3>,
 }
 
 impl Layout {
     /// Where the stars are at `orbit_days` on the orbital clock.
     pub fn at(hierarchy: &HierarchyNode, scale: &ScaleBlend, orbit_days: f64) -> Self {
         let mut layout = Self::default();
-        layout.place(hierarchy, scale, orbit_days, Vec3::ZERO);
+        layout.place(hierarchy, scale, orbit_days, DVec3::ZERO);
         layout
     }
 
-    fn place(&mut self, node: &HierarchyNode, scale: &ScaleBlend, orbit_days: f64, origin: Vec3) {
+    fn place(&mut self, node: &HierarchyNode, scale: &ScaleBlend, orbit_days: f64, origin: DVec3) {
         match node {
             HierarchyNode::Star(star) => {
                 self.stars.insert(star.id, origin);
@@ -150,7 +154,7 @@ impl Layout {
     }
 
     /// Scene position of the centre a planet of `host` orbits.
-    pub fn host(&self, host: HostRef) -> Option<Vec3> {
+    pub fn host(&self, host: HostRef) -> Option<DVec3> {
         match host {
             HostRef::Star(id) => self.stars.get(&id).copied(),
             HostRef::Barycenter(id) => self.centres.get(&id).copied(),
@@ -162,7 +166,12 @@ impl Layout {
 /// Points along the path a member of a pair traces around the pair's
 /// centre of mass, relative to that centre: `fraction` is the member's
 /// share of the separation (`-m_b/M` for a, `+m_a/M` for b).
-pub fn member_path(orbit: &Orbit, fraction: f64, scale: &ScaleBlend, segments: usize) -> Vec<Vec3> {
+pub fn member_path(
+    orbit: &Orbit,
+    fraction: f64,
+    scale: &ScaleBlend,
+    segments: usize,
+) -> Vec<DVec3> {
     let el = elements(orbit, 0.0);
     (0..=segments)
         .map(|k| {
@@ -237,7 +246,7 @@ mod tests {
     #[test]
     fn simulation_frame_maps_to_y_up() {
         // The orbital plane (z = 0) becomes the scene's horizontal plane.
-        assert_eq!(to_scene([1.0, 2.0, 3.0]), Vec3::new(1.0, 3.0, -2.0));
+        assert_eq!(to_scene([1.0, 2.0, 3.0]), DVec3::new(1.0, 3.0, -2.0));
         assert_eq!(to_scene([1.0, 2.0, 0.0]).y, 0.0);
     }
 
@@ -245,9 +254,10 @@ mod tests {
     fn offsets_keep_direction_and_take_the_mapped_distance() {
         let scale = ScaleBlend::settled(ScaleMode::Schematic);
         let p = map_offset(&scale, [3.0, 4.0, 0.0]);
-        assert!((p.length() - ScaleMode::Schematic.distance(5.0)).abs() < 1e-5);
-        assert!((p.normalize() - Vec3::new(0.6, 0.0, -0.8)).length() < 1e-5);
-        assert_eq!(map_offset(&scale, [0.0, 0.0, 0.0]), Vec3::ZERO);
+        assert!((p.length() - f64::from(ScaleMode::Schematic.distance(5.0))).abs() < 1e-5);
+        assert!((p.length() - ScaleMode::Schematic.distance_f64(5.0)).abs() < 1e-12);
+        assert!((p.normalize() - DVec3::new(0.6, 0.0, -0.8)).length() < 1e-5);
+        assert_eq!(map_offset(&scale, [0.0, 0.0, 0.0]), DVec3::ZERO);
     }
 
     #[test]
@@ -255,7 +265,7 @@ mod tests {
         let snapshot = preset(PresetId::SunLike);
         let layout = Layout::at(&snapshot.hierarchy, &linear(), 123.0);
         assert_eq!(layout.stars.len(), 1);
-        assert_eq!(layout.host(HostRef::Star(StarId(0))), Some(Vec3::ZERO));
+        assert_eq!(layout.host(HostRef::Star(StarId(0))), Some(DVec3::ZERO));
         assert!(layout.centres.is_empty());
         assert!(parent_orbit(&snapshot.hierarchy, HostRef::Star(StarId(0))).is_none());
     }
@@ -270,19 +280,19 @@ mod tests {
             panic!("pair expected");
         };
         let all = stars(&snapshot.hierarchy);
-        let (m0, m1) = (all[0].mass_msun as f32, all[1].mass_msun as f32);
+        let (m0, m1) = (all[0].mass_msun, all[1].mass_msun);
         for step in 0..200 {
             let days = orbit.period_days * f64::from(step) / 200.0;
             let layout = Layout::at(&snapshot.hierarchy, &linear(), days);
             let (p0, p1) = (layout.stars[&StarId(0)], layout.stars[&StarId(1)]);
             let centre = (p0 * m0 + p1 * m1) / (m0 + m1);
             assert!(centre.length() < 1e-4, "{centre}");
-            let separation = (p1 - p0).length() as f64;
+            let separation = (p1 - p0).length();
             assert!(separation >= orbit.a_au * (1.0 - orbit.e) - 1e-3);
             assert!(separation <= orbit.a_au * (1.0 + orbit.e) + 1e-3);
             assert_eq!(
                 layout.host(HostRef::Barycenter(NodeId(0))),
-                Some(Vec3::ZERO)
+                Some(DVec3::ZERO)
             );
         }
         // One period later everything is back where it started.
@@ -322,8 +332,8 @@ mod tests {
         let path = member_path(orbit, 0.5, &linear(), 64);
         assert_eq!(path.len(), 65);
         assert!((path[0] - path[64]).length() < 1e-4);
-        let widest = path.iter().map(|p| p.length()).fold(0.0f32, f32::max);
-        assert!((f64::from(widest) - 0.5 * orbit.a_au * (1.0 + orbit.e)).abs() < 0.05);
+        let widest = path.iter().map(|p| p.length()).fold(0.0, f64::max);
+        assert!((widest - 0.5 * orbit.a_au * (1.0 + orbit.e)).abs() < 0.05);
     }
 
     /// The extent covers every star and planet at every phase of the stars'
@@ -343,14 +353,14 @@ mod tests {
                 for step in 0..40 {
                     let layout = Layout::at(&snapshot.hierarchy, &scale, f64::from(step) * 977.0);
                     for position in layout.stars.values() {
-                        assert!(position.length() <= extent + 1e-3, "{id:?} {mode:?}");
+                        assert!(position.length() as f32 <= extent + 1e-3, "{id:?} {mode:?}");
                     }
                     for body in &snapshot.bodies {
                         let centre = layout.host(body.host).unwrap();
                         let apoapsis =
                             scale.distance((body.orbit.a_au * (1.0 + body.orbit.e)) as f32);
                         assert!(
-                            centre.length() + apoapsis <= extent + 1e-3,
+                            centre.length() as f32 + apoapsis <= extent + 1e-3,
                             "{id:?} {mode:?}"
                         );
                     }

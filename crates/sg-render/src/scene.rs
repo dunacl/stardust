@@ -11,6 +11,7 @@ use crate::star::StarMaterial;
 use crate::surface::{self, Appearance};
 use crate::{belt, sky};
 use bevy::light::GlobalAmbientLight;
+use bevy::math::DVec3;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use sg_core::units::{Au, SolarMass};
@@ -354,12 +355,13 @@ fn sync_scene(
 
     // The stars.
     for star in &stars {
-        let position = layout.stars.get(&star.id).copied().unwrap_or(Vec3::ZERO);
+        let world = star_position_of(&layout, star);
+        let position = orbit.local(world);
         let nearest = layout
             .stars
             .iter()
             .filter(|(id, _)| **id != star.id)
-            .map(|(_, other)| (*other - position).length())
+            .map(|(_, other)| (*other - world).length() as f32)
             .fold(f32::INFINITY, f32::min);
         // Nor wider than half the distance of its closest planet.
         let closest_planet = snapshot
@@ -448,7 +450,8 @@ fn sync_scene(
         stale.retain(|id| *id != body.id);
         let orbital = kepler::position(elements(body, host_mass, playback.orbit_days));
         let offset = layout::map_offset(scale, orbital);
-        let position = centre + offset;
+        let world = centre + offset;
+        let position = orbit.local(world);
         let true_position = true_centre + layout::to_scene(orbital);
         let presence = body.presence.clamp(0.0, 1.0);
         let body_radius = scale.planet_radius(body.radius_km as f32);
@@ -459,15 +462,8 @@ fn sync_scene(
             &stars
                 .iter()
                 .map(|star| {
-                    let at = true_layout
-                        .stars
-                        .get(&star.id)
-                        .copied()
-                        .unwrap_or(Vec3::ZERO);
-                    (
-                        star.luminosity_lsun,
-                        f64::from((at - true_position).length()),
-                    )
+                    let at = star_position_of(&true_layout, star);
+                    (star.luminosity_lsun, (at - true_position).length())
                 })
                 .collect::<Vec<_>>(),
         );
@@ -476,7 +472,9 @@ fn sync_scene(
             .zip(shares)
             .take(planet::MAX_STARS)
             .map(|(star, share)| StarLighting {
-                direction: (star_position_of(&layout, star) - position).normalize_or(Vec3::X),
+                direction: (star_position_of(&layout, star) - world)
+                    .normalize_or(DVec3::X)
+                    .as_vec3(),
                 color: palette::star_color(star.color_linear_rgb).to_vec3(),
                 share,
             })
@@ -578,7 +576,7 @@ fn sync_scene(
                 body_radius,
                 focus_radius: match body.class {
                     Some(class) if belt::is_belt_sized(class, body.mass_mearth) => {
-                        offset.length() * belt::SELECTED_VIEW_FRACTION
+                        offset.length() as f32 * belt::SELECTED_VIEW_FRACTION
                     }
                     _ => body_radius,
                 },
@@ -610,7 +608,7 @@ fn sync_scene(
     // would leave either the inner or the outer system unreadable.
     let total_luminosity: f64 = stars.iter().map(|star| star.luminosity_lsun).sum();
     let share = |star: &Star| (star.luminosity_lsun / total_luminosity) as f32;
-    let star_position = |star: &Star| layout.stars.get(&star.id).copied().unwrap_or(Vec3::ZERO);
+    let star_position = |star: &Star| orbit.local(star_position_of(&layout, star));
     // Lux received at the reference point per unit of (total flux / 4π).
     let received_at = |point: Vec3, at_least: f32| -> f32 {
         stars
@@ -656,8 +654,8 @@ fn sync_scene(
     }
 }
 
-fn star_position_of(layout: &Layout, star: &Star) -> Vec3 {
-    layout.stars.get(&star.id).copied().unwrap_or(Vec3::ZERO)
+fn star_position_of(layout: &Layout, star: &Star) -> DVec3 {
+    layout.stars.get(&star.id).copied().unwrap_or(DVec3::ZERO)
 }
 
 fn ring(gizmos: &mut Gizmos, centre: Vec3, radius: f32, color: Color) {
@@ -669,21 +667,27 @@ fn ring(gizmos: &mut Gizmos, centre: Vec3, radius: f32, color: Color) {
 }
 
 /// Draws the paths the stars of every pair trace around their centres.
-fn star_paths(gizmos: &mut Gizmos, node: &HierarchyNode, layout: &Layout, scale: &ScaleBlend) {
+fn star_paths(
+    gizmos: &mut Gizmos,
+    node: &HierarchyNode,
+    layout: &Layout,
+    scale: &ScaleBlend,
+    camera: &OrbitCamera,
+) {
     let HierarchyNode::Pair { id, a, b, orbit } = node else {
         return;
     };
-    let centre = layout.centres.get(id).copied().unwrap_or(Vec3::ZERO);
+    let centre = layout.centres.get(id).copied().unwrap_or(DVec3::ZERO);
     let (mass_a, mass_b) = (layout::node_mass(a), layout::node_mass(b));
     let total = mass_a + mass_b;
     for fraction in [-mass_b / total, mass_a / total] {
         let points = layout::member_path(orbit, fraction, scale, ORBIT_SEGMENTS)
             .into_iter()
-            .map(|p| centre + p);
+            .map(|p| camera.local(centre + p));
         gizmos.linestrip(points, palette::STAR_ORBIT_COLOR);
     }
-    star_paths(gizmos, a, layout, scale);
-    star_paths(gizmos, b, layout, scale);
+    star_paths(gizmos, a, layout, scale, camera);
+    star_paths(gizmos, b, layout, scale, camera);
 }
 
 fn draw_overlays(
@@ -692,6 +696,7 @@ fn draw_overlays(
     playback: Res<Playback>,
     settings: Res<ViewSettings>,
     selection: Res<Selection>,
+    orbit: Res<OrbitCamera>,
 ) {
     let Some(result) = view.result() else {
         return;
@@ -699,7 +704,8 @@ fn draw_overlays(
     let snapshot = &result.snapshot;
     let scale = &settings.scale;
     let layout = Layout::at(&snapshot.hierarchy, scale, playback.orbit_days);
-    let centre_of = |host: HostRef| layout.host(host);
+    let world_centre_of = |host: HostRef| layout.host(host);
+    let centre_of = |host: HostRef| layout.host(host).map(|centre| orbit.local(centre));
 
     if settings.show_habitable_zone {
         for hz in &snapshot.habitable_zones {
@@ -739,11 +745,12 @@ fn draw_overlays(
     }
 
     if settings.show_orbits {
-        star_paths(&mut gizmos, &snapshot.hierarchy, &layout, scale);
+        star_paths(&mut gizmos, &snapshot.hierarchy, &layout, scale, &orbit);
         for body in display::bodies_at(result, playback.t_myr) {
-            let (Some(centre), Some(host_mass)) =
-                (centre_of(body.host), layout::host_mass(snapshot, body.host))
-            else {
+            let (Some(centre), Some(host_mass)) = (
+                world_centre_of(body.host),
+                layout::host_mass(snapshot, body.host),
+            ) else {
                 continue;
             };
             let el = elements(&body, host_mass, playback.orbit_days);
@@ -755,7 +762,10 @@ fn draw_overlays(
             };
             let points = (0..=ORBIT_SEGMENTS).map(|k| {
                 let big_e = TAU * k as f64 / ORBIT_SEGMENTS as f64;
-                centre + layout::map_offset(scale, kepler::point_at_eccentric_anomaly(el, big_e))
+                orbit.local(
+                    centre
+                        + layout::map_offset(scale, kepler::point_at_eccentric_anomaly(el, big_e)),
+                )
             });
             gizmos.linestrip(points, color);
         }
@@ -815,6 +825,7 @@ impl Plugin for StardustRenderPlugin {
                 Update,
                 (
                     camera::control_camera,
+                    camera::rebase_camera,
                     advance,
                     sync_scene,
                     belt::sync_belts,

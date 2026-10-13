@@ -212,18 +212,20 @@ pub(crate) fn sync_belts(
             continue;
         };
         let period = kepler::orbital_period(Au(rock.a_au), SolarMass(host_mass)).0;
-        let position = centre
-            + layout::map_offset(
-                &settings.scale,
-                kepler::position(Elements {
-                    a: Au(rock.a_au),
-                    e: rock.e,
-                    i: rock.i_rad,
-                    long_asc_node: rock.long_asc_node_rad,
-                    arg_periapsis: rock.arg_periapsis_rad,
-                    mean_anomaly: rock.mean_anomaly_rad + TAU * (playback.orbit_days / period),
-                }),
-            );
+        let position = orbit.local(
+            centre
+                + layout::map_offset(
+                    &settings.scale,
+                    kepler::position(Elements {
+                        a: Au(rock.a_au),
+                        e: rock.e,
+                        i: rock.i_rad,
+                        long_asc_node: rock.long_asc_node_rad,
+                        arg_periapsis: rock.arg_periapsis_rad,
+                        mean_anomaly: rock.mean_anomaly_rad + TAU * (playback.orbit_days / period),
+                    }),
+                ),
+        );
         let radius = scene::apparent_floor(eye, position) * ROCK_APPARENT_SIZE * rock.size;
         *transform = Transform {
             translation: position,
