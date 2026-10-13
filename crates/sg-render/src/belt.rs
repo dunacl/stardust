@@ -38,7 +38,7 @@ const ROCKS_PER_BELT: usize = 1200;
 const MAX_ROCK_ECCENTRICITY: f64 = 0.12;
 const MAX_ROCK_INCLINATION: f64 = 0.10;
 /// A rock's drawn radius relative to the smallest a planet is drawn.
-const ROCK_APPARENT_SIZE: f32 = 0.4;
+const ROCK_APPARENT_SIZE: f32 = 0.22;
 
 /// When a belt is selected the camera frames a stretch of it this wide, as
 /// a fraction of the belt's distance from the star, rather than closing in

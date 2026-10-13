@@ -26,6 +26,7 @@ pub mod planet;
 pub mod scale;
 pub mod scene;
 pub mod sky;
+pub mod star;
 pub mod surface;
 
 pub use camera::{OrbitCamera, PointerCaptured};

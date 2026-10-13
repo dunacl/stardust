@@ -7,6 +7,7 @@ use crate::layout::{self, Layout};
 use crate::palette;
 use crate::planet::{self, PlanetMaterial, StarLighting};
 use crate::scale::{ScaleBlend, ScaleMode};
+use crate::star::StarMaterial;
 use crate::surface::{self, Appearance};
 use crate::{belt, sky};
 use bevy::light::GlobalAmbientLight;
@@ -174,8 +175,7 @@ struct StarLight;
 
 #[derive(Resource)]
 struct SceneAssets {
-    sphere: Handle<Mesh>,
-    /// Finer, for bodies seen close up.
+    /// Fine enough for a body seen close up.
     globe: Handle<Mesh>,
 }
 
@@ -245,7 +245,6 @@ pub fn system_extent(result: &SimulationResult, scale: &ScaleBlend) -> f32 {
 
 fn setup(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>) {
     commands.insert_resource(SceneAssets {
-        sphere: meshes.add(Sphere::new(1.0).mesh().uv(48, 24)),
         globe: meshes.add(Sphere::new(1.0).mesh().uv(128, 64)),
     });
     commands.insert_resource(GlobalAmbientLight {
@@ -295,7 +294,6 @@ fn sync_scene(
     mut entities: ResMut<SceneEntities>,
     mut placements: ResMut<BodyPlacements>,
     mut selection: ResMut<Selection>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     mut planet_materials: ResMut<Assets<PlanetMaterial>>,
     window: Query<&Window, With<PrimaryWindow>>,
     mut bodies: Query<
@@ -306,8 +304,9 @@ fn sync_scene(
         (&mut Transform, &MeshMaterial3d<PlanetMaterial>),
         (With<AirVisual>, Without<StarVisual>, Without<StarLight>),
     >,
+    mut star_materials: ResMut<Assets<StarMaterial>>,
     mut star_spheres: Query<
-        &mut Transform,
+        (&mut Transform, &MeshMaterial3d<StarMaterial>),
         (With<StarVisual>, Without<BodyVisual>, Without<AirVisual>),
     >,
     mut lights: Query<
@@ -346,6 +345,12 @@ fn sync_scene(
     let apparent_floor = |position: Vec3| apparent_floor(eye, position);
     let layout = Layout::at(&snapshot.hierarchy, scale, playback.orbit_days);
     let stars = layout::stars(&snapshot.hierarchy);
+    let pixels_per_radian = window
+        .single()
+        .map_or(900.0, |w| w.physical_height() as f32)
+        / (2.0 * (0.5 * FIELD_OF_VIEW).tan());
+    // The granules boil with the orbital clock, so they stop when it does.
+    let star_clock = (playback.orbit_days * 0.01).rem_euclid(1000.0) as f32;
 
     // The stars.
     for star in &stars {
@@ -373,20 +378,23 @@ fn sync_scene(
 
         match entities.stars.get(&star.id) {
             Some(existing) => {
-                if let Ok(mut current) = star_spheres.get_mut(existing.sphere) {
+                if let Ok((mut current, material)) = star_spheres.get_mut(existing.sphere) {
                     *current = transform;
+                    if let Some(mut material) = star_materials.get_mut(&material.0) {
+                        let pixels =
+                            pixels_per_radian * radius / (position - eye).length().max(1e-9);
+                        material.update(eye, star_clock, pixels);
+                    }
                 }
             }
             None => {
-                let material = materials.add(StandardMaterial {
-                    base_color: Color::BLACK,
-                    emissive: color * 40.0,
-                    ..default()
-                });
+                let mut material = StarMaterial::new(color, star.teff_k, star.id.0 as f32 * 7.3);
+                material.update(eye, star_clock, 100.0);
+                let material = star_materials.add(material);
                 let sphere = commands
                     .spawn((
                         StarVisual,
-                        Mesh3d(assets.sphere.clone()),
+                        Mesh3d(assets.globe.clone()),
                         MeshMaterial3d(material),
                         transform,
                     ))
@@ -426,10 +434,6 @@ fn sync_scene(
         &ScaleBlend::settled(ScaleMode::True),
         playback.orbit_days,
     );
-    let pixels_per_radian = window
-        .single()
-        .map_or(900.0, |w| w.physical_height() as f32)
-        / (2.0 * (0.5 * FIELD_OF_VIEW).tan());
     let spin = (TAU * playback.orbit_days / DRAWN_ROTATION_DAYS).rem_euclid(TAU) as f32;
     let shown = display::bodies_at(result, playback.t_myr);
     let mut stale: Vec<BodyId> = entities.bodies.keys().copied().collect();
@@ -805,6 +809,7 @@ impl Plugin for StardustRenderPlugin {
             .init_resource::<belt::BeltEntities>()
             .init_resource::<sky::SkyState>();
         planet::build(app);
+        crate::star::build(app);
         app.add_systems(Startup, (setup, camera::spawn_camera))
             .add_systems(
                 Update,
