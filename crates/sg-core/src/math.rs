@@ -57,6 +57,19 @@ pub fn cos(x: f64) -> f64 {
     libm::cos(x)
 }
 
+/// Angle of the point `(x, y)` from the positive x axis, in `(−π, π]`.
+#[inline]
+pub fn atan2(y: f64, x: f64) -> f64 {
+    libm::atan2(y, x)
+}
+
+/// Arc cosine, in `[0, π]`. The argument is clamped to `[−1, 1]`, so
+/// rounding just outside that range gives 0 or π rather than NaN.
+#[inline]
+pub fn acos(x: f64) -> f64 {
+    libm::acos(x.clamp(-1.0, 1.0))
+}
+
 /// Absolute value.
 #[inline]
 pub fn abs(x: f64) -> f64 {
