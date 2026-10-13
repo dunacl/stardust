@@ -25,6 +25,8 @@ pub struct StartOptions {
 #[derive(Resource)]
 pub struct AppState {
     pub preset: PresetId,
+    /// The tier the next Simulate uses.
+    pub fidelity: Fidelity,
     /// The parameters being edited; used on the next Simulate.
     pub params: SimulationParams,
     /// Play the formation timeline after each Simulate.
@@ -36,10 +38,11 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(preset: PresetId, seed: u64) -> Self {
+    pub fn new(preset: PresetId, seed: u64, fidelity: Fidelity) -> Self {
         Self {
             preset,
-            params: preset_params(preset, seed, Fidelity::Classic),
+            fidelity,
+            params: preset_params(preset, seed, fidelity),
             play_on_simulate: true,
             error: None,
             show_ui: true,
@@ -50,7 +53,20 @@ impl AppState {
     /// Switches preset, keeping the seed.
     pub fn apply_preset(&mut self, preset: PresetId) {
         self.preset = preset;
-        self.params = preset_params(preset, self.params.seed, Fidelity::Classic);
+        self.params = preset_params(preset, self.params.seed, self.fidelity);
+    }
+
+    /// Switches tier, keeping the seed and, where the tier has it, the
+    /// preset.
+    pub fn set_fidelity(&mut self, fidelity: Fidelity) {
+        self.fidelity = fidelity;
+        let available = sg_sim::preset_availability(self.preset, fidelity)
+            == sg_sim::PresetAvailability::Available;
+        self.apply_preset(if available {
+            self.preset
+        } else {
+            PresetId::SunLike
+        });
     }
 
     /// A different seed, derived from the current one. (UI convenience; the

@@ -297,6 +297,7 @@ pub(crate) struct StellarSystem {
 
 /// True if the parameters ask for a single star of a stated or
 /// StarGen-drawn mass, the only case without companions or sampling.
+#[cfg(feature = "classic")]
 pub(crate) fn is_single(spec: &SystemSpec) -> bool {
     matches!(
         spec,
@@ -512,8 +513,8 @@ pub(crate) fn build(
             let clamped = z.clamp(evolution::MIN_Z, evolution::MAX_Z);
             if clamped != z {
                 warnings.push(format!(
-                    "metallicity [Fe/H] = {feh} is outside the stellar model's range; \
-                     Z = {clamped} was used"
+                    "the stellar model does not reach [Fe/H] = {feh}: the stars were computed \
+                     with Z = {clamped}, its nearest limit"
                 ));
             }
             clamped

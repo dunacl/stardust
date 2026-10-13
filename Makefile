@@ -12,6 +12,7 @@ CARGO := $(shell . scripts/toolchain.sh; command -v cargo)
 # Overridable on the command line, e.g. `make run SEED=7 PRESET=red-dwarf`.
 SEED   ?= 42
 PRESET ?= sun-like
+TIER   ?= standard
 SCALE  ?= enlarged
 MASS   ?= 1
 COUNT  ?= 1000
@@ -20,7 +21,7 @@ PORT   ?= 8080
 
 SIM_CRATES := sg-core sg-stellar sg-disk sg-formation sg-dynamics sg-planet sg-classic sg-schema sg-sim
 APP        := $(CARGO) run -q -p sg-app --
-APP_ARGS   := --seed $(SEED) --preset $(PRESET) --scale $(SCALE)
+APP_ARGS   := --seed $(SEED) --preset $(PRESET) --tier $(TIER) --scale $(SCALE)
 
 .DEFAULT_GOAL := help
 
@@ -31,8 +32,10 @@ help: ## List the targets
 		/^[a-z0-9-]+:.*## / { printf "  %-16s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 	@printf '\nVariables: SEED=%s PRESET=%s SCALE=%s MASS=%s COUNT=%s PORT=%s\n' \
 		'$(SEED)' '$(PRESET)' '$(SCALE)' '$(MASS)' '$(COUNT)' '$(PORT)'
-	@printf '  PRESET: sun-like | red-dwarf | massive-a-star | circumbinary | s-type-binary |\n'
-	@printf '          hierarchical-triple | random        SCALE: true | enlarged | schematic\n'
+	@printf '  TIER: standard | classic\n'
+	@printf '  PRESET: sun-like | red-dwarf | hot-jupiter | metal-poor | massive-a-star |\n'
+	@printf '          circumbinary | s-type-binary | hierarchical-triple | random\n'
+	@printf '  SCALE: true | enlarged | schematic\n'
 
 ##@ Everything
 
@@ -46,7 +49,7 @@ check: fmt-check lint test ## The fast subset: format, clippy, tests
 ##@ Try it by hand
 
 .PHONY: run
-run: ## Open the desktop app (SEED, PRESET, SCALE)
+run: ## Open the desktop app (SEED, PRESET, TIER, SCALE)
 	$(APP) $(APP_ARGS)
 
 .PHONY: run-release
@@ -55,7 +58,7 @@ run-release: ## Open the desktop app, optimised build
 
 .PHONY: sim
 sim: ## Print one system as text (SEED, MASS)
-	$(CARGO) run -q -p sg-cli -- simulate --seed $(SEED) --mass $(MASS)
+	$(CARGO) run -q -p sg-cli -- simulate --seed $(SEED) --mass $(MASS) --fidelity $(TIER)
 
 .PHONY: sim-json
 sim-json: ## Print one system as JSON: snapshot, timeline, diagnostics
@@ -105,7 +108,8 @@ shots: ## The reference set: scales, formation, close-ups, red dwarf, binaries, 
 	$(APP) --seed $(SEED) --preset circumbinary --scale schematic --screenshot $(SHOTS)/binary-circumbinary.png
 	$(APP) --seed $(SEED) --preset hierarchical-triple --scale schematic --screenshot $(SHOTS)/triple.png
 	$(APP) --seed $(SEED) --preset s-type-binary --select 0 --screenshot $(SHOTS)/binary-star-card.png
-	$(APP) --seed 736 --select 3 --screenshot $(SHOTS)/asteroid-belt.png
+	$(APP) --seed 736 --tier classic --select 3 --screenshot $(SHOTS)/asteroid-belt.png
+	$(APP) --seed 2 --preset hot-jupiter --select 1 --screenshot $(SHOTS)/hot-jupiter.png
 	@printf 'screenshots written to %s\n' '$(SHOTS)'
 
 ##@ Individual checks
@@ -156,6 +160,14 @@ golden: ## Classic tier vs the 450 golden systems of the C reference
 .PHONY: golden-check
 golden-check: ## Rebuild the C reference; confirm reference/golden is reproduced
 	scripts/golden.sh --check
+
+.PHONY: validate
+validate: ## Standard tier: 3000 systems compared with exoplanet surveys (prints the report)
+	$(CARGO) run -q --release -p sg-cli -- validate --count 3000
+
+.PHONY: check-math
+check-math: ## No platform-dependent maths in simulation code
+	scripts/check-math.sh
 
 .PHONY: golden-regen
 golden-regen: ## Rewrite reference/golden from the C reference (changes files)

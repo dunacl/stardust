@@ -15,9 +15,9 @@
 //!    its innermost member reaches the disk's inner edge. Neighbours too
 //!    massive for any resonance to keep apart merge.
 //!
-//! When the gas has gone, bodies that never reached isolation are given the
-//! thin envelope such a core gathers from the disk (Ginzburg, Schlichting &
-//! Sari 2016).
+//! When the gas has gone, bodies that never entered runaway are given the
+//! envelope such a core can cool and hold while embedded in the disk
+//! (Ginzburg, Schlichting & Sari 2016).
 //!
 //! Simplifications: orbits are circular and coplanar while gas is present;
 //! resonance capture is certain and only the 3:2 and 2:1 resonances are
@@ -36,8 +36,18 @@ pub struct GrowthParams {
     pub alpha_turbulent: f64,
     /// Stokes number of drift-limited pebbles.
     pub stokes_drift: f64,
+    /// α that refills a planet's gap: sets gap depth, and through it the
+    /// slowing of migration and of gas accretion (Kanagawa et al. 2018).
+    pub alpha_gap: f64,
     /// Whether bodies migrate.
     pub migration: bool,
+    /// Factor applied to the migration rate. Below 1 it stands in for
+    /// torques this model leaves out, which oppose the inward drift of
+    /// low-mass planets (the corotation torque, Paardekooper et al. 2011;
+    /// the heating torque, Benítez-Llambay et al. 2015). Population models
+    /// have long needed such a factor of 0.01–0.1 to keep planets from
+    /// falling into their stars (Ida & Lin 2008, ApJ 673, 487).
+    pub migration_efficiency: f64,
 }
 
 impl Default for GrowthParams {
@@ -45,7 +55,9 @@ impl Default for GrowthParams {
         Self {
             alpha_turbulent: 1.0e-4,
             stokes_drift: 0.05,
+            alpha_gap: 1.0e-4,
             migration: true,
+            migration_efficiency: 1.0,
         }
     }
 }
@@ -148,9 +160,9 @@ const MIN_STEP_YR: f64 = 20.0;
 const STEP_FRACTION: f64 = 0.03;
 /// Smallest seed, M☉: a tenth of a lunar mass.
 const MIN_SEED_MSUN: f64 = 1.0e-3 * EARTH_MASS_MSUN;
-/// Share of a body's mass counted as envelope when it reaches isolation
-/// (Bitsch, Lambrechts & Johansen 2015, §2.5).
-const ENVELOPE_SHARE_AT_ISOLATION: f64 = 0.1;
+/// Largest envelope, as a fraction of the core, that a core holds without
+/// having entered runaway: at equal masses the runaway begins.
+const MAX_EMBEDDED_ENVELOPE: f64 = 0.5;
 /// A gap is called open when the gas density in it has halved: `K = 25`.
 const GAP_OPEN_K: f64 = 25.0;
 /// Neighbours closer than this many mutual Hill radii cannot stay apart
@@ -160,30 +172,48 @@ const HILL_STABILITY: f64 = 3.464;
 /// mutual Hill radii apart; otherwise the next wider one is used.
 const RESONANCE_MIN_HILL: f64 = 5.0;
 
-/// `(a_outer/a_inner, (p, q))` for the p:q resonance.
-fn resonances() -> [(f64, (u8, u8)); 2] {
-    [(pow(1.5, 2.0 / 3.0), (3, 2)), (pow(2.0, 2.0 / 3.0), (2, 1))]
+/// First-order resonances a converging pair can be caught in, widest
+/// first: `(a_outer/a_inner, (p, q))` for the p:q period ratio.
+fn resonances() -> [(f64, (u8, u8)); 4] {
+    [
+        (pow(2.0, 2.0 / 3.0), (2, 1)),
+        (pow(1.5, 2.0 / 3.0), (3, 2)),
+        (pow(4.0 / 3.0, 2.0 / 3.0), (4, 3)),
+        (pow(1.25, 2.0 / 3.0), (5, 4)),
+    ]
 }
 
 fn mutual_hill(a_in: f64, a_out: f64, m_in: f64, m_out: f64, star: f64) -> f64 {
     0.5 * (a_in + a_out) * pow((m_in + m_out) / (3.0 * star), 1.0 / 3.0)
 }
 
-/// The tightest resonance that keeps a pair apart, or `None` if even the
-/// widest cannot (they merge).
-fn holding_resonance(a_in: f64, m_in: f64, m_out: f64, star: f64) -> Option<(f64, (u8, u8))> {
-    let mut widest_ok = None;
-    for (ratio, pq) in resonances() {
-        let a_out = a_in * ratio;
-        let spacing = (a_out - a_in) / mutual_hill(a_in, a_out, m_in, m_out, star);
-        if spacing >= RESONANCE_MIN_HILL {
-            return Some((ratio, pq));
-        }
-        if spacing >= HILL_STABILITY {
-            widest_ok = Some((ratio, pq));
+/// Spacing, in mutual Hill radii, at which a resonance would hold a pair.
+fn spacing_at(ratio: f64, a_in: f64, m_in: f64, m_out: f64, star: f64) -> f64 {
+    let a_out = a_in * ratio;
+    (a_out - a_in) / mutual_hill(a_in, a_out, m_in, m_out, star)
+}
+
+/// The resonances that can catch a pair, in the order tried.
+///
+/// Light pairs slip through the 2:1 and are caught in the 3:2, the commonest
+/// outcome for super-Earths migrating at type I rates (Ogihara & Kobayashi
+/// 2013); a pair too massive for the 3:2 to keep `RESONANCE_MIN_HILL` apart
+/// is caught in the 2:1 instead. The tighter 4:3 and 5:4 catch pairs that
+/// start out inside the 3:2.
+fn capture_candidates(a_in: f64, m_in: f64, m_out: f64, star: f64) -> Vec<(f64, (u8, u8))> {
+    let [two_one, three_two, four_three, five_four] = resonances();
+    let holds =
+        |r: &(f64, (u8, u8))| spacing_at(r.0, a_in, m_in, m_out, star) >= RESONANCE_MIN_HILL;
+    let mut order = Vec::with_capacity(4);
+    if !holds(&three_two) {
+        order.push(two_one);
+    }
+    for resonance in [three_two, four_three, five_four] {
+        if holds(&resonance) {
+            order.push(resonance);
         }
     }
-    widest_ok
+    order
 }
 
 /// Envelope a core that never reached isolation holds when the gas clears,
@@ -191,13 +221,17 @@ fn holding_resonance(a_in: f64, m_in: f64, m_out: f64, star: f64) -> Option<(f64
 ///
 /// Ginzburg, Schlichting & Sari (2016, ApJ 825, 29), eq. 24:
 /// `f ≈ 0.02 (M_c/M⊕)^0.8 (T/1000 K)^-0.25 (t_disk/1 Myr)^0.5`, for a core
-/// embedded in the disk for `t_disk`. Capped at the isolation share.
+/// embedded in the disk for `t_disk`. Capped well short of the equal
+/// masses at which runaway begins.
+///
+/// The relation was derived for super-Earth cores. Smaller bodies gather
+/// only wisps of gas that they do not keep, so the fraction is tapered to
+/// zero between 1 and 0.5 M⊕; that taper is this model's, not the paper's.
 pub fn embedded_envelope_fraction(core_msun: f64, temperature_k: f64, disk_life_yr: f64) -> f64 {
-    let f = 0.02
-        * pow(core_msun / EARTH_MASS_MSUN, 0.8)
-        * pow(temperature_k / 1000.0, -0.25)
-        * sqrt(disk_life_yr / 1.0e6);
-    f.min(ENVELOPE_SHARE_AT_ISOLATION)
+    let core = core_msun / EARTH_MASS_MSUN;
+    let f = 0.02 * pow(core, 0.8) * pow(temperature_k / 1000.0, -0.25) * sqrt(disk_life_yr / 1.0e6);
+    let taper = ((core - 0.5) / 0.5).clamp(0.0, 1.0);
+    taper * f.min(MAX_EMBEDDED_ENVELOPE)
 }
 
 /// Runs the growth model from the disk's formation until its gas is gone.
@@ -296,15 +330,19 @@ pub fn evolve(
             if b.isolated {
                 // Its pressure bump holds back all pebbles from outside.
                 flux = 0.0;
+                // Contraction first, a runaway once the envelope outweighs
+                // the core; either way no faster than the gap lets gas in.
+                let supply = physics::runaway_accretion_rate(
+                    disk,
+                    b.a_au,
+                    t,
+                    b.mass_msun(),
+                    params.alpha_gap,
+                );
                 gas_rate[i] = if b.envelope_msun < b.core_msun {
-                    physics::envelope_contraction_rate(
-                        b.core_msun,
-                        b.envelope_msun,
-                        disk.temperature(b.a_au, t),
-                    )
-                    .min(0.8 * disk.accretion_rate(t))
+                    physics::envelope_contraction_rate(b.mass_msun()).min(supply)
                 } else {
-                    physics::runaway_accretion_rate(disk, b.a_au, t, b.mass_msun())
+                    supply
                 };
             } else {
                 let stokes =
@@ -322,8 +360,9 @@ pub fn evolve(
                 flux -= rate;
             }
             if params.migration && b.a_au > inner_edge {
-                drift_rate[i] =
-                    physics::migration_rate(disk, b.a_au, t, b.mass_msun(), alpha) / b.a_au;
+                drift_rate[i] = params.migration_efficiency
+                    * physics::migration_rate(disk, b.a_au, t, b.mass_msun(), params.alpha_gap)
+                    / b.a_au;
             }
         }
 
@@ -396,15 +435,11 @@ pub fn evolve(
                 }
             } else if b.mass_msun() >= physics::pebble_isolation_mass(disk, b.a_au, t, alpha) {
                 b.isolated = true;
-                // From here on a tenth of its mass counts as envelope.
-                let total = b.mass_msun();
-                let water_share = b.water_msun / b.core_msun;
-                b.envelope_msun = ENVELOPE_SHARE_AT_ISOLATION * total;
-                b.core_msun = total - b.envelope_msun;
-                b.water_msun = water_share * b.core_msun;
                 events.push((t, GrowthEvent::IsolationReached { id: b.id }));
             }
-            if !b.gap && physics::gap_parameter(disk, b.a_au, t, b.mass_msun(), alpha) > GAP_OPEN_K
+            if !b.gap
+                && physics::gap_parameter(disk, b.a_au, t, b.mass_msun(), params.alpha_gap)
+                    > GAP_OPEN_K
             {
                 b.gap = true;
                 events.push((t, GrowthEvent::GapOpened { id: b.id }));
@@ -426,16 +461,8 @@ pub fn evolve(
             let held = bodies[i]
                 .resonance
                 .filter(|(inner, _)| *inner == bodies[i - 1].id);
-            let lock = holding_resonance(a_in, m_in, m_out, star);
-            let merge = match (held, lock) {
-                // Grown too massive for the resonance that held them.
-                (Some(_), _) => spacing < HILL_STABILITY,
-                (None, None) => {
-                    let widest = resonances()[1].0;
-                    a_out < a_in * widest || spacing < HILL_STABILITY
-                }
-                (None, Some(_)) => false,
-            };
+            // Too close for anything to keep them apart.
+            let merge = spacing < HILL_STABILITY;
             if merge {
                 let absorbed = bodies.remove(i);
                 let survivor = &mut bodies[i - 1];
@@ -474,9 +501,16 @@ pub fn evolve(
                 }
                 continue;
             }
+            // A pair is caught as it converges across a resonance that can
+            // hold it: only if it has just crossed (a step moves an orbit by
+            // at most `STEP_FRACTION`), so bodies that start out closer than
+            // a resonance are not thrown outward onto it.
             if held.is_none() {
-                if let Some((ratio, pq)) = lock {
-                    if a_out < a_in * ratio {
+                let room = bodies.get(i + 1).map_or(f64::INFINITY, |next| next.a_au);
+                for (ratio, pq) in capture_candidates(a_in, m_in, m_out, star) {
+                    let just_crossed =
+                        a_out < a_in * ratio && a_out >= a_in * ratio * (1.0 - 2.0 * STEP_FRACTION);
+                    if just_crossed && a_in * ratio < room {
                         bodies[i].a_au = a_in * ratio;
                         bodies[i].resonance = Some((bodies[i - 1].id, pq));
                         events.push((
@@ -487,6 +521,7 @@ pub fn evolve(
                                 ratio: pq,
                             },
                         ));
+                        break;
                     }
                 }
             }
@@ -501,10 +536,13 @@ pub fn evolve(
         next_frame += 1;
     }
 
-    // Cores that never reached isolation keep the thin envelope they
-    // gathered while embedded.
+    // A core that never entered runaway keeps only the envelope a core can
+    // cool and hold while embedded. (Until runaway the envelope tracked
+    // above is a clock for its onset, not a prediction of its mass: the
+    // contraction fit is calibrated for cores near 5 AU and overestimates
+    // what small, hot, close-in cores retain.)
     for b in &mut bodies {
-        if !b.isolated {
+        if !b.runaway {
             let embedded_yr = (disk.spec().dispersal_time_yr - b.start_yr).max(0.0);
             let temperature = disk.temperature(b.a_au, disk.spec().dispersal_time_yr);
             b.envelope_msun =
@@ -631,7 +669,7 @@ mod tests {
         let (long, short) = (&long.planets[0], &short.planets[0]);
         assert!(short.mass_msun() < long.mass_msun());
         assert!(!short.isolated);
-        assert!(short.envelope_msun <= 0.1 * short.core_msun);
+        assert!(short.envelope_msun <= 0.5 * short.core_msun);
     }
 
     /// A massive disk turns a well-placed seed into a gas giant.
@@ -740,20 +778,25 @@ mod tests {
 
     #[test]
     fn resonances_are_chosen_by_mass() {
-        // Two Earths are held by the 3:2; two Jupiters need the 2:1; two
-        // bodies of 10 Jupiter masses are held by neither.
+        // Two Earths are caught by the 3:2 first; two Jupiters by the 2:1
+        // only; two bodies of 10 Jupiter masses by nothing.
         let earth = EARTH_MASS_MSUN;
-        assert_eq!(holding_resonance(1.0, earth, earth, 1.0).unwrap().1, (3, 2));
+        let first = |m: f64| capture_candidates(1.0, m, m, 1.0).first().map(|r| r.1);
+        assert_eq!(first(earth), Some((3, 2)));
+        assert_eq!(capture_candidates(1.0, earth, earth, 1.0).len(), 3);
         assert_eq!(
-            holding_resonance(1.0, 318.0 * earth, 318.0 * earth, 1.0)
-                .unwrap()
-                .1,
-            (2, 1)
+            capture_candidates(1.0, 318.0 * earth, 318.0 * earth, 1.0),
+            vec![resonances()[0]]
         );
-        assert!(holding_resonance(1.0, 3180.0 * earth, 3180.0 * earth, 1.0).is_none());
-        // Kepler's third law: period ratio 3:2 is a ratio of 1.3104 in distance.
-        assert!((resonances()[0].0 - 1.3104).abs() < 1e-4);
-        assert!((resonances()[1].0 - 1.5874).abs() < 1e-4);
+        assert_eq!(first(3180.0 * earth), Some((2, 1)));
+        assert!(
+            spacing_at(resonances()[0].0, 1.0, 3180.0 * earth, 3180.0 * earth, 1.0)
+                < HILL_STABILITY
+        );
+        // Kepler's third law: period ratios 2:1 and 3:2 are ratios of 1.5874
+        // and 1.3104 in distance.
+        assert!((resonances()[0].0 - 1.5874).abs() < 1e-4);
+        assert!((resonances()[1].0 - 1.3104).abs() < 1e-4);
     }
 
     /// Ginzburg et al. (2016): a 5 M⊕ core at 1000 K embedded for 1 Myr
@@ -762,10 +805,18 @@ mod tests {
     fn embedded_envelopes_follow_ginzburg() {
         let f = embedded_envelope_fraction(5.0 * EARTH_MASS_MSUN, 1000.0, 1.0e6);
         assert!((f - 0.02 * 5f64.powf(0.8)).abs() < 1e-12);
-        assert!(embedded_envelope_fraction(0.1 * EARTH_MASS_MSUN, 1000.0, 1.0e6) < 0.004);
+        // Mars-sized bodies keep none; the taper ends at 1 M⊕.
+        assert_eq!(
+            embedded_envelope_fraction(0.1 * EARTH_MASS_MSUN, 1000.0, 1.0e6),
+            0.0
+        );
+        let at_one = embedded_envelope_fraction(EARTH_MASS_MSUN, 1000.0, 1.0e6);
+        assert!((at_one - 0.02).abs() < 1e-12);
+        let below = embedded_envelope_fraction(0.75 * EARTH_MASS_MSUN, 1000.0, 1.0e6);
+        assert!(below > 0.0 && below < 0.5 * at_one + 1e-3);
         assert_eq!(
             embedded_envelope_fraction(50.0 * EARTH_MASS_MSUN, 300.0, 3.0e6),
-            0.1
+            0.5
         );
     }
 }

@@ -219,8 +219,8 @@ fn body(
             h_he_frac,
         },
         rotation: Rotation {
-            period_hours: p.day_hours,
-            obliquity_deg: p.axial_tilt_deg,
+            period_hours: Some(p.day_hours),
+            obliquity_deg: Some(p.axial_tilt_deg),
             // Same test as the Classic model: equal to the hour.
             tidally_locked: !p.resonant_period && (p.day_hours as i64) == (year_hours as i64),
             spin_orbit_resonance: p.resonant_period,

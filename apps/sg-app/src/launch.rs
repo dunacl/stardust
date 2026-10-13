@@ -2,17 +2,18 @@
 //!
 //! On the desktop this comes from the command line (`desktop.rs`); in the
 //! browser from the page's query string, e.g.
-//! `?seed=7&preset=red-dwarf&scale=schematic`, so a link can point at a
-//! particular system.
+//! `?seed=7&preset=red-dwarf&tier=classic&scale=schematic`, so a link can
+//! point at a particular system.
 
 use sg_render::ScaleMode;
-use sg_schema::PresetId;
+use sg_schema::{Fidelity, PresetId};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Launch {
     pub seed: u64,
     pub preset: PresetId,
+    pub fidelity: Fidelity,
     pub scale: ScaleMode,
     /// Start at this fraction of the formation timeline instead of playing it.
     pub time: Option<f64>,
@@ -28,6 +29,7 @@ impl Default for Launch {
         Self {
             seed: 42,
             preset: PresetId::SunLike,
+            fidelity: Fidelity::Standard,
             scale: ScaleMode::Exaggerated,
             time: None,
             select: None,
@@ -55,11 +57,18 @@ impl Launch {
                 "preset" => match value {
                     "sun-like" => launch.preset = PresetId::SunLike,
                     "red-dwarf" => launch.preset = PresetId::RedDwarf,
+                    "hot-jupiter" => launch.preset = PresetId::HotJupiter,
+                    "metal-poor" => launch.preset = PresetId::MetalPoor,
                     "massive-a-star" => launch.preset = PresetId::MassiveAStar,
                     "circumbinary" => launch.preset = PresetId::Circumbinary,
                     "s-type-binary" => launch.preset = PresetId::STypeBinary,
                     "hierarchical-triple" => launch.preset = PresetId::HierarchicalTriple,
                     "random" => launch.preset = PresetId::Random,
+                    _ => {}
+                },
+                "tier" => match value {
+                    "classic" => launch.fidelity = Fidelity::Classic,
+                    "standard" => launch.fidelity = Fidelity::Standard,
                     _ => {}
                 },
                 "scale" => match value {
@@ -90,13 +99,15 @@ mod tests {
 
     #[test]
     fn query_sets_the_starting_system() {
-        let launch =
-            Launch::from_query("?seed=7&preset=red-dwarf&scale=schematic&select=3&time=0.5&ui=0");
+        let launch = Launch::from_query(
+            "?seed=7&preset=red-dwarf&tier=classic&scale=schematic&select=3&time=0.5&ui=0",
+        );
         assert_eq!(
             launch,
             Launch {
                 seed: 7,
                 preset: PresetId::RedDwarf,
+                fidelity: Fidelity::Classic,
                 scale: ScaleMode::Schematic,
                 time: Some(0.5),
                 select: Some(3),
@@ -108,8 +119,9 @@ mod tests {
 
     #[test]
     fn bad_values_are_ignored() {
-        let launch =
-            Launch::from_query("seed=0&preset=quasar&scale=&time=NaN&select=-1&other=1&novalue");
+        let launch = Launch::from_query(
+            "seed=0&preset=quasar&tier=best&scale=&time=NaN&select=-1&other=1&novalue",
+        );
         assert_eq!(launch, Launch::default());
         assert_eq!(Launch::from_query("seed=abc&seed=9").seed, 9);
     }

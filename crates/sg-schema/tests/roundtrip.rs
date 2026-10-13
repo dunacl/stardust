@@ -32,8 +32,8 @@ fn sample_body() -> Body {
             h_he_frac: 0.0,
         },
         rotation: Rotation {
-            period_hours: 23.93,
-            obliquity_deg: 23.4,
+            period_hours: Some(23.93),
+            obliquity_deg: None,
             tidally_locked: false,
             spin_orbit_resonance: false,
         },
@@ -140,6 +140,9 @@ fn sample_snapshot() -> SystemSnapshot {
             inner_au: 0.05,
             outer_au: 30.0,
             lifetime_myr: 3.2,
+            initial_mass_msun: 0.05,
+            dust_to_gas: 0.0149,
+            final_ice_line_au: 1.1,
         }],
         habitable_zones: vec![HabitableZone {
             host: HostRef::Star(StarId(0)),

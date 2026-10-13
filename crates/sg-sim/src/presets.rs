@@ -32,15 +32,16 @@ pub enum PresetAvailability {
 /// Whether `preset` works with `fidelity` in this build.
 pub fn preset_availability(preset: PresetId, fidelity: Fidelity) -> PresetAvailability {
     use PresetAvailability::{Available, Unavailable};
-    if fidelity != Fidelity::Classic {
-        return Unavailable("this tier is not implemented yet");
-    }
-    match preset {
-        PresetId::HotJupiter => Unavailable("needs migration (Standard tier, M4)"),
-        PresetId::MetalPoor => {
-            Unavailable("needs a formation model that responds to metallicity (Standard tier, M4)")
+    match (fidelity, preset) {
+        (Fidelity::High, _) => Unavailable("this tier is not implemented yet"),
+        (Fidelity::Standard, _) => Available,
+        (Fidelity::Classic, PresetId::HotJupiter) => {
+            Unavailable("needs migration: use the Standard tier")
         }
-        _ => Available,
+        (Fidelity::Classic, PresetId::MetalPoor) => {
+            Unavailable("the Classic model ignores metallicity: use the Standard tier")
+        }
+        (Fidelity::Classic, _) => Available,
     }
 }
 
@@ -62,9 +63,12 @@ pub fn preset_availability(preset: PresetId, fidelity: Fidelity) -> PresetAvaila
 ///
 /// The planets of the three multiple-star presets are whatever the model
 /// forms around those stars; the real systems' planets are not put in.
-/// Presets that are not available yet still return parameters describing
-/// what they will mean; [`crate::simulate`] may run them without the
-/// physics they are named for.
+/// - **Hot Jupiter** and **Metal-poor** (a 0.8 M☉ star with a tenth of the
+///   Sun's metals) need the Standard tier, whose formation model responds
+///   to metallicity and includes migration.
+///
+/// With the Standard tier a Sun-like or red-dwarf preset leaves the
+/// metallicity and the disk to be drawn; the Classic tier ignores them.
 pub fn preset_params(preset: PresetId, seed: u64, fidelity: Fidelity) -> SimulationParams {
     let single = |mass: f64| SystemSpec::Auto {
         primary_mass_msun: Some(mass),
@@ -83,7 +87,16 @@ pub fn preset_params(preset: PresetId, seed: u64, fidelity: Fidelity) -> Simulat
         ..SimulationParams::default()
     };
     match preset {
-        PresetId::SunLike | PresetId::HotJupiter => params.system = single(1.0),
+        PresetId::SunLike => params.system = single(1.0),
+        PresetId::HotJupiter => {
+            // Conditions that favour giants forming and migrating far in: a
+            // metal-rich star with a massive, long-lived disk. Not every
+            // seed produces a hot Jupiter.
+            params.system = single(1.0);
+            params.metallicity_feh = Some(0.3);
+            params.disk.mass_fraction = Some(0.12);
+            params.disk.lifetime_myr = Some(5.0);
+        }
         PresetId::RedDwarf => params.system = single(0.2),
         PresetId::MassiveAStar => params.system = single(2.0),
         PresetId::MetalPoor => {
@@ -146,9 +159,17 @@ mod tests {
             }
         }
         assert_eq!(
-            preset_availability(PresetId::SunLike, Fidelity::Standard),
+            preset_availability(PresetId::SunLike, Fidelity::High),
             PresetAvailability::Unavailable("this tier is not implemented yet")
         );
+        for preset in ALL_PRESETS {
+            assert_eq!(
+                preset_availability(preset, Fidelity::Standard),
+                PresetAvailability::Available
+            );
+            let result = crate::simulate(&preset_params(preset, 5, Fidelity::Standard));
+            assert!(result.is_ok(), "{preset:?}: {:?}", result.err());
+        }
     }
 
     #[cfg(feature = "classic")]

@@ -9,6 +9,7 @@
 //! ```
 
 mod golden;
+mod validate;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -72,6 +73,26 @@ enum Command {
         #[arg(long)]
         statistical_only: bool,
     },
+    /// Generate a population of Sun-like systems with the Standard tier and
+    /// compare its statistics with exoplanet surveys.
+    Validate {
+        /// Number of systems.
+        #[arg(long, default_value_t = 2000)]
+        count: u64,
+        #[arg(long, default_value_t = 1)]
+        first_seed: u64,
+        /// Write the report (Markdown) here instead of standard output.
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Exit with an error if any metric is outside its tolerance.
+        #[arg(long)]
+        strict: bool,
+        /// Read model parameters from a JSON file (fields may be omitted),
+        /// to try the population with other settings. The star, tier and
+        /// seed are still set by this command.
+        #[arg(long)]
+        params: Option<PathBuf>,
+    },
     /// Print the fingerprint of a run; equal on every platform.
     Hash {
         #[command(flatten)]
@@ -95,6 +116,9 @@ struct RunArgs {
     /// Fix the system age in Gyr (default: sampled).
     #[arg(long)]
     age_gyr: Option<f64>,
+    /// Fix the metallicity [Fe/H] in dex (Standard tier; default: sampled).
+    #[arg(long, allow_hyphen_values = true)]
+    feh: Option<f64>,
     /// Read parameters from a JSON file (fields may be omitted). The
     /// command-line seed still applies; --mass, --age-gyr and --fidelity are
     /// ignored.
@@ -106,6 +130,8 @@ struct RunArgs {
 enum PresetArg {
     SunLike,
     RedDwarf,
+    HotJupiter,
+    MetalPoor,
     MassiveAStar,
     Circumbinary,
     STypeBinary,
@@ -139,6 +165,8 @@ impl RunArgs {
             let id = match preset {
                 PresetArg::SunLike => PresetId::SunLike,
                 PresetArg::RedDwarf => PresetId::RedDwarf,
+                PresetArg::HotJupiter => PresetId::HotJupiter,
+                PresetArg::MetalPoor => PresetId::MetalPoor,
                 PresetArg::MassiveAStar => PresetId::MassiveAStar,
                 PresetArg::Circumbinary => PresetId::Circumbinary,
                 PresetArg::STypeBinary => PresetId::STypeBinary,
@@ -147,6 +175,7 @@ impl RunArgs {
             };
             let mut params = sg_sim::preset_params(id, seed, fidelity);
             params.age_gyr = self.age_gyr.or(params.age_gyr);
+            params.metallicity_feh = self.feh.or(params.metallicity_feh);
             return Ok(params);
         }
         Ok(SimulationParams {
@@ -157,6 +186,7 @@ impl RunArgs {
                 multiplicity: Some(Multiplicity::Single),
             },
             age_gyr: self.age_gyr,
+            metallicity_feh: self.feh,
             ..SimulationParams::default()
         })
     }
@@ -176,6 +206,15 @@ fn class_name(class: PlanetClass) -> &'static str {
         PlanetClass::SubJovian => "Sub-Jovian",
         PlanetClass::Jovian => "Jovian",
         PlanetClass::Unknown => "Unknown",
+        PlanetClass::Rocky => "Rocky",
+        PlanetClass::SuperEarth => "Super-Earth",
+        PlanetClass::LavaWorld => "Lava world",
+        PlanetClass::WaterWorld => "Water world",
+        PlanetClass::IceWorld => "Ice world",
+        PlanetClass::SubNeptune => "Sub-Neptune",
+        PlanetClass::IceGiant => "Ice giant",
+        PlanetClass::GasGiant => "Gas giant",
+        PlanetClass::HotJupiter => "Hot Jupiter",
     }
 }
 
@@ -212,15 +251,19 @@ fn body_row(index: usize, body: &Body) -> String {
     } else {
         ""
     };
+    let day = body
+        .rotation
+        .period_hours
+        .map_or_else(|| "-".to_string(), |hours| format!("{hours:.1}"));
     format!(
-        "{:>3} {:<11} {:>8.3} {:>6.3} {:>10.3} {:>9.0} {:>8.1} {:>9} {:>7.0} {:<2}",
+        "{:>3} {:<11} {:>8.3} {:>6.3} {:>10.3} {:>9.0} {:>8} {:>9} {:>7.0} {:<2}",
         index + 1,
         class_name(body.class),
         body.orbit.a_au,
         body.orbit.e,
         body.mass_mearth,
         body.radius_km,
-        body.rotation.period_hours,
+        day,
         pressure,
         temp,
         hz
@@ -437,6 +480,66 @@ fn main() -> Result<()> {
             tolerance,
             statistical_only,
         } => compare_golden(&golden, tolerance, statistical_only),
+        Command::Validate {
+            count,
+            first_seed,
+            out,
+            strict,
+            params,
+        } => {
+            let base: Option<SimulationParams> = match &params {
+                Some(path) => {
+                    let text = fs::read_to_string(path)
+                        .with_context(|| format!("reading {}", path.display()))?;
+                    Some(
+                        serde_json::from_str(&text)
+                            .with_context(|| format!("parsing {}", path.display()))?,
+                    )
+                }
+                None => None,
+            };
+            let mut systems = Vec::with_capacity(count as usize);
+            let (mut total_ms, mut max_ms) = (0.0f64, 0.0f64);
+            for seed in first_seed..first_seed + count {
+                let mut params = validate::population_params(seed);
+                if let Some(base) = &base {
+                    params.disk = base.disk.clone();
+                    params.formation = base.formation.clone();
+                    params.toggles = base.toggles.clone();
+                    params.metallicity_feh = base.metallicity_feh;
+                }
+                let started = std::time::Instant::now();
+                let result =
+                    sg_sim::simulate(&params).with_context(|| format!("simulating seed {seed}"))?;
+                let ms = started.elapsed().as_secs_f64() * 1000.0;
+                total_ms += ms;
+                max_ms = max_ms.max(ms);
+                // The metallicity drawn for the run is recorded by the disk.
+                let feh = result
+                    .snapshot
+                    .disks_at_dispersal
+                    .first()
+                    .map_or(0.0, |disk| (disk.dust_to_gas / 0.0149).log10());
+                systems.push(validate::SystemStats::from_result(&result, feh));
+            }
+            let text = validate::report(
+                &systems,
+                first_seed,
+                MODEL_VERSION,
+                total_ms / count.max(1) as f64,
+                max_ms,
+            );
+            write_output(out.as_ref(), &text)?;
+            let failed = validate::metrics(&systems)
+                .iter()
+                .filter(|m| !m.passes())
+                .count();
+            eprintln!("{failed} metric(s) outside tolerance");
+            if strict && failed > 0 {
+                bail!("validation failed");
+            }
+            Ok(())
+        }
         Command::Hash { run, seed } => {
             let result = sg_sim::simulate(&run.params(seed)?)?;
             println!("{}", sg_sim::result_hash(&result));

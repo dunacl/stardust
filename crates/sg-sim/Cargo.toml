@@ -17,6 +17,9 @@ sg-core.workspace = true
 sg-schema.workspace = true
 sg-stellar.workspace = true
 sg-dynamics.workspace = true
+sg-disk.workspace = true
+sg-formation.workspace = true
+sg-planet.workspace = true
 sg-classic = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true

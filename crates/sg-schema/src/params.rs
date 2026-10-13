@@ -16,7 +16,8 @@ pub struct SimulationParams {
     pub system: SystemSpec,
     /// Age of the system in Gyr. `None` = sampled by the model.
     pub age_gyr: Option<f64>,
-    /// Metallicity [Fe/H] in dex. `None` = sampled. Unused by the Classic tier.
+    /// Metallicity [Fe/H] in dex. `None`: solar in the Classic tier, drawn
+    /// from the solar neighbourhood's distribution in the Standard tier.
     pub metallicity_feh: Option<f64>,
     pub disk: DiskParams,
     pub formation: FormationParams,
@@ -50,7 +51,7 @@ impl Default for SimulationParams {
 pub enum Fidelity {
     /// Port of Accrete/StarGen.
     Classic,
-    /// Modern semi-analytic pipeline (M4).
+    /// Modern semi-analytic pipeline.
     Standard,
     /// Standard plus N-body late stage (M7).
     High,
@@ -126,16 +127,69 @@ pub struct OrbitSpec {
     pub e: f64,
 }
 
-/// Protoplanetary disk parameters. Empty until the disk model (M3/M4).
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+/// Protoplanetary disk parameters (Standard tier). `None` means "drawn by
+/// the model from its distribution".
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-pub struct DiskParams {}
+pub struct DiskParams {
+    /// Initial gas mass as a fraction of the stellar mass.
+    pub mass_fraction: Option<f64>,
+    /// Median of the distribution `mass_fraction` is drawn from.
+    pub mass_fraction_median: f64,
+    /// Time until the gas begins to clear, Myr.
+    pub lifetime_myr: Option<f64>,
+    /// Shakura–Sunyaev α of the disk's global evolution.
+    pub alpha_viscous: f64,
+}
+
+impl Default for DiskParams {
+    fn default() -> Self {
+        Self {
+            mass_fraction: None,
+            mass_fraction_median: 0.02,
+            lifetime_myr: None,
+            alpha_viscous: 5.0e-3,
+        }
+    }
+}
 
 /// Formation parameters, per tier.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct FormationParams {
     pub classic: ClassicParams,
+    pub standard: StandardParams,
+}
+
+/// Standard-tier formation parameters (PLAN.md §5.3–5.6).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct StandardParams {
+    /// Turbulent α at the disk midplane: pebble layer thickness and
+    /// isolation mass.
+    pub alpha_turbulent: f64,
+    /// α that refills a planet's gap: gap depth, type II migration and the
+    /// limit on gas accretion.
+    pub alpha_gap: f64,
+    /// Stokes number of drift-limited pebbles.
+    pub stokes_drift: f64,
+    /// Factor applied to the disk migration rate; below 1 it stands in for
+    /// torques the model leaves out.
+    pub migration_efficiency: f64,
+    /// Embryos seeded in each disk.
+    pub embryo_count: u32,
+}
+
+impl Default for StandardParams {
+    fn default() -> Self {
+        Self {
+            alpha_turbulent: 1.0e-4,
+            alpha_gap: 2.0e-4,
+            stokes_drift: 0.05,
+            migration_efficiency: 0.3,
+            embryo_count: 20,
+        }
+    }
 }
 
 /// Classic-tier parameters (PLAN.md §7.2). Defaults are StarGen's.

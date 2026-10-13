@@ -8,7 +8,7 @@
 //! inflated radii of strongly irradiated giants, core-powered mass loss,
 //! and interior differentiation beyond a fixed rock-to-iron ratio.
 
-use sg_core::math::{log10, pow, sqrt};
+use sg_core::math::{exp, ln, log10, pow, sqrt};
 
 /// Rock share of the rock-plus-iron in an Earth-like interior.
 pub const EARTH_ROCK_FRACTION: f64 = 0.67;
@@ -44,10 +44,15 @@ pub fn ice_rock_radius(mass_mearth: f64, ice_mass_fraction: f64) -> f64 {
 /// The two Fortney et al. (2007) fits are combined: the rock–iron radius at
 /// Earth's rock fraction, times the ratio by which the ice–rock fit grows
 /// with ice fraction. Exact for a dry planet; an interpolation otherwise.
+/// Below the fits' lower limit of 0.01 M⊕, where self-compression no longer
+/// matters, the radius follows constant density, `R ∝ M^(1/3)`.
 pub fn solid_radius(mass_mearth: f64, water_mass_fraction: f64) -> f64 {
-    let mass = mass_mearth.max(1.0e-4);
-    rock_iron_radius(mass, EARTH_ROCK_FRACTION) * ice_rock_radius(mass, water_mass_fraction)
-        / ice_rock_radius(mass, 0.0)
+    const FIT_FLOOR_MEARTH: f64 = 0.01;
+    let mass = mass_mearth.max(FIT_FLOOR_MEARTH);
+    let fitted = rock_iron_radius(mass, EARTH_ROCK_FRACTION)
+        * ice_rock_radius(mass, water_mass_fraction)
+        / ice_rock_radius(mass, 0.0);
+    fitted * sg_core::math::cbrt(mass_mearth.min(FIT_FLOOR_MEARTH) / FIT_FLOOR_MEARTH).max(0.0)
 }
 
 /// Thickness of a hydrogen–helium envelope, R⊕.
@@ -197,10 +202,10 @@ pub fn envelope_after_escape(
         return envelope.max(0.0);
     }
     let flux = flux_earth(star_luminosity_lsun, a_au);
-    let log_span = (age_gyr / ESCAPE_START_GYR).ln();
+    let log_span = ln(age_gyr / ESCAPE_START_GYR);
     let mut t = ESCAPE_START_GYR;
     for step in 1..=ESCAPE_STEPS {
-        let next = ESCAPE_START_GYR * (log_span * f64::from(step) / f64::from(ESCAPE_STEPS)).exp();
+        let next = ESCAPE_START_GYR * exp(log_span * f64::from(step) / f64::from(ESCAPE_STEPS));
         let mid = sqrt(t * next);
         let now = Makeup {
             envelope_mearth: envelope,
@@ -343,6 +348,10 @@ mod tests {
         // 1.5 R⊕).
         assert!((solid_radius(0.107, 0.0) - 0.532).abs() < 0.05);
         assert!((solid_radius(5.0, 0.0) - 1.53).abs() < 0.06);
+        // The Moon (0.0123 M⊕, 0.273 R⊕), and constant density below the
+        // fit: a thousandth of the mass, a tenth of the radius.
+        assert!((solid_radius(0.0123, 0.0) - 0.273).abs() < 0.02);
+        assert!((solid_radius(1.0e-5, 0.0) / solid_radius(0.01, 0.0) - 0.1).abs() < 1e-9);
         // Water makes a planet larger at the same mass.
         assert!(solid_radius(1.0, 0.5) > 1.15 * solid_radius(1.0, 0.0));
     }
@@ -472,7 +481,7 @@ mod tests {
                 water_fraction: water,
             };
             let r = radius(&makeup, flux_earth(1.0, a), age);
-            prop_assert!(r.is_finite() && r > 0.2 && r < 30.0, "{}", r);
+            prop_assert!(r.is_finite() && r > 0.1 && r < 30.0, "{}", r);
             prop_assert!(solid_radius(core * 1.5, water) > solid_radius(core, water));
             let left = envelope_after_escape(&makeup, a, 1.0, 1.0, age);
             prop_assert!(left >= 0.0 && left <= makeup.envelope_mearth + 1e-12);

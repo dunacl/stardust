@@ -33,14 +33,19 @@ pub extern "C" fn sg_classic_result_hash(seed: u64, mass_msun: f64) -> u64 {
 }
 
 /// Fingerprint of a preset's run: `preset` is an index into
-/// [`sg_sim::ALL_PRESETS`]. Returns 0 if the index is out of range or the
-/// run fails. This is how the multiple-star path is compared across
-/// targets.
-pub fn preset_result_hash(seed: u64, preset: u32) -> u64 {
+/// [`sg_sim::ALL_PRESETS`], `tier` is 0 for Classic and 1 for Standard.
+/// Returns 0 if either is out of range or the run fails. This is how the
+/// multiple-star path and the Standard tier are compared across targets.
+pub fn preset_result_hash(seed: u64, preset: u32, tier: u32) -> u64 {
     let Some(id) = sg_sim::ALL_PRESETS.get(preset as usize) else {
         return 0;
     };
-    match sg_sim::simulate(&sg_sim::preset_params(*id, seed, Fidelity::Classic)) {
+    let fidelity = match tier {
+        0 => Fidelity::Classic,
+        1 => Fidelity::Standard,
+        _ => return 0,
+    };
+    match sg_sim::simulate(&sg_sim::preset_params(*id, seed, fidelity)) {
         Ok(result) => u64::from_str_radix(&sg_sim::result_hash(&result), 16).unwrap_or(0),
         Err(_) => 0,
     }
@@ -48,8 +53,8 @@ pub fn preset_result_hash(seed: u64, preset: u32) -> u64 {
 
 /// C-ABI export of [`preset_result_hash`].
 #[no_mangle]
-pub extern "C" fn sg_preset_result_hash(seed: u64, preset: u32) -> u64 {
-    preset_result_hash(seed, preset)
+pub extern "C" fn sg_preset_result_hash(seed: u64, preset: u32, tier: u32) -> u64 {
+    preset_result_hash(seed, preset, tier)
 }
 
 #[cfg(test)]
@@ -60,9 +65,13 @@ mod tests {
     fn preset_hashes_cover_the_multi_star_path() {
         // Index 5 is the circumbinary preset.
         assert_eq!(sg_sim::ALL_PRESETS[5], sg_schema::PresetId::Circumbinary);
-        let h = preset_result_hash(42, 5);
-        assert_eq!(format!("{h:016x}"), "79ee8bf1393f37ac");
-        assert_eq!(preset_result_hash(42, 99), 0);
+        let h = preset_result_hash(42, 5, 0);
+        assert_eq!(format!("{h:016x}"), "89b7d1657f51855b");
+        // The same preset in the Standard tier.
+        let h = preset_result_hash(42, 5, 1);
+        assert_eq!(format!("{h:016x}"), "9cfae9a5816c4ace");
+        assert_eq!(preset_result_hash(42, 99, 0), 0);
+        assert_eq!(preset_result_hash(42, 5, 7), 0);
     }
 
     #[test]

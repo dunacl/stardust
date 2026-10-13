@@ -45,7 +45,7 @@ fn launch_options() -> Launch {
 fn main() {
     let launch = launch_options();
 
-    let mut state = AppState::new(launch.preset, launch.seed);
+    let mut state = AppState::new(launch.preset, launch.seed, launch.fidelity);
     state.show_ui = launch.show_ui;
     state.start = state::StartOptions {
         scale: launch.scale,

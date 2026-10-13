@@ -1,6 +1,6 @@
 //! Colours for bodies and overlays.
 //!
-//! M2 draws each planet as a sphere in one colour chosen by its class. The
+//! Each planet is drawn as a sphere in one colour chosen by its class. The
 //! class comes from the simulation; only the swatch is chosen here. Surface
 //! palettes derived from composition and temperature arrive with M5.
 
@@ -22,6 +22,15 @@ pub fn class_color(class: PlanetClass) -> Color {
         PlanetClass::SubJovian => (0.38, 0.60, 0.86),
         PlanetClass::Jovian => (0.85, 0.68, 0.50),
         PlanetClass::Unknown => (0.60, 0.60, 0.60),
+        PlanetClass::Rocky => (0.58, 0.52, 0.47),
+        PlanetClass::SuperEarth => (0.66, 0.55, 0.44),
+        PlanetClass::LavaWorld => (0.86, 0.32, 0.16),
+        PlanetClass::WaterWorld => (0.14, 0.38, 0.74),
+        PlanetClass::IceWorld => (0.82, 0.90, 0.96),
+        PlanetClass::SubNeptune => (0.52, 0.76, 0.80),
+        PlanetClass::IceGiant => (0.36, 0.62, 0.88),
+        PlanetClass::GasGiant => (0.84, 0.70, 0.52),
+        PlanetClass::HotJupiter => (0.90, 0.56, 0.34),
     };
     Color::srgb(r, g, b)
 }
@@ -69,6 +78,15 @@ mod tests {
             PlanetClass::SubJovian,
             PlanetClass::Jovian,
             PlanetClass::Unknown,
+            PlanetClass::Rocky,
+            PlanetClass::SuperEarth,
+            PlanetClass::LavaWorld,
+            PlanetClass::WaterWorld,
+            PlanetClass::IceWorld,
+            PlanetClass::SubNeptune,
+            PlanetClass::IceGiant,
+            PlanetClass::GasGiant,
+            PlanetClass::HotJupiter,
         ];
         let colors: Vec<[f32; 4]> = classes
             .iter()

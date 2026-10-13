@@ -130,9 +130,12 @@ pub struct Body {
     pub equilibrium_temp_k: f64,
     pub composition: Composition,
     pub rotation: Rotation,
-    /// `None` for an airless body.
+    /// `None` for an airless body, and for a planet whose atmosphere the
+    /// model does not describe (the Standard tier gives only hydrogen–helium
+    /// envelopes).
     pub atmosphere: Option<Atmosphere>,
-    /// `None` without a solid or liquid surface.
+    /// `None` without a solid or liquid surface, and where the model has
+    /// no climate (the Standard tier so far).
     pub climate: Option<Climate>,
     pub class: PlanetClass,
     pub habitability: Habitability,
@@ -154,9 +157,11 @@ pub struct Composition {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Rotation {
-    /// Sidereal rotation period.
-    pub period_hours: f64,
-    pub obliquity_deg: f64,
+    /// Sidereal rotation period. `None` where the model does not give one
+    /// (the Standard tier, unless the planet is tidally locked).
+    pub period_hours: Option<f64>,
+    /// `None` where the model does not give one.
+    pub obliquity_deg: Option<f64>,
     /// Rotation period equals the orbital period.
     pub tidally_locked: bool,
     /// Caught in a spin–orbit resonance other than 1:1.
@@ -201,8 +206,9 @@ pub struct Climate {
     pub cloud_frac: f64,
 }
 
-/// Planet class. Schema 0.1 carries the Classic tier's categories; the modern
-/// classes of PLAN.md §5.9 are added with the Standard tier (M4).
+/// Planet class. The first twelve are the Classic tier's categories; the
+/// rest are the Standard tier's (PLAN.md §5.9), assigned from composition
+/// and equilibrium temperature.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanetClass {
@@ -229,6 +235,24 @@ pub enum PlanetClass {
     /// Jupiter-like.
     Jovian,
     Unknown,
+    /// Standard tier: bare rock under about 2 Earth masses.
+    Rocky,
+    /// Standard tier: bare rock of 2 Earth masses or more.
+    SuperEarth,
+    /// Standard tier: bare rock hot enough to melt on the dayside.
+    LavaWorld,
+    /// Standard tier: a tenth or more water, not all frozen.
+    WaterWorld,
+    /// Standard tier: a tenth or more water, frozen.
+    IceWorld,
+    /// Standard tier: a core under a hydrogen–helium envelope of under 10%.
+    SubNeptune,
+    /// Standard tier: envelope of 10–50%, like Uranus and Neptune.
+    IceGiant,
+    /// Standard tier: mostly hydrogen and helium.
+    GasGiant,
+    /// Standard tier: a gas giant hotter than 1000 K.
+    HotJupiter,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -280,14 +304,21 @@ pub struct Belt {
     pub mass_mearth: f64,
 }
 
-/// State of a disk when it dispersed. Not produced before M4.
+/// A protoplanetary disk as the Standard tier modelled it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DiskSummary {
     pub id: DiskId,
     pub host: HostRef,
     pub inner_au: f64,
     pub outer_au: f64,
+    /// Time from the disk's formation until its gas began to clear.
     pub lifetime_myr: f64,
+    /// Gas mass at the start.
+    pub initial_mass_msun: f64,
+    /// Dust-to-gas mass ratio at the start.
+    pub dust_to_gas: f64,
+    /// Where the water ice line was when the gas cleared.
+    pub final_ice_line_au: f64,
 }
 
 /// The range of orbits open to planets of one host: inside the limit a

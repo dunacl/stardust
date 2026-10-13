@@ -4,17 +4,21 @@
 //! finished system, its formation timeline, and diagnostics. The same
 //! parameters and [`MODEL_VERSION`] give the same result on every platform.
 //!
-//! Tiers available so far: **Classic**, when the `classic` feature is on
-//! (the default). It covers single stars as StarGen models them, and, with
-//! modern stars and stability limits, multiple-star systems (`classic.rs`). Standard and High return [`SimError::TierUnavailable`]
-//! until M4 and M7.
+//! Tiers available so far:
+//!
+//! - **Classic**, when the `classic` feature is on (the default): single
+//!   stars as StarGen models them, and, with modern stars and stability
+//!   limits, multiple-star systems (`classic.rs`).
+//! - **Standard**: the modern pipeline of disk evolution, pebble and gas
+//!   accretion, migration and atmospheric escape (`standard.rs`).
+//!
+//! High returns [`SimError::TierUnavailable`] until M7.
 
 #[cfg(feature = "classic")]
 mod classic;
 pub mod names;
 mod presets;
-// Tier-independent, but so far only the Classic tier builds systems.
-#[cfg_attr(not(feature = "classic"), allow(dead_code))]
+mod standard;
 mod stars;
 
 pub use presets::{preset_availability, preset_params, PresetAvailability, ALL_PRESETS};
@@ -24,7 +28,7 @@ use sg_schema::{EventTimeline, Fidelity, SimulationParams, SystemSnapshot, SCHEM
 
 /// Version of the physical model. Bump whenever a change alters outputs for
 /// existing parameters (CLAUDE.md hard rule 7).
-pub const MODEL_VERSION: &str = "0.2.0";
+pub const MODEL_VERSION: &str = "0.3.0";
 
 /// Everything a run produces.
 #[derive(Debug, Clone, PartialEq)]
@@ -125,7 +129,6 @@ pub fn simulate(params: &SimulationParams) -> Result<SimulationResult, SimError>
 }
 
 /// Runs a simulation, reporting progress to `observer`, which may cancel it.
-#[cfg_attr(not(feature = "classic"), allow(unused_variables))]
 pub fn simulate_with(
     params: &SimulationParams,
     observer: &mut dyn SimObserver,
@@ -144,10 +147,7 @@ pub fn simulate_with(
             Fidelity::Classic,
             "this build was compiled without the `classic` feature",
         )),
-        Fidelity::Standard => Err(SimError::TierUnavailable(
-            Fidelity::Standard,
-            "planned for milestone M4",
-        )),
+        Fidelity::Standard => standard::simulate(params, observer),
         Fidelity::High => Err(SimError::TierUnavailable(
             Fidelity::High,
             "planned for milestone M7",
@@ -196,17 +196,15 @@ mod tests {
     }
 
     #[test]
-    fn later_tiers_report_their_milestone() {
-        for fidelity in [Fidelity::Standard, Fidelity::High] {
-            let params = SimulationParams {
-                fidelity,
-                ..SimulationParams::default()
-            };
-            assert!(matches!(
-                simulate(&params),
-                Err(SimError::TierUnavailable(f, _)) if f == fidelity
-            ));
-        }
+    fn the_high_tier_reports_its_milestone() {
+        let params = SimulationParams {
+            fidelity: Fidelity::High,
+            ..SimulationParams::default()
+        };
+        assert!(matches!(
+            simulate(&params),
+            Err(SimError::TierUnavailable(Fidelity::High, _))
+        ));
     }
 
     #[cfg(not(feature = "classic"))]

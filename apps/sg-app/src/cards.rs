@@ -4,7 +4,7 @@
 //! window.
 
 use sg_render::belt::is_belt;
-use sg_schema::{Body, HabitableZone, PlanetClass, PlanetZone, Star};
+use sg_schema::{Body, DiskSummary, HabitableZone, PlanetClass, PlanetZone, Star};
 
 /// A titled list of label/value rows, plus free-text notes.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -35,6 +35,15 @@ pub fn class_name(class: PlanetClass) -> &'static str {
         PlanetClass::SubJovian => "Sub-Jovian",
         PlanetClass::Jovian => "Jovian",
         PlanetClass::Unknown => "Unclassified",
+        PlanetClass::Rocky => "Rocky planet",
+        PlanetClass::SuperEarth => "Super-Earth",
+        PlanetClass::LavaWorld => "Lava world",
+        PlanetClass::WaterWorld => "Water world",
+        PlanetClass::IceWorld => "Ice world",
+        PlanetClass::SubNeptune => "Sub-Neptune",
+        PlanetClass::IceGiant => "Ice giant",
+        PlanetClass::GasGiant => "Gas giant",
+        PlanetClass::HotJupiter => "Hot Jupiter",
     }
 }
 
@@ -66,13 +75,49 @@ pub fn ordinal(n: usize) -> String {
 pub fn mass(mass_mearth: f64) -> String {
     if mass_mearth < 0.01 {
         format!("{mass_mearth:.1e}")
-    } else {
+    } else if mass_mearth < 30.0 {
         format!("{mass_mearth:.3}")
+    } else {
+        format!("{mass_mearth:.0}")
+    }
+}
+
+/// For giants, the mass in Jupiters as well: `(1.83 × Jupiter)`.
+fn in_jupiters(mass_mearth: f64) -> String {
+    if mass_mearth >= 30.0 {
+        format!(" ({:.2} × Jupiter)", mass_mearth / 317.8)
+    } else {
+        String::new()
     }
 }
 
 fn celsius(kelvin: f64) -> String {
     format!("{kelvin:.0} K ({:+.0} °C)", kelvin - 273.15)
+}
+
+/// A fraction as a percentage that does not round a small share to zero.
+fn share(fraction: f64) -> String {
+    if fraction < 0.01 {
+        format!("{:.2}%", fraction * 100.0)
+    } else {
+        percent(fraction)
+    }
+}
+
+/// True for the classes the Standard tier assigns.
+fn is_standard_class(class: PlanetClass) -> bool {
+    matches!(
+        class,
+        PlanetClass::Rocky
+            | PlanetClass::SuperEarth
+            | PlanetClass::LavaWorld
+            | PlanetClass::WaterWorld
+            | PlanetClass::IceWorld
+            | PlanetClass::SubNeptune
+            | PlanetClass::IceGiant
+            | PlanetClass::GasGiant
+            | PlanetClass::HotJupiter
+    )
 }
 
 fn percent(fraction: f64) -> String {
@@ -97,6 +142,7 @@ pub fn star_card(
     zone: Option<&PlanetZone>,
     planets: usize,
     companion: Option<&Companion>,
+    disk: Option<&DiskSummary>,
 ) -> Card {
     let mut sections = vec![Section {
         heading: "Star",
@@ -135,6 +181,26 @@ pub fn star_card(
                 "Its companion is too close for this star to keep planets of its own.".into(),
             ),
         }
+    }
+    if let Some(disk) = disk {
+        sections.push(Section {
+            heading: "Its disk, long gone",
+            rows: vec![
+                ("Gas mass", format!("{:.3} M☉", disk.initial_mass_msun)),
+                (
+                    "Dust",
+                    format!(
+                        "{:.0} Earth masses",
+                        disk.initial_mass_msun * disk.dust_to_gas * 332_946.0
+                    ),
+                ),
+                ("Lasted", format!("{:.1} Myr", disk.lifetime_myr)),
+                (
+                    "Ice line at the end",
+                    format!("{} AU", au(disk.final_ice_line_au)),
+                ),
+            ],
+        });
     }
     if let Some(hz) = hz {
         sections.push(Section {
@@ -199,7 +265,14 @@ pub fn body_card(body: &Body, number: usize) -> Card {
             heading: "Body",
             rows: {
                 let mut rows = vec![
-                    ("Mass", format!("{} Earth masses", mass(body.mass_mearth))),
+                    (
+                        "Mass",
+                        format!(
+                            "{} Earth masses{}",
+                            mass(body.mass_mearth),
+                            in_jupiters(body.mass_mearth)
+                        ),
+                    ),
                     (
                         "Radius",
                         format!(
@@ -217,10 +290,17 @@ pub fn body_card(body: &Body, number: usize) -> Card {
                     "Escape velocity",
                     format!("{:.1} km/s", body.escape_velocity_km_s),
                 ));
-                rows.push(("Day", duration(body.rotation.period_hours)));
-                rows.push(("Axial tilt", format!("{:.0}°", body.rotation.obliquity_deg)));
+                if let Some(hours) = body.rotation.period_hours {
+                    rows.push(("Day", duration(hours)));
+                }
+                if let Some(tilt) = body.rotation.obliquity_deg {
+                    rows.push(("Axial tilt", format!("{tilt:.0}°")));
+                }
+                if body.composition.water_frac > 0.005 {
+                    rows.push(("Water", percent(body.composition.water_frac)));
+                }
                 if body.composition.h_he_frac > 0.0005 {
-                    rows.push(("Hydrogen/helium", percent(body.composition.h_he_frac)));
+                    rows.push(("Hydrogen/helium", share(body.composition.h_he_frac)));
                 }
                 rows
             },
@@ -277,9 +357,13 @@ pub fn body_card(body: &Body, number: usize) -> Card {
             });
         }
         None => sections.push(Section {
-            heading: "Atmosphere",
+            heading: if body.atmosphere.is_some() {
+                "Atmosphere"
+            } else {
+                "Temperature"
+            },
             rows: vec![
-                ("Cloud-top temperature", celsius(body.equilibrium_temp_k)),
+                ("Equilibrium temperature", celsius(body.equilibrium_temp_k)),
                 ("Albedo", format!("{:.2}", body.albedo)),
             ],
         }),
@@ -306,15 +390,38 @@ pub fn body_card(body: &Body, number: usize) -> Card {
         class_name(body.class)
     };
     let f = &body.formation;
-    let mut story = format!("Grew from a nucleus injected at {:.2} AU", f.origin_a_au);
-    match f.mergers {
-        0 => story.push_str(" and never collided with another."),
-        1 => story.push_str(", then absorbed one other embryo."),
-        n => story.push_str(&format!(", then absorbed {n} other embryos.")),
-    }
-    notes.push(story);
-    if f.captured_gas {
-        notes.push("Passed its critical mass and captured gas from the disk.".into());
+    if is_standard_class(body.class) {
+        let mut story = format!("Began as an embryo {} AU from its star", au(f.origin_a_au));
+        if body.orbit.a_au < 0.8 * f.origin_a_au {
+            story.push_str(&format!(
+                " and migrated inward to {} AU while the gas disk lasted",
+                au(body.orbit.a_au)
+            ));
+        }
+        story.push('.');
+        notes.push(story);
+        match f.mergers {
+            0 => {}
+            1 => notes.push("Absorbed one other embryo.".into()),
+            n => notes.push(format!("Absorbed {n} other embryos.")),
+        }
+        if f.captured_gas {
+            notes.push("Its core grew heavy enough to pull in gas in a runaway.".into());
+        }
+        if body.climate.is_none() && body.atmosphere.is_none() {
+            notes.push("This tier does not yet model its surface or any thin atmosphere.".into());
+        }
+    } else {
+        let mut story = format!("Grew from a nucleus injected at {:.2} AU", f.origin_a_au);
+        match f.mergers {
+            0 => story.push_str(" and never collided with another."),
+            1 => story.push_str(", then absorbed one other embryo."),
+            n => story.push_str(&format!(", then absorbed {n} other embryos.")),
+        }
+        notes.push(story);
+        if f.captured_gas {
+            notes.push("Passed its critical mass and captured gas from the disk.".into());
+        }
     }
     if body.rotation.tidally_locked {
         notes.push("Tidally locked: one face always toward the star.".into());
@@ -377,6 +484,7 @@ mod tests {
             result.snapshot.planet_zones.first(),
             16,
             None,
+            None,
         );
         assert!(card.notes.is_empty());
         assert_eq!(card.title, "Vorus");
@@ -432,7 +540,7 @@ mod tests {
         };
         let host = HostRef::Star(StarId(0));
         let zone = snap.planet_zones.iter().find(|z| z.host == host);
-        let card = star_card(stars[0], None, zone, 8, Some(&companion));
+        let card = star_card(stars[0], None, zone, 8, Some(&companion), None);
         assert_eq!(card.title, "Vorus A");
         let rows: Vec<_> = card.sections.iter().flat_map(|s| s.rows.clone()).collect();
         assert!(rows.contains(&("Orbits with", "Vorus B".to_string())));
@@ -444,7 +552,7 @@ mod tests {
             card.notes[0]
         );
         // Without a zone, the star keeps no planets.
-        let card = star_card(stars[0], None, None, 0, Some(&companion));
+        let card = star_card(stars[0], None, None, 0, Some(&companion), None);
         assert!(card.notes[0].contains("too close"));
 
         let third_of_b = snap
@@ -466,11 +574,55 @@ mod tests {
         );
     }
 
+    /// Standard-tier planets: no invented day or surface, and a formation
+    /// story in that tier's terms.
+    #[test]
+    fn standard_cards_show_only_what_the_tier_models() {
+        use sg_schema::{Fidelity, PresetId};
+        let result = sg_sim::simulate(&sg_sim::preset_params(
+            PresetId::HotJupiter,
+            42,
+            Fidelity::Standard,
+        ))
+        .unwrap();
+        assert!(!result.snapshot.bodies.is_empty());
+        for (index, body) in result.snapshot.bodies.iter().enumerate() {
+            let card = body_card(body, index + 1);
+            let rows: Vec<_> = card.sections.iter().flat_map(|s| s.rows.clone()).collect();
+            assert!(rows
+                .iter()
+                .all(|(k, _)| *k != "Axial tilt" && *k != "Oceans"));
+            assert_eq!(
+                rows.iter().any(|(k, _)| *k == "Day"),
+                body.rotation.tidally_locked
+            );
+            assert!(rows.iter().any(|(k, _)| *k == "Equilibrium temperature"));
+            assert!(
+                card.notes[0].starts_with("Began as an embryo"),
+                "{}",
+                card.notes[0]
+            );
+            assert!(!card.subtitle.starts_with("Unclassified"));
+        }
+        // The star's card describes the disk its planets formed in.
+        let star = sg_render::layout::stars(&result.snapshot.hierarchy)[0];
+        let disk = result.snapshot.disks_at_dispersal.first();
+        let card = star_card(star, None, None, 3, None, disk);
+        let rows: Vec<_> = card.sections.iter().flat_map(|s| s.rows.clone()).collect();
+        assert!(rows.contains(&("Gas mass", "0.120 M☉".to_string())));
+        assert!(rows.contains(&("Lasted", "5.0 Myr".to_string())));
+        assert_eq!(share(0.004), "0.40%");
+        assert_eq!(share(0.25), "25%");
+    }
+
     #[test]
     fn small_masses_do_not_round_to_zero() {
         assert_eq!(mass(1.0), "1.000");
         assert_eq!(mass(0.0123), "0.012");
         assert_eq!(mass(2.95e-4), "3.0e-4");
+        assert_eq!(mass(582.6), "583");
+        assert_eq!(in_jupiters(582.6), " (1.83 × Jupiter)");
+        assert_eq!(in_jupiters(5.0), "");
     }
 
     #[test]

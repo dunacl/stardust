@@ -10,11 +10,17 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # shellcheck source=scripts/toolchain.sh
 . scripts/toolchain.sh
 
-# seed:mass for a single star, seed:preset for a preset. The presets cover
-# stellar evolution, sampling and the multiple-star path.
+# seed:mass for a single star, seed:preset for a preset, and
+# seed:preset@standard for a preset in the Standard tier. Together they cover
+# stellar evolution, sampling, the multiple-star path and the modern
+# formation model.
 CASES="1:1.0 42:1.0 7:0.3 1000:0.6 31337:0.8 99:1.2 12345:1.5 2026:1.0
   42:massive-a-star 42:circumbinary 42:s-type-binary 42:hierarchical-triple
-  1:random 2:random 3:random 7:random 11:random 42:random 1000:random 31337:random"
+  1:random 2:random 3:random 7:random 11:random 42:random 1000:random 31337:random
+  1:sun-like@standard 42:sun-like@standard 7:red-dwarf@standard 42:hot-jupiter@standard
+  42:metal-poor@standard 42:massive-a-star@standard 42:circumbinary@standard
+  42:s-type-binary@standard 42:hierarchical-triple@standard
+  1:random@standard 2:random@standard 3:random@standard 42:random@standard"
 
 command -v node >/dev/null || { echo "check-determinism: node is required" >&2; exit 1; }
 
@@ -24,6 +30,9 @@ cargo build -q --release -p sg-wasm --target wasm32-unknown-unknown
 native="$(for c in $CASES; do
   if [[ "${c##*:}" == [0-9]* ]]; then
     ./target/release/sg-cli hash --seed "${c%%:*}" --mass "${c##*:}"
+  elif [[ "${c##*:}" == *@standard ]]; then
+    preset="${c##*:}"
+    ./target/release/sg-cli hash --seed "${c%%:*}" --preset "${preset%@standard}" --fidelity standard
   else
     ./target/release/sg-cli hash --seed "${c%%:*}" --preset "${c##*:}"
   fi

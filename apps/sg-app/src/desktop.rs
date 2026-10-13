@@ -6,7 +6,7 @@ use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 use bevy::window::WindowOccluded;
 use clap::{Parser, ValueEnum};
 use sg_render::ScaleMode;
-use sg_schema::PresetId;
+use sg_schema::{Fidelity, PresetId};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -22,6 +22,9 @@ struct Args {
     /// Starting preset.
     #[arg(long, value_enum, default_value_t = PresetArg::SunLike)]
     preset: PresetArg,
+    /// Formation model: the modern pipeline, or the Classic (StarGen) one.
+    #[arg(long, value_enum, default_value_t = TierArg::Standard)]
+    tier: TierArg,
     /// Scale mode to start in.
     #[arg(long, value_enum, default_value_t = ScaleArg::Enlarged)]
     scale: ScaleArg,
@@ -45,11 +48,19 @@ struct Args {
 enum PresetArg {
     SunLike,
     RedDwarf,
+    HotJupiter,
+    MetalPoor,
     MassiveAStar,
     Circumbinary,
     STypeBinary,
     HierarchicalTriple,
     Random,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum TierArg {
+    Standard,
+    Classic,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -126,11 +137,17 @@ pub fn launch() -> Launch {
         preset: match args.preset {
             PresetArg::SunLike => PresetId::SunLike,
             PresetArg::RedDwarf => PresetId::RedDwarf,
+            PresetArg::HotJupiter => PresetId::HotJupiter,
+            PresetArg::MetalPoor => PresetId::MetalPoor,
             PresetArg::MassiveAStar => PresetId::MassiveAStar,
             PresetArg::Circumbinary => PresetId::Circumbinary,
             PresetArg::STypeBinary => PresetId::STypeBinary,
             PresetArg::HierarchicalTriple => PresetId::HierarchicalTriple,
             PresetArg::Random => PresetId::Random,
+        },
+        fidelity: match args.tier {
+            TierArg::Standard => Fidelity::Standard,
+            TierArg::Classic => Fidelity::Classic,
         },
         scale: match args.scale {
             ScaleArg::True => ScaleMode::True,

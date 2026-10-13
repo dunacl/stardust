@@ -203,38 +203,53 @@ pub fn migration_rate(
     -2.0 * coefficient * q * (sigma * a_au * a_au / star) / (h * h) * a_au * disk.omega(a_au) / gap
 }
 
-/// Rate at which an envelope contracts and draws in gas before runaway,
+/// Rate at which a planet's envelope cools, contracts and draws in gas,
 /// M☉/yr.
 ///
-/// Bitsch, Lambrechts & Johansen (2015), eq. 17 (after Piso & Youdin 2014):
-/// `Ṁ = 0.00175 f⁻² (κ/1 cm² g⁻¹)⁻¹ (ρ_c/5.5 g cm⁻³)^(-1/6) (M_c/M⊕)^(11/3)
-/// (M_env/0.1 M⊕)⁻¹ (T/81 K)^(-1/2) M⊕/Myr`, with their `f = 0.2`,
-/// `κ = 0.05 cm²/g` and `ρ_c = 5.5 g/cm³`.
-pub fn envelope_contraction_rate(core_msun: f64, envelope_msun: f64, temperature_k: f64) -> f64 {
-    const F: f64 = 0.2;
-    const KAPPA_CM2_G: f64 = 0.05;
-    let core = core_msun / EARTH_MASS_MSUN;
-    let envelope = (envelope_msun / EARTH_MASS_MSUN).max(1.0e-6);
-    let earth_masses_per_myr = 0.00175 / (F * F) / KAPPA_CM2_G * pow(core, 11.0 / 3.0)
-        / (envelope / 0.1)
-        / sqrt(temperature_k / 81.0);
-    earth_masses_per_myr * EARTH_MASS_MSUN / 1.0e6
+/// Ida & Lin (2004, ApJ 604, 388), eqs. 9–10: `dM/dt = M/τ_KH` with the
+/// Kelvin–Helmholtz time `τ_KH = 10⁹ (M/M⊕)⁻³ yr`, a fit to the envelope
+/// calculations of Ikoma, Nakazawa & Emori (2000). Slow for a few Earth
+/// masses, a runaway above about ten: the classical critical core mass.
+/// The normalisation depends on the envelope's opacity, which is uncertain
+/// by an order of magnitude.
+pub fn envelope_contraction_rate(mass_msun: f64) -> f64 {
+    let mass = mass_msun / EARTH_MASS_MSUN;
+    let kelvin_helmholtz_yr = 1.0e9 / (mass * mass * mass);
+    mass_msun / kelvin_helmholtz_yr
 }
 
-/// Rate of runaway gas accretion, M☉/yr.
+/// Rate of runaway gas accretion, M☉/yr: the smallest of three limits.
 ///
-/// Machida et al. (2010, MNRAS 405, 1227), as used by Bitsch et al. (2015,
-/// eqs. 18–19): the smaller of `0.83 Ω Σ H² (r_H/H)^(9/2)` and
-/// `0.14 Ω Σ H²`, and never more than 80% of the gas flowing through the
-/// disk.
-pub fn runaway_accretion_rate(disk: &Disk, a_au: f64, t_yr: f64, mass_msun: f64) -> f64 {
+/// - What a low-mass planet's Hill sphere can capture:
+///   `0.83 Ω Σ H² (r_H/H)^(9/2)` (Machida et al. 2010, MNRAS 405, 1227, as
+///   used by Bitsch et al. 2015, eq. 18).
+/// - What flows into the planet from the gap it has opened:
+///   `Ṁ = D Σ_gap` with `D = 0.29 h⁻² q^(4/3) a² Ω` (Tanigawa & Tanaka 2016,
+///   ApJ 823, 48, eqs. 2–3) and `Σ_gap = Σ/(1 + 0.04 K)` (Kanagawa et al.
+///   2018). As the planet grows the gap deepens faster than `D` rises, so
+///   the planet starves itself.
+/// - 80% of the gas flowing through the disk (Lubow & D'Angelo 2006,
+///   ApJ 641, 526: most, not all, of the flow is captured).
+pub fn runaway_accretion_rate(
+    disk: &Disk,
+    a_au: f64,
+    t_yr: f64,
+    mass_msun: f64,
+    alpha_gap: f64,
+) -> f64 {
     let sigma = disk.gas_surface_density(a_au, t_yr);
-    let h_gas = disk.aspect_ratio(a_au, t_yr) * a_au;
-    let r_h = hill_radius(a_au, mass_msun, disk.spec().star_mass_msun);
-    let base = disk.omega(a_au) * sigma * h_gas * h_gas;
-    let low = 0.83 * base * pow(r_h / h_gas, 4.5);
-    let high = 0.14 * base;
-    low.min(high).min(0.8 * disk.accretion_rate(t_yr))
+    let h = disk.aspect_ratio(a_au, t_yr);
+    let h_gas = h * a_au;
+    let omega = disk.omega(a_au);
+    let star = disk.spec().star_mass_msun;
+    let r_h = hill_radius(a_au, mass_msun, star);
+    let hill_capture = 0.83 * omega * sigma * h_gas * h_gas * pow(r_h / h_gas, 4.5);
+    let gap = 1.0 + 0.04 * gap_parameter(disk, a_au, t_yr, mass_msun, alpha_gap);
+    let through_gap =
+        0.29 / (h * h) * pow(mass_msun / star, 4.0 / 3.0) * a_au * a_au * omega * sigma / gap;
+    hill_capture
+        .min(through_gap)
+        .min(0.8 * disk.accretion_rate(t_yr))
 }
 
 #[cfg(test)]
@@ -375,32 +390,42 @@ mod tests {
         assert_eq!(migration_rate(&disk, a, 5.0e6, core, ALPHA_T), 0.0);
     }
 
-    /// Bitsch et al. (2015), eq. 17 with f = 0.2 and κ = 0.05: a 10 M⊕ core
-    /// with a 1 M⊕ envelope at 81 K accretes 0.875·10^(11/3)/10 ≈ 406 M⊕/Myr.
+    /// Ida & Lin (2004): a 10 M⊕ planet doubles in 10⁶ years, a 1 M⊕ one
+    /// in 10⁹.
     #[test]
-    fn envelope_contraction_matches_the_published_rate() {
-        let rate = envelope_contraction_rate(10.0 * EARTH_MASS_MSUN, EARTH_MASS_MSUN, 81.0);
-        let per_myr = earths(rate) * 1.0e6;
-        assert!(
-            (per_myr - 0.875 * 10f64.powf(11.0 / 3.0) / 10.0).abs() < 1e-6,
-            "{per_myr}"
-        );
-        // Strongly dependent on core mass.
-        let small = envelope_contraction_rate(3.0 * EARTH_MASS_MSUN, 0.3 * EARTH_MASS_MSUN, 81.0);
-        assert!(rate > 20.0 * small);
+    fn envelope_contraction_follows_the_kelvin_helmholtz_time() {
+        let rate = |earth_masses: f64| envelope_contraction_rate(earth_masses * EARTH_MASS_MSUN);
+        assert!((10.0 * EARTH_MASS_MSUN / rate(10.0) - 1.0e6).abs() < 1e-3);
+        assert!((EARTH_MASS_MSUN / rate(1.0) - 1.0e9).abs() < 1.0);
+        // dM/dt ∝ M⁴.
+        assert!((rate(20.0) / rate(10.0) - 16.0).abs() < 1e-9);
     }
 
     #[test]
-    fn runaway_accretion_is_capped_by_the_disk() {
+    fn runaway_accretion_is_capped_by_the_disk_and_the_gap() {
         let disk = disk();
         let (a, t) = (5.0, 1.0e6);
-        let saturn = runaway_accretion_rate(&disk, a, t, 95.0 * EARTH_MASS_MSUN);
-        assert!(saturn > 0.0 && saturn <= 0.8 * disk.accretion_rate(t));
-        // A Jupiter mass in 10⁴–10⁷ years.
-        let jupiter_yr = 318.0 * EARTH_MASS_MSUN / saturn;
-        assert!((1.0e4..1.0e7).contains(&jupiter_yr), "{jupiter_yr}");
+        let earth = EARTH_MASS_MSUN;
+        // With no gap (a very viscous disk) a Saturn takes all the disk gives.
+        let supplied = runaway_accretion_rate(&disk, a, t, 95.0 * earth, 1.0e9);
+        assert!((supplied / (0.8 * disk.accretion_rate(t)) - 1.0).abs() < 1e-12);
+        // Deep in its gap, a heavier planet accretes more slowly: with
+        // K ≫ 25 the rate falls as q^(-2/3).
+        let rate = |m: f64| runaway_accretion_rate(&disk, a, t, m * earth, ALPHA_T);
+        let (one, three) = (rate(318.0), rate(954.0));
+        assert!(one < supplied);
+        assert!(
+            (three / one - 3f64.powf(-2.0 / 3.0)).abs() < 0.02,
+            "{}",
+            three / one
+        );
+        // A light planet in a shallow gap is limited by what its Hill
+        // sphere captures, which rises as mass^(3/2): four times the mass,
+        // eight times the rate.
+        let shallow = |m: f64| runaway_accretion_rate(&disk, a, t, m * earth, 1.0);
+        assert!((shallow(0.04) / shallow(0.01) - 8.0).abs() < 1e-6);
         assert_eq!(
-            runaway_accretion_rate(&disk, a, 5.0e6, 95.0 * EARTH_MASS_MSUN),
+            runaway_accretion_rate(&disk, a, 5.0e6, 95.0 * earth, ALPHA_T),
             0.0
         );
     }

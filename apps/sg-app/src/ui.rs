@@ -97,28 +97,43 @@ fn system_controls(ui: &mut egui::Ui, system: &mut SystemSpec) {
 }
 
 fn controls(ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTargets) {
-    let stars = match targets.view.result().map(|r| r.diagnostics.stellar_model) {
-        Some(StellarModel::HurleyPolsTout2000) => "evolved stars",
-        _ => "StarGen stars",
-    };
-    ui.label(
-        RichText::new(format!(
-            "Classic accretion · {stars} · model {MODEL_VERSION}"
-        ))
-        .color(MUTED),
-    )
-    .on_hover_text(
-        "Planets form by the Classic (Dole/StarGen) accretion model. A single star of \
-         0.2–1.5 M☉ is modelled exactly as StarGen does; other stars, and all multiple \
-         systems, use main-sequence evolution fits and orbital-stability limits.",
-    );
+    let mut fidelity = state.fidelity;
+    ui.horizontal(|ui| {
+        ui.radio_value(&mut fidelity, Fidelity::Standard, "Standard")
+            .on_hover_text(
+                "The modern model: a gas disk that evolves and clears, cores grown by pebble \
+                 accretion, gas giants by runaway accretion, migration, and loss of atmospheres \
+                 to the star's radiation.",
+            );
+        ui.radio_value(&mut fidelity, Fidelity::Classic, "Classic")
+            .on_hover_text(
+                "The Dole/StarGen accretion model of 1970–2000. A single star of 0.2–1.5 M☉ \
+                 is modelled exactly as StarGen does; other stars, and all multiple systems, \
+                 use modern stars and orbital-stability limits around it.",
+            );
+        ui.label(RichText::new(format!("model {MODEL_VERSION}")).color(MUTED));
+    });
+    if fidelity != state.fidelity {
+        state.set_fidelity(fidelity);
+    }
+    if let Some(result) = targets.view.result() {
+        let shown = match (
+            result.diagnostics.fidelity,
+            result.diagnostics.stellar_model,
+        ) {
+            (Fidelity::Classic, StellarModel::Fogg1985) => "Shown: Classic, as StarGen",
+            (Fidelity::Classic, _) => "Shown: Classic accretion, evolved stars",
+            _ => "Shown: Standard",
+        };
+        ui.label(RichText::new(shown).small().color(MUTED));
+    }
     ui.separator();
 
     egui::ComboBox::from_label("Preset")
         .selected_text(preset_name(state.preset))
         .show_ui(ui, |ui| {
             for preset in ALL_PRESETS {
-                match preset_availability(preset, Fidelity::Classic) {
+                match preset_availability(preset, state.fidelity) {
                     PresetAvailability::Available => {
                         if ui
                             .selectable_label(state.preset == preset, preset_name(preset))
@@ -161,6 +176,105 @@ fn controls(ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTar
         }
     });
 
+    if state.fidelity == Fidelity::Standard {
+        standard_controls(ui, state);
+    } else {
+        classic_controls(ui, state);
+    }
+
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        let simulate =
+            egui::Button::new(RichText::new("Simulate").strong()).min_size(egui::vec2(120.0, 28.0));
+        if ui.add(simulate).clicked() {
+            run_simulation(state, targets);
+        }
+        ui.checkbox(&mut state.play_on_simulate, "Play formation");
+    });
+    if let Some(error) = &state.error {
+        ui.colored_label(Color32::from_rgb(240, 110, 100), error);
+    }
+
+    view_controls(ui, targets);
+}
+
+/// A value the model draws unless the box is ticked, in which case the
+/// slider sets it.
+fn optional_slider(
+    ui: &mut egui::Ui,
+    value: &mut Option<f64>,
+    label: &str,
+    when_fixed: f64,
+    slider: impl FnOnce(&mut f64) -> egui::Slider<'_>,
+) {
+    let mut fixed = value.is_some();
+    ui.horizontal(|ui| {
+        if ui.checkbox(&mut fixed, label).changed() {
+            *value = fixed.then_some(when_fixed);
+        }
+        match value.as_mut() {
+            Some(v) => {
+                ui.add(slider(v));
+            }
+            None => {
+                ui.label(RichText::new("drawn at random").color(MUTED));
+            }
+        }
+    });
+}
+
+fn standard_controls(ui: &mut egui::Ui, state: &mut AppState) {
+    ui.collapsing("Disk and formation", |ui| {
+        optional_slider(
+            ui,
+            &mut state.params.metallicity_feh,
+            "Metallicity",
+            0.0,
+            |v| {
+                egui::Slider::new(v, -0.6..=0.5)
+                    .suffix(" dex")
+                    .fixed_decimals(2)
+            },
+        );
+        optional_slider(
+            ui,
+            &mut state.params.disk.mass_fraction,
+            "Disk mass",
+            0.03,
+            |v| {
+                egui::Slider::new(v, 0.003..=0.2)
+                    .logarithmic(true)
+                    .suffix(" × star")
+            },
+        );
+        optional_slider(
+            ui,
+            &mut state.params.disk.lifetime_myr,
+            "Disk lifetime",
+            3.0,
+            |v| {
+                egui::Slider::new(v, 0.5..=10.0)
+                    .suffix(" Myr")
+                    .fixed_decimals(1)
+            },
+        );
+        ui.add(
+            egui::Slider::new(&mut state.params.formation.standard.embryo_count, 2..=40)
+                .text("Embryos per disk"),
+        )
+        .on_hover_text("Seeds of planets placed in each disk. Most stay small.");
+        ui.checkbox(&mut state.params.toggles.migration, "Migration")
+            .on_hover_text("Planets drift inward through the gas disk as they grow.");
+        if ui.button("Reset").clicked() {
+            state.params.metallicity_feh = None;
+            state.params.disk = Default::default();
+            state.params.formation.standard = Default::default();
+            state.params.toggles.migration = true;
+        }
+    });
+}
+
+fn classic_controls(ui: &mut egui::Ui, state: &mut AppState) {
     ui.collapsing("Accretion model", |ui| {
         let c = &mut state.params.formation.classic;
         ui.add(
@@ -188,20 +302,9 @@ fn controls(ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTar
             *c = Default::default();
         }
     });
+}
 
-    ui.add_space(4.0);
-    ui.horizontal(|ui| {
-        let simulate =
-            egui::Button::new(RichText::new("Simulate").strong()).min_size(egui::vec2(120.0, 28.0));
-        if ui.add(simulate).clicked() {
-            run_simulation(state, targets);
-        }
-        ui.checkbox(&mut state.play_on_simulate, "Play formation");
-    });
-    if let Some(error) = &state.error {
-        ui.colored_label(Color32::from_rgb(240, 110, 100), error);
-    }
-
+fn view_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
     ui.separator();
     ui.label(RichText::new("View").strong());
     let mut mode = targets.settings.scale.to;
@@ -301,10 +404,15 @@ fn timeline(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
             targets.playback.playing = false;
         }
         ui.spacing_mut().slider_width = 420.0;
-        let slider = egui::Slider::new(&mut targets.playback.t_myr, 0.0..=end)
+        // The slider works on a copy: it rounds what it shows, and writing
+        // that back would nudge the time off the end of the timeline.
+        let mut shown = targets.playback.t_myr;
+        let slider = egui::Slider::new(&mut shown, 0.0..=end)
             .suffix(" Myr")
             .fixed_decimals(2);
-        if ui.add(slider).dragged() {
+        let response = ui.add(slider);
+        if response.dragged() || (response.changed() && response.has_focus()) {
+            targets.playback.t_myr = shown.clamp(0.0, end);
             targets.playback.playing = false;
         }
         // Speed as a multiple of the default playback duration.
@@ -323,17 +431,19 @@ fn timeline(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
             targets.playback.myr_per_second = speed * base;
         }
     });
+    let clock = match targets.view.result().map(|r| r.diagnostics.fidelity) {
+        Some(Fidelity::Classic) => "Classic times are nominal, not physical",
+        _ => "time since the disk formed",
+    };
     let phase = if targets.playback.t_myr >= end {
         "finished system".to_string()
     } else {
         format!("{bodies_now} embryos")
     };
     ui.label(
-        RichText::new(format!(
-            "{phase} · {events} formation events · Classic times are nominal, not physical"
-        ))
-        .small()
-        .color(MUTED),
+        RichText::new(format!("{phase} · {events} formation events · {clock}"))
+            .small()
+            .color(MUTED),
     );
 }
 
@@ -395,6 +505,7 @@ fn selected_card(targets: &SimulationTargets) -> Option<Card> {
                 snapshot.planet_zones.iter().find(|zone| zone.host == host),
                 snapshot.bodies.iter().filter(|b| b.host == host).count(),
                 companion.as_ref(),
+                snapshot.disks_at_dispersal.iter().find(|d| d.host == host),
             ))
         }
         Target::Body(id) => {

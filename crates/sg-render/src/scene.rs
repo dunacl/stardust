@@ -194,8 +194,9 @@ const OVERVIEW_LUX: f32 = 2200.0;
 /// How long a formation highlight lingers, as a fraction of the timeline.
 const HIGHLIGHT_LOOKBACK: f64 = 0.02;
 /// A star is never drawn wider than this fraction of the distance to its
-/// nearest companion, so the enlarged scale modes cannot make close pairs
-/// overlap. A drawing convention.
+/// nearest companion (or than half the distance of its closest planet), so
+/// the enlarged scale modes cannot make close pairs overlap or swallow a
+/// hot Jupiter. A drawing convention.
 const MAX_STAR_RADIUS_IN_SEPARATIONS: f32 = 0.3;
 
 /// Smallest radius at which something at `position` is drawn, seen from
@@ -322,9 +323,17 @@ fn sync_scene(
             .filter(|(id, _)| **id != star.id)
             .map(|(_, other)| (*other - position).length())
             .fold(f32::INFINITY, f32::min);
+        // Nor wider than half the distance of its closest planet.
+        let closest_planet = snapshot
+            .bodies
+            .iter()
+            .filter(|b| b.host == HostRef::Star(star.id))
+            .map(|b| scale.distance((b.orbit.a_au * (1.0 - b.orbit.e)) as f32))
+            .fold(f32::INFINITY, f32::min);
         let body_radius = scale
             .star_radius(star.radius_rsun as f32)
-            .min(MAX_STAR_RADIUS_IN_SEPARATIONS * nearest);
+            .min(MAX_STAR_RADIUS_IN_SEPARATIONS * nearest)
+            .min(0.5 * closest_planet);
         let radius = body_radius.max(apparent_floor(position) * 1.6);
         let color = palette::star_color(star.color_linear_rgb);
         let transform = Transform::from_translation(position).with_scale(Vec3::splat(radius));

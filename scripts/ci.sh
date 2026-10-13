@@ -36,6 +36,9 @@ cargo check -q -p sg-app --target wasm32-unknown-unknown --features webgpu
 step "dependency rules"
 scripts/check-deps.sh
 
+step "no platform-dependent maths in simulation code"
+scripts/check-math.sh
+
 step "native / wasm32 determinism"
 scripts/check-determinism.sh
 
