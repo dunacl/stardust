@@ -39,6 +39,7 @@
 //! Not yet in this tier: moons, rings, climate and atmospheric
 //! composition.
 
+use crate::high;
 use crate::{
     names, params_hash, stars, Control, Diagnostics, SimError, SimObserver, SimulationResult,
     Stage, StellarModel, MODEL_VERSION,
@@ -48,6 +49,7 @@ use sg_core::hash::fnv1a64;
 use sg_core::math::{exp, ln, pow, sqrt};
 use sg_core::rng::{ModuleId, RngStream};
 use sg_disk::{Disk, DiskSpec};
+use sg_dynamics::kepler::Elements;
 use sg_dynamics::late::{self, Orbiter};
 use sg_formation::evolve::{self, Embryo, GrowthEvent, GrowthParams, Seed};
 use sg_planet::{Makeup, PlanetKind};
@@ -73,6 +75,29 @@ const SEED_OUTER_LIMIT_AU: f64 = 60.0;
 const MIN_PLANET_MASS_MEARTH: f64 = 0.01;
 /// Bond albedo assumed for equilibrium temperatures (Earth's is 0.3).
 const ASSUMED_ALBEDO: f64 = 0.3;
+/// Age at which planets' sizes are taken for the N-body stage, Gyr: the
+/// gas has just cleared and envelopes are still warm and large.
+const YOUNG_AGE_GYR: f64 = 0.01;
+const KM_PER_AU: f64 = 1.495_978_707e8;
+const SOLAR_RADIUS_AU: f64 = 0.004_650_47;
+/// States of the N-body stage recorded for playback.
+const NBODY_FRAMES: u32 = 12;
+/// An integration whose energy error exceeds this is reported.
+const NBODY_ENERGY_TOLERANCE: f64 = 1.0e-3;
+
+/// Distance within which a planet is lost to what it orbits: the star's
+/// radius, or around a pair of stars the inner limit of stable orbits.
+fn central_radius_au(plan: &stars::DiskPlan, system: &stars::StellarSystem) -> f64 {
+    match plan.host {
+        HostRef::Star(id) => system
+            .stars
+            .iter()
+            .find(|star| star.id == id)
+            .map_or(SOLAR_RADIUS_AU, |star| star.radius_rsun * SOLAR_RADIUS_AU),
+        _ => plan.inner_limit_au.unwrap_or(SOLAR_RADIUS_AU),
+    }
+}
+
 /// Rayleigh scale of final eccentricities: undisturbed, and after late
 /// mergers.
 const ECCENTRICITY_SCALE: (f64, f64) = (0.02, 0.06);
@@ -136,6 +161,9 @@ fn validate(params: &SimulationParams) -> Result<(), SimError> {
 struct Formed {
     embryo: Embryo,
     late_mergers: u32,
+    /// The orbit the N-body stage left it on (High tier); otherwise the
+    /// eccentricity and angles are drawn when the snapshot is written.
+    orbit: Option<Elements>,
 }
 
 /// Everything formed in one disk.
@@ -147,6 +175,8 @@ struct DiskResult {
     planets: Vec<Formed>,
     late: Vec<late::Merger>,
     belts: Vec<Belt>,
+    /// The N-body late stage, in the High tier.
+    nbody: Option<high::LateStage>,
 }
 
 /// A belt is reported only if it holds at least this much, M⊕: a quarter
@@ -341,6 +371,8 @@ pub(crate) fn simulate(
     validate(params)?;
     check(observer, Stage::Stellar, 0.0)?;
     let system_name = names::star_name(params.seed);
+    let high_tier = params.fidelity == Fidelity::High;
+    let mut dynamics_rng = RngStream::new(params.seed, ModuleId::DYNAMICS);
     let mut stellar_rng = RngStream::new(params.seed, ModuleId::STELLAR);
     let mut disk_rng = RngStream::new(params.seed, ModuleId::DISK);
 
@@ -404,16 +436,89 @@ pub(crate) fn simulate(
         )?;
         let outcome = evolve::evolve(&disk, &growth, &seeds, &frame_times);
         steps += outcome.steps;
-        let orbiters: Vec<Orbiter> = outcome
-            .planets
-            .iter()
-            .map(|p| Orbiter {
-                id: p.id,
-                a_au: p.a_au,
-                mass_msun: p.mass_msun(),
-            })
-            .collect();
-        let (settled, late) = late::settle(orbiters, plan.central_mass_msun);
+        // After the gas: the High tier integrates the orbits; the Standard
+        // tier applies its stability rule.
+        let nbody = high_tier.then(|| {
+            let starts: Vec<high::Start> = outcome
+                .planets
+                .iter()
+                .map(|p| {
+                    let makeup = Makeup {
+                        core_mearth: earths(p.core_msun),
+                        envelope_mearth: earths(p.envelope_msun),
+                        water_fraction: (p.water_msun / p.core_msun).clamp(0.0, 1.0),
+                    };
+                    let flux = sg_planet::flux_earth(plan.luminosity_lsun, p.a_au);
+                    // Sizes when the gas clears, a few million years in.
+                    let radius = sg_planet::radius(&makeup, flux, YOUNG_AGE_GYR);
+                    high::Start {
+                        id: p.id,
+                        a_au: p.a_au,
+                        mass_msun: p.mass_msun(),
+                        radius_au: radius * EARTH_RADIUS_KM / KM_PER_AU,
+                    }
+                })
+                .collect();
+            high::integrate(
+                &starts,
+                plan.central_mass_msun,
+                central_radius_au(&plan, &system),
+                &mut dynamics_rng,
+                &params.formation.high,
+                NBODY_FRAMES,
+            )
+        });
+        let (settled, late): (Vec<Orbiter>, Vec<late::Merger>) = match &nbody {
+            Some(stage) => (
+                stage
+                    .orbits
+                    .iter()
+                    .map(|(id, el)| Orbiter {
+                        id: *id,
+                        a_au: el.a.0,
+                        // Not used below: masses come from the embryos.
+                        mass_msun: 0.0,
+                    })
+                    .collect(),
+                stage
+                    .mergers
+                    .iter()
+                    .map(|(_, survivor, absorbed)| late::Merger {
+                        survivor: *survivor,
+                        absorbed: *absorbed,
+                    })
+                    .collect(),
+            ),
+            None => {
+                let orbiters: Vec<Orbiter> = outcome
+                    .planets
+                    .iter()
+                    .map(|p| Orbiter {
+                        id: p.id,
+                        a_au: p.a_au,
+                        mass_msun: p.mass_msun(),
+                    })
+                    .collect();
+                late::settle(orbiters, plan.central_mass_msun)
+            }
+        };
+        if let Some(stage) = &nbody {
+            let label = host_label(&system_name, &plan.designation);
+            if stage.integrated_yr < stage.span_yr {
+                warnings.push(format!(
+                    "{label}: orbits integrated for {:.0} of {:.0} thousand years before the \
+                     step budget ran out; later instabilities are not captured",
+                    stage.integrated_yr / 1.0e3,
+                    stage.span_yr / 1.0e3,
+                ));
+            }
+            if stage.energy_error > NBODY_ENERGY_TOLERANCE {
+                warnings.push(format!(
+                    "{label}: the orbit integration's energy error reached {:.1e}",
+                    stage.energy_error
+                ));
+            }
+        }
 
         // Rebuild the survivors: each takes its settled orbit and the
         // material of everything merged into it.
@@ -442,6 +547,13 @@ pub(crate) fn simulate(
                 Some(Formed {
                     late_mergers: late_count.get(&orbiter.id).copied().unwrap_or(0),
                     embryo,
+                    orbit: nbody.as_ref().and_then(|stage| {
+                        stage
+                            .orbits
+                            .iter()
+                            .find(|(id, _)| *id == orbiter.id)
+                            .map(|(_, el)| *el)
+                    }),
                 })
             })
             .collect();
@@ -456,6 +568,7 @@ pub(crate) fn simulate(
             planets,
             late,
             belts,
+            nbody,
         });
         id_offset += seeded;
     }
@@ -540,7 +653,28 @@ pub(crate) fn simulate(
             } else {
                 ECCENTRICITY_SCALE.0
             };
-            let eccentricity = rayleigh(&mut angles, scale).min(0.6);
+            // Drawn in every tier, so that the streams stay in step; the
+            // High tier then uses the orbit it integrated instead.
+            let drawn = Orbit {
+                a_au: e.a_au,
+                e: rayleigh(&mut angles, scale).min(0.6),
+                i_deg: 0.0,
+                long_asc_node_deg: angles.uniform_range(0.0, 360.0),
+                arg_periapsis_deg: angles.uniform_range(0.0, 360.0),
+                mean_anomaly_deg: angles.uniform_range(0.0, 360.0),
+                period_days,
+            };
+            let orbit = match formed.orbit {
+                Some(el) => Orbit {
+                    e: el.e,
+                    i_deg: el.i.to_degrees(),
+                    long_asc_node_deg: el.long_asc_node.to_degrees(),
+                    arg_periapsis_deg: el.arg_periapsis.to_degrees(),
+                    mean_anomaly_deg: el.mean_anomaly.to_degrees(),
+                    ..drawn
+                },
+                None => drawn,
+            };
             let within = |inner: f64, outer: f64| e.a_au >= inner && e.a_au <= outer;
             let core_share = 1.0 - f_env;
             let rock_and_iron = core_share * (1.0 - makeup.water_fraction);
@@ -554,15 +688,7 @@ pub(crate) fn simulate(
                 name: names::planet_name(&prefix, order),
                 kind: BodyKind::Planet,
                 host: plan.host,
-                orbit: Orbit {
-                    a_au: e.a_au,
-                    e: eccentricity,
-                    i_deg: 0.0,
-                    long_asc_node_deg: angles.uniform_range(0.0, 360.0),
-                    arg_periapsis_deg: angles.uniform_range(0.0, 360.0),
-                    mean_anomaly_deg: angles.uniform_range(0.0, 360.0),
-                    period_days,
-                },
+                orbit,
                 mass_mearth: mass,
                 radius_km: radius * EARTH_RADIUS_KM,
                 // Earth's mean density, scaled.
@@ -644,7 +770,7 @@ pub(crate) fn simulate(
         snapshot,
         timeline,
         diagnostics: Diagnostics {
-            fidelity: Fidelity::Standard,
+            fidelity: params.fidelity,
             stellar_model: StellarModel::HurleyPolsTout2000,
             bit_deterministic: true,
             rng_draws: steps,
@@ -730,18 +856,45 @@ fn timeline(
                 index,
                 EventKind::DiskDispersed { disk },
             ));
-            // Late mergers happen over the following millions of years;
-            // they are placed just before the end of the timeline.
-            for merger in &result.late {
-                events.push((
-                    myr(end_yr) * 0.999,
-                    index,
-                    EventKind::Collision {
-                        a: body(merger.survivor),
-                        b: body(merger.absorbed),
-                        result: body(merger.survivor),
-                    },
-                ));
+            match &result.nbody {
+                // The N-body stage follows the growth model: its events
+                // are at the times the integration found.
+                Some(stage) => {
+                    for (t_yr, survivor, absorbed) in &stage.mergers {
+                        events.push((
+                            myr(end_yr + t_yr),
+                            index,
+                            EventKind::Collision {
+                                a: body(*survivor),
+                                b: body(*absorbed),
+                                result: body(*survivor),
+                            },
+                        ));
+                    }
+                    for (t_yr, id, how) in &stage.lost {
+                        let kind = match how {
+                            high::Lost::IntoStar => EventKind::FellIntoStar { body: body(*id) },
+                            high::Lost::Ejected => EventKind::Ejected { body: body(*id) },
+                        };
+                        events.push((myr(end_yr + t_yr), index, kind));
+                    }
+                }
+                // Late mergers happen over the following millions of
+                // years; they are placed just before the end of the
+                // timeline.
+                None => {
+                    for merger in &result.late {
+                        events.push((
+                            myr(end_yr) * 0.999,
+                            index,
+                            EventKind::Collision {
+                                a: body(merger.survivor),
+                                b: body(merger.absorbed),
+                                result: body(merger.survivor),
+                            },
+                        ));
+                    }
+                }
             }
         }
         events.sort_by(|x, y| x.0.total_cmp(&y.0).then(x.1.cmp(&y.1)));
@@ -770,6 +923,40 @@ fn timeline(
             }
         })
         .collect();
+    // The N-body stage, where there is one, continues the timeline.
+    let span_yr = results
+        .iter()
+        .filter_map(|result| result.nbody.as_ref())
+        .map(|stage| stage.span_yr)
+        .fold(0.0f64, f64::max);
+    let frame_count = results
+        .iter()
+        .filter_map(|result| result.nbody.as_ref())
+        .map(|stage| stage.frames.len())
+        .max()
+        .unwrap_or(0);
+    // The last of them is replaced by the finished system below.
+    for k in 0..frame_count.saturating_sub(1) {
+        let mut all: Vec<KeyframeBody> = Vec::new();
+        for result in results {
+            let Some(frame) = result.nbody.as_ref().and_then(|stage| stage.frames.get(k)) else {
+                continue;
+            };
+            all.extend(frame.iter().map(|(id, a_au, e, mass)| KeyframeBody {
+                id: BodyId(id + result.id_offset),
+                host: result.plan.host,
+                a_au: *a_au,
+                e: e.clamp(0.0, 0.999),
+                mass_mearth: earths(*mass),
+            }));
+        }
+        all.sort_by_key(|b| b.id);
+        keyframes.push(Keyframe {
+            t_myr: myr(end_yr + span_yr * (k + 1) as f64 / frame_count as f64),
+            bodies: all,
+        });
+    }
+    let end_yr = end_yr + span_yr;
     // The settled system closes the timeline.
     let mut settled: Vec<KeyframeBody> = bodies
         .iter()

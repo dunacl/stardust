@@ -33,8 +33,7 @@ pub enum PresetAvailability {
 pub fn preset_availability(preset: PresetId, fidelity: Fidelity) -> PresetAvailability {
     use PresetAvailability::{Available, Unavailable};
     match (fidelity, preset) {
-        (Fidelity::High, _) => Unavailable("this tier is not implemented yet"),
-        (Fidelity::Standard, _) => Available,
+        (Fidelity::Standard | Fidelity::High, _) => Available,
         (Fidelity::Classic, PresetId::HotJupiter) => {
             Unavailable("needs migration: use the Standard tier")
         }
@@ -158,10 +157,6 @@ mod tests {
                 assert!(result.is_ok(), "{preset:?}: {:?}", result.err());
             }
         }
-        assert_eq!(
-            preset_availability(PresetId::SunLike, Fidelity::High),
-            PresetAvailability::Unavailable("this tier is not implemented yet")
-        );
         for preset in ALL_PRESETS {
             assert_eq!(
                 preset_availability(preset, Fidelity::Standard),

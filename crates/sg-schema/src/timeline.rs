@@ -99,6 +99,10 @@ pub enum EventKind {
     Ejected {
         body: BodyId,
     },
+    /// A body fell into its star.
+    FellIntoStar {
+        body: BodyId,
+    },
     MoonFormed {
         moon: BodyId,
         host: BodyId,

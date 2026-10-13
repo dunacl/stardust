@@ -338,6 +338,9 @@ pub struct Integration {
     pub energy_removed: f64,
     /// Step of the symplectic map, yr.
     step_yr: f64,
+    /// For each pair `(i, j)`, `((mᵢ+mⱼ)/(3M))^(1/3)`: the mass factor of
+    /// their mutual Hill radius, which changes only when a body does.
+    hill_factor: Vec<f64>,
 }
 
 /// Gravitational acceleration of every body and its rate of change
@@ -387,13 +390,6 @@ fn accelerations(star_mass: f64, bodies: &[Body]) -> (Vec<V3>, Vec<V3>) {
     (acc, jerk)
 }
 
-/// Mutual Hill radius of two bodies at their current distances from the
-/// star: `((m₁+m₂)/(3M))^(1/3)·(r₁+r₂)/2` (Chambers, Wetherill & Boss 1996,
-/// Icarus 119, 261, with distances for semi-major axes).
-fn mutual_hill(star_mass: f64, a: &Body, b: &Body) -> f64 {
-    cbrt((a.mass_msun + b.mass_msun) / (3.0 * star_mass)) * 0.5 * (norm(a.pos) + norm(b.pos))
-}
-
 impl Integration {
     /// Sets up an integration from heliocentric positions and velocities.
     pub fn new(
@@ -412,6 +408,7 @@ impl Integration {
             work: Work::default(),
             energy_removed: 0.0,
             step_yr: 0.0,
+            hill_factor: Vec::new(),
         };
         integration.choose_step();
         integration
@@ -420,6 +417,20 @@ impl Integration {
     /// The map's step: a fixed fraction of the shortest orbital period. A
     /// body on an unbound orbit does not set it.
     fn choose_step(&mut self) {
+        // The mutual Hill radius of a pair is this factor times their mean
+        // distance from the star: `((m₁+m₂)/(3M))^(1/3)·(r₁+r₂)/2`
+        // (Chambers, Wetherill & Boss 1996, Icarus 119, 261, with
+        // distances for semi-major axes).
+        let n = self.bodies.len();
+        self.hill_factor.clear();
+        self.hill_factor.reserve(n * n);
+        for a in &self.bodies {
+            for b in &self.bodies {
+                self.hill_factor.push(cbrt(
+                    (a.mass_msun + b.mass_msun) / (3.0 * self.star_mass_msun),
+                ));
+            }
+        }
         let shortest = self
             .bodies
             .iter()
@@ -501,21 +512,34 @@ impl Integration {
     /// resolve.
     fn needs_hermite(&self) -> bool {
         let dt = self.step_yr;
-        for (i, a) in self.bodies.iter().enumerate() {
-            // The map's Kepler drift is exact, but its kicks are not: a
-            // planet much closer to the star than where the step was set
-            // sees them poorly resolved.
-            let r = norm(a.pos);
-            let local_period = core::f64::consts::TAU * sqrt(r * r * r / (G * self.star_mass_msun));
-            if local_period < 0.25 * self.settings.steps_per_orbit * dt {
+        let n = self.bodies.len();
+        // The map's Kepler drift is exact, but its kicks are not: a planet
+        // much closer to the star than where the step was set sees them
+        // poorly resolved. A local period under a quarter of the steps per
+        // orbit means r³ below this.
+        let quarter = 0.25 * self.settings.steps_per_orbit * dt / core::f64::consts::TAU;
+        let r_cubed_min = quarter * quarter * G * self.star_mass_msun;
+        let mut distances = Vec::with_capacity(n);
+        for b in &self.bodies {
+            let r = norm(b.pos);
+            if r * r * r < r_cubed_min {
                 return true;
             }
-            for b in &self.bodies[i + 1..] {
+            distances.push(r);
+        }
+        let k = 0.5 * self.settings.encounter_hill_radii;
+        for i in 0..n {
+            let a = &self.bodies[i];
+            for j in (i + 1)..n {
+                let b = &self.bodies[j];
                 let d = sub(b.pos, a.pos);
-                let approach = norm(sub(b.vel, a.vel)) * dt;
-                let limit =
-                    self.settings.encounter_hill_radii * mutual_hill(self.star_mass_msun, a, b);
-                if norm(d) < limit + approach + a.radius_au + b.radius_au {
+                let dv = sub(b.vel, a.vel);
+                let limit = k * self.hill_factor[i * n + j] * (distances[i] + distances[j])
+                    + a.radius_au
+                    + b.radius_au;
+                // Within the limit, or able to close to it in one step.
+                let d_sq = dot(d, d);
+                if d_sq < limit * limit || sqrt(d_sq) < limit + sqrt(dot(dv, dv)) * dt {
                     return true;
                 }
             }

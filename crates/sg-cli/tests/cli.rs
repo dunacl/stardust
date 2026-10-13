@@ -98,7 +98,7 @@ fn errors_are_reported_with_a_failing_exit_code() {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("seed 0 is reserved"));
 
-    let output = sg_cli(&["simulate", "--fidelity", "high"]);
+    let output = sg_cli(&["simulate", "--params", "no-such-file.json"]);
     assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("M7"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("no-such-file.json"));
 }

@@ -16,6 +16,7 @@
 
 #[cfg(feature = "classic")]
 mod classic;
+mod high;
 pub mod names;
 mod presets;
 mod standard;
@@ -148,10 +149,9 @@ pub fn simulate_with(
             "this build was compiled without the `classic` feature",
         )),
         Fidelity::Standard => standard::simulate(params, observer),
-        Fidelity::High => Err(SimError::TierUnavailable(
-            Fidelity::High,
-            "planned for milestone M7",
-        )),
+        // The High tier is the Standard tier with its late stage
+        // integrated (`high.rs`).
+        Fidelity::High => standard::simulate(params, observer),
     }
 }
 
@@ -196,15 +196,19 @@ mod tests {
     }
 
     #[test]
-    fn the_high_tier_reports_its_milestone() {
-        let params = SimulationParams {
+    fn the_high_tier_runs_and_says_which_tier_it_was() {
+        let mut params = SimulationParams {
             fidelity: Fidelity::High,
+            seed: 3,
             ..SimulationParams::default()
         };
-        assert!(matches!(
-            simulate(&params),
-            Err(SimError::TierUnavailable(Fidelity::High, _))
-        ));
+        // A short integration: this is a smoke test, not a result.
+        params.formation.high.integration_myr = 0.001;
+        params.formation.high.max_steps = 200_000;
+        let result = simulate(&params).expect("high tier");
+        assert_eq!(result.diagnostics.fidelity, Fidelity::High);
+        assert_eq!(result.snapshot.model_version, MODEL_VERSION);
+        assert_eq!(simulate(&params).expect("again").snapshot, result.snapshot);
     }
 
     #[cfg(not(feature = "classic"))]

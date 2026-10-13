@@ -159,6 +159,40 @@ impl Default for DiskParams {
 pub struct FormationParams {
     pub classic: ClassicParams,
     pub standard: StandardParams,
+    /// The High tier's late stage; the rest of that tier uses `standard`.
+    #[serde(default)]
+    pub high: HighParams,
+}
+
+/// High-tier parameters: the N-body integration after the gas clears
+/// (PLAN.md §5.7).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HighParams {
+    /// Time to integrate after the gas clears, Myr.
+    pub integration_myr: f64,
+    /// Most integrator steps to spend per disk; the run stops early, and
+    /// says so, when they are used up. This, not the clock, bounds the
+    /// run, so results do not depend on the machine. Two million steps
+    /// take about twenty seconds for two dozen planets on a 2025 desktop,
+    /// and cover a few thousand years when the innermost orbit is a few
+    /// days long.
+    pub max_steps: u64,
+    /// Scale of the planets' eccentricities when the gas clears.
+    pub initial_eccentricity: f64,
+    /// Scale of their inclinations then, degrees.
+    pub initial_inclination_deg: f64,
+}
+
+impl Default for HighParams {
+    fn default() -> Self {
+        Self {
+            integration_myr: 0.1,
+            max_steps: 2_000_000,
+            initial_eccentricity: 0.01,
+            initial_inclination_deg: 0.3,
+        }
+    }
 }
 
 /// Standard-tier formation parameters (PLAN.md §5.3–5.6).
