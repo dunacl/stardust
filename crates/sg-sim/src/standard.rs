@@ -106,6 +106,10 @@ fn validate(params: &SimulationParams) -> Result<(), SimError> {
             "formation.standard.migration_efficiency",
             s.migration_efficiency,
         ),
+        (
+            "formation.standard.envelope_cooling_time_yr",
+            s.envelope_cooling_time_yr,
+        ),
         ("formation.standard.alpha_gap", s.alpha_gap),
     ];
     for (name, value) in positive {
@@ -286,6 +290,7 @@ pub(crate) fn simulate(
         alpha_turbulent: params.formation.standard.alpha_turbulent,
         stokes_drift: params.formation.standard.stokes_drift,
         alpha_gap: params.formation.standard.alpha_gap,
+        cooling_time_1mearth_yr: params.formation.standard.envelope_cooling_time_yr,
         migration: params.toggles.migration,
         migration_efficiency: params.formation.standard.migration_efficiency,
     };

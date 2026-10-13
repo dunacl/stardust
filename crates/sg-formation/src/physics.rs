@@ -203,18 +203,25 @@ pub fn migration_rate(
     -2.0 * coefficient * q * (sigma * a_au * a_au / star) / (h * h) * a_au * disk.omega(a_au) / gap
 }
 
+/// Kelvin–Helmholtz time of a 1 M⊕ planet in Ida & Lin's (2004) nominal
+/// fit, years.
+pub const NOMINAL_COOLING_TIME_YR: f64 = 1.0e9;
+
 /// Rate at which a planet's envelope cools, contracts and draws in gas,
 /// M☉/yr.
 ///
 /// Ida & Lin (2004, ApJ 604, 388), eqs. 9–10: `dM/dt = M/τ_KH` with the
-/// Kelvin–Helmholtz time `τ_KH = 10⁹ (M/M⊕)⁻³ yr`, a fit to the envelope
+/// Kelvin–Helmholtz time `τ_KH = τ₁ (M/M⊕)⁻³`, a fit to the envelope
 /// calculations of Ikoma, Nakazawa & Emori (2000). Slow for a few Earth
 /// masses, a runaway above about ten: the classical critical core mass.
-/// The normalisation depends on the envelope's opacity, which is uncertain
-/// by an order of magnitude.
-pub fn envelope_contraction_rate(mass_msun: f64) -> f64 {
+/// Their nominal `τ₁` is 10⁹ years ([`NOMINAL_COOLING_TIME_YR`]); it scales
+/// with the opacity of the envelope, which depends on how much dust it
+/// holds and is uncertain by more than an order of magnitude (Ikoma et al.
+/// 2000 find `τ ∝ κ`; Ida & Lin 2008 explore 10⁹–10¹⁰ years), so it is a
+/// parameter here.
+pub fn envelope_contraction_rate(mass_msun: f64, cooling_time_1mearth_yr: f64) -> f64 {
     let mass = mass_msun / EARTH_MASS_MSUN;
-    let kelvin_helmholtz_yr = 1.0e9 / (mass * mass * mass);
+    let kelvin_helmholtz_yr = cooling_time_1mearth_yr / (mass * mass * mass);
     mass_msun / kelvin_helmholtz_yr
 }
 
@@ -394,11 +401,15 @@ mod tests {
     /// in 10⁹.
     #[test]
     fn envelope_contraction_follows_the_kelvin_helmholtz_time() {
-        let rate = |earth_masses: f64| envelope_contraction_rate(earth_masses * EARTH_MASS_MSUN);
+        let rate = |earth_masses: f64| {
+            envelope_contraction_rate(earth_masses * EARTH_MASS_MSUN, NOMINAL_COOLING_TIME_YR)
+        };
         assert!((10.0 * EARTH_MASS_MSUN / rate(10.0) - 1.0e6).abs() < 1e-3);
         assert!((EARTH_MASS_MSUN / rate(1.0) - 1.0e9).abs() < 1.0);
-        // dM/dt ∝ M⁴.
+        // dM/dt ∝ M⁴, and inversely as the cooling time.
         assert!((rate(20.0) / rate(10.0) - 16.0).abs() < 1e-9);
+        let fast = envelope_contraction_rate(10.0 * EARTH_MASS_MSUN, 1.0e8);
+        assert!((fast / rate(10.0) - 10.0).abs() < 1e-9);
     }
 
     #[test]

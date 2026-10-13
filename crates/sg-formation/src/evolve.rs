@@ -15,9 +15,9 @@
 //!    its innermost member reaches the disk's inner edge. Neighbours too
 //!    massive for any resonance to keep apart merge.
 //!
-//! When the gas has gone, bodies that never entered runaway are given the
-//! envelope such a core can cool and hold while embedded in the disk
-//! (Ginzburg, Schlichting & Sari 2016).
+//! When the gas has gone, bodies that never entered runaway are left with
+//! the part of their envelope that survives the disk's dispersal (Ginzburg,
+//! Schlichting & Sari 2016).
 //!
 //! Simplifications: orbits are circular and coplanar while gas is present;
 //! resonance capture is certain and only the 3:2 and 2:1 resonances are
@@ -39,14 +39,20 @@ pub struct GrowthParams {
     /// α that refills a planet's gap: sets gap depth, and through it the
     /// slowing of migration and of gas accretion (Kanagawa et al. 2018).
     pub alpha_gap: f64,
+    /// Kelvin–Helmholtz time of a 1 M⊕ planet's envelope, years: see
+    /// [`physics::envelope_contraction_rate`].
+    pub cooling_time_1mearth_yr: f64,
     /// Whether bodies migrate.
     pub migration: bool,
-    /// Factor applied to the migration rate. Below 1 it stands in for
-    /// torques this model leaves out, which oppose the inward drift of
-    /// low-mass planets (the corotation torque, Paardekooper et al. 2011;
-    /// the heating torque, Benítez-Llambay et al. 2015). Population models
-    /// have long needed such a factor of 0.01–0.1 to keep planets from
-    /// falling into their stars (Ida & Lin 2008, ApJ 673, 487).
+    /// Factor applied to the migration rate of a planet that has not opened
+    /// a gap. Below 1 it stands in for torques this model leaves out, which
+    /// oppose the inward drift of low-mass planets (the corotation torque,
+    /// Paardekooper et al. 2011; the heating torque, Benítez-Llambay et al.
+    /// 2015). Population models have long needed such a factor of 0.01–0.1
+    /// to keep planets from falling into their stars (Ida & Lin 2008,
+    /// ApJ 673, 487). Those torques need gas in the planet's co-orbital
+    /// region, so the factor rises to 1 as the gap deepens: gap-opening
+    /// planets migrate at the full type II rate.
     pub migration_efficiency: f64,
 }
 
@@ -56,6 +62,7 @@ impl Default for GrowthParams {
             alpha_turbulent: 1.0e-4,
             stokes_drift: 0.05,
             alpha_gap: 1.0e-4,
+            cooling_time_1mearth_yr: physics::NOMINAL_COOLING_TIME_YR,
             migration: true,
             migration_efficiency: 1.0,
         }
@@ -216,22 +223,46 @@ fn capture_candidates(a_in: f64, m_in: f64, m_out: f64, star: f64) -> Vec<(f64, 
     order
 }
 
-/// Envelope a core that never reached isolation holds when the gas clears,
-/// as a fraction of its mass.
+/// Envelope a core gathers while embedded in the gas disk, as a fraction
+/// of its mass, before it loses any.
 ///
-/// Ginzburg, Schlichting & Sari (2016, ApJ 825, 29), eq. 24:
-/// `f ≈ 0.02 (M_c/M⊕)^0.8 (T/1000 K)^-0.25 (t_disk/1 Myr)^0.5`, for a core
-/// embedded in the disk for `t_disk`. Capped well short of the equal
-/// masses at which runaway begins.
+/// Ginzburg, Schlichting & Sari (2016, ApJ 825, 29), eq. 18:
+/// `f ≈ 0.02 (M_c/M⊕)^0.8 (T_eq/1000 K)^-0.25 (t_disk/1 Myr)^0.5`, where
+/// `T_eq` is the planet's equilibrium temperature and `t_disk` the time it
+/// spent embedded.
+pub fn accreted_envelope_fraction(
+    core_msun: f64,
+    equilibrium_temp_k: f64,
+    embedded_yr: f64,
+) -> f64 {
+    0.02 * pow(core_msun / EARTH_MASS_MSUN, 0.8)
+        * pow(equilibrium_temp_k / 1000.0, -0.25)
+        * sqrt(embedded_yr / 1.0e6)
+}
+
+/// Envelope a core that never entered runaway still holds once the gas has
+/// cleared, as a fraction of its mass.
+///
+/// When the disk's pressure is removed, the loosely bound outer layers of
+/// the envelope flow away, driven by the heat of the layers beneath; about
+/// 70% of it goes. Ginzburg, Schlichting & Sari (2016), eq. 24:
+/// `f ≈ 0.01 (M_c/M⊕)^0.44 (T_eq/1000 K)^0.25 (t_disk/1 Myr)^0.5`. Never
+/// more than was accreted ([`accreted_envelope_fraction`]).
 ///
 /// The relation was derived for super-Earth cores. Smaller bodies gather
 /// only wisps of gas that they do not keep, so the fraction is tapered to
 /// zero between 1 and 0.5 M⊕; that taper is this model's, not the paper's.
-pub fn embedded_envelope_fraction(core_msun: f64, temperature_k: f64, disk_life_yr: f64) -> f64 {
+pub fn retained_envelope_fraction(
+    core_msun: f64,
+    equilibrium_temp_k: f64,
+    embedded_yr: f64,
+) -> f64 {
     let core = core_msun / EARTH_MASS_MSUN;
-    let f = 0.02 * pow(core, 0.8) * pow(temperature_k / 1000.0, -0.25) * sqrt(disk_life_yr / 1.0e6);
+    let retained =
+        0.01 * pow(core, 0.44) * pow(equilibrium_temp_k / 1000.0, 0.25) * sqrt(embedded_yr / 1.0e6);
+    let accreted = accreted_envelope_fraction(core_msun, equilibrium_temp_k, embedded_yr);
     let taper = ((core - 0.5) / 0.5).clamp(0.0, 1.0);
-    taper * f.min(MAX_EMBEDDED_ENVELOPE)
+    taper * retained.min(accreted).min(MAX_EMBEDDED_ENVELOPE)
 }
 
 /// Runs the growth model from the disk's formation until its gas is gone.
@@ -340,7 +371,11 @@ pub fn evolve(
                     params.alpha_gap,
                 );
                 gas_rate[i] = if b.envelope_msun < b.core_msun {
-                    physics::envelope_contraction_rate(b.mass_msun()).min(supply)
+                    physics::envelope_contraction_rate(
+                        b.mass_msun(),
+                        params.cooling_time_1mearth_yr,
+                    )
+                    .min(supply)
                 } else {
                     supply
                 };
@@ -360,7 +395,14 @@ pub fn evolve(
                 flux -= rate;
             }
             if params.migration && b.a_au > inner_edge {
-                drift_rate[i] = params.migration_efficiency
+                // The efficiency stands in for the corotation torque, which
+                // fades as a gap opens: it applies in full to a planet with
+                // no gap and not at all to one deep in its gap.
+                let k = physics::gap_parameter(disk, b.a_au, t, b.mass_msun(), params.alpha_gap);
+                let opened = 0.04 * k / (1.0 + 0.04 * k);
+                let efficiency =
+                    params.migration_efficiency + (1.0 - params.migration_efficiency) * opened;
+                drift_rate[i] = efficiency
                     * physics::migration_rate(disk, b.a_au, t, b.mass_msun(), params.alpha_gap)
                     / b.a_au;
             }
@@ -536,17 +578,19 @@ pub fn evolve(
         next_frame += 1;
     }
 
-    // A core that never entered runaway keeps only the envelope a core can
-    // cool and hold while embedded. (Until runaway the envelope tracked
-    // above is a clock for its onset, not a prediction of its mass: the
-    // contraction fit is calibrated for cores near 5 AU and overestimates
-    // what small, hot, close-in cores retain.)
+    // A core that never entered runaway keeps only what survives the
+    // disk's dispersal. (Until runaway the envelope tracked above is a
+    // clock for its onset, not a prediction of its mass: the contraction
+    // fit is calibrated for cores near 5 AU and overestimates what small,
+    // hot, close-in cores hold.)
+    let luminosity = disk.spec().star_luminosity_lsun;
     for b in &mut bodies {
         if !b.runaway {
             let embedded_yr = (disk.spec().dispersal_time_yr - b.start_yr).max(0.0);
-            let temperature = disk.temperature(b.a_au, disk.spec().dispersal_time_yr);
+            // Black-body equilibrium temperature: 278.3 K at 1 AU from the Sun.
+            let equilibrium = 278.3 * sqrt(sqrt(luminosity)) / sqrt(b.a_au);
             b.envelope_msun =
-                b.core_msun * embedded_envelope_fraction(b.core_msun, temperature, embedded_yr);
+                b.core_msun * retained_envelope_fraction(b.core_msun, equilibrium, embedded_yr);
         }
     }
     bodies.sort_by(|x, y| x.a_au.total_cmp(&y.a_au).then(x.id.cmp(&y.id)));
@@ -800,23 +844,34 @@ mod tests {
     }
 
     /// Ginzburg et al. (2016): a 5 M⊕ core at 1000 K embedded for 1 Myr
-    /// holds 0.02·5^0.8 = 7.2% of its mass in gas.
+    /// gathers 0.02·5^0.8 = 7.2% of its mass in gas and keeps
+    /// 0.01·5^0.44 = 2.0% once the disk has gone, about 30% of it.
     #[test]
-    fn embedded_envelopes_follow_ginzburg() {
-        let f = embedded_envelope_fraction(5.0 * EARTH_MASS_MSUN, 1000.0, 1.0e6);
-        assert!((f - 0.02 * 5f64.powf(0.8)).abs() < 1e-12);
+    fn envelopes_follow_ginzburg() {
+        let core = 5.0 * EARTH_MASS_MSUN;
+        let accreted = accreted_envelope_fraction(core, 1000.0, 1.0e6);
+        assert!((accreted - 0.02 * 5f64.powf(0.8)).abs() < 1e-12);
+        let retained = retained_envelope_fraction(core, 1000.0, 1.0e6);
+        assert!((retained - 0.01 * 5f64.powf(0.44)).abs() < 1e-12);
+        assert!(
+            (retained / accreted - 0.28).abs() < 0.02,
+            "{}",
+            retained / accreted
+        );
+        // Hotter planets keep a larger share of less; longer-lived disks give more.
+        assert!(retained_envelope_fraction(core, 2000.0, 1.0e6) > retained);
+        assert!(retained_envelope_fraction(core, 1000.0, 4.0e6) > 1.9 * retained);
         // Mars-sized bodies keep none; the taper ends at 1 M⊕.
         assert_eq!(
-            embedded_envelope_fraction(0.1 * EARTH_MASS_MSUN, 1000.0, 1.0e6),
+            retained_envelope_fraction(0.1 * EARTH_MASS_MSUN, 1000.0, 1.0e6),
             0.0
         );
-        let at_one = embedded_envelope_fraction(EARTH_MASS_MSUN, 1000.0, 1.0e6);
-        assert!((at_one - 0.02).abs() < 1e-12);
-        let below = embedded_envelope_fraction(0.75 * EARTH_MASS_MSUN, 1000.0, 1.0e6);
+        let at_one = retained_envelope_fraction(EARTH_MASS_MSUN, 1000.0, 1.0e6);
+        assert!((at_one - 0.01).abs() < 1e-12);
+        let below = retained_envelope_fraction(0.75 * EARTH_MASS_MSUN, 1000.0, 1.0e6);
         assert!(below > 0.0 && below < 0.5 * at_one + 1e-3);
-        assert_eq!(
-            embedded_envelope_fraction(50.0 * EARTH_MASS_MSUN, 300.0, 3.0e6),
-            0.5
-        );
+        // Never more than was accreted, however cold the planet.
+        let cold = retained_envelope_fraction(core, 30.0, 1.0e6);
+        assert!(cold <= accreted_envelope_fraction(core, 30.0, 1.0e6));
     }
 }
