@@ -20,6 +20,7 @@ Both work around one, two or three stars.
 | | |
 |---|---|
 | Where things stand | [`docs/PROGRESS.md`](docs/PROGRESS.md) |
+| What comes next (phones and headsets) | [`docs/m6-preparation.md`](docs/m6-preparation.md) |
 | Plan, science model, decisions | [`PLAN.md`](PLAN.md) |
 | How the model compares with real planets | [`validation/report-0.5.0.md`](validation/report-0.5.0.md) |
 | Rules for working in this repository | [`CLAUDE.md`](CLAUDE.md) |
@@ -77,7 +78,7 @@ crates/
   sg-classic       the port of StarGen (separable; see below)
   sg-schema        the data contract: parameters, snapshot, timeline
   sg-sim           simulate(): puts the above together
-  sg-render        the 3D scene, as a Bevy plugin
+  sg-render        the 3D scene, as a Bevy plugin: planets, stars, the disk, belts, sky
   sg-cli           command line: simulate, batch, validate, compare with the C code
   sg-wasm          a windowless WebAssembly build used to check determinism
 reference/         the original C code (submodule), its test harness, golden outputs
