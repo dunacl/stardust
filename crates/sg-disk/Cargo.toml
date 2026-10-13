@@ -1,6 +1,6 @@
 [package]
 name = "sg-disk"
-description = "Protoplanetary gas and dust disk models (PLAN.md §5.2). Stub until M3/M4."
+description = "Protoplanetary gas disk: viscous evolution, temperature, ice line (PLAN.md §5.2)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,6 +8,10 @@ publish.workspace = true
 
 [dependencies]
 sg-core.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
 
 [lints]
 workspace = true

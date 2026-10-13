@@ -5270,7 +5270,9 @@ dependencies = [
 name = "sg-disk"
 version = "0.1.0"
 dependencies = [
+ "proptest",
  "sg-core",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -5289,7 +5291,10 @@ version = "0.1.0"
 name = "sg-formation"
 version = "0.1.0"
 dependencies = [
+ "proptest",
  "sg-core",
+ "sg-disk",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

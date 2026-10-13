@@ -1,0 +1,407 @@
+//! The rates that drive planet growth: pebble accretion, gas accretion and
+//! migration. Pure functions of the local disk state, each from a published
+//! prescription.
+//!
+//! Units as in `sg-disk`: AU, solar masses, years (`G = 4π²`).
+
+use sg_core::math::{log10, pow, sqrt};
+use sg_disk::{Disk, G};
+
+/// One Earth mass in solar masses.
+pub const EARTH_MASS_MSUN: f64 = 1.0 / sg_core::constants::SOLAR_MASS_IN_EARTH_MASSES;
+/// 1 m/s in AU/yr.
+const M_PER_S_IN_AU_YR: f64 = 100.0 / 4.7405e5;
+/// Speed above which colliding grains shatter instead of sticking: about
+/// 1 m/s for bare silicates and 10 m/s for icy grains (Gundlach & Blum
+/// 2015, ApJ 798, 34).
+const FRAGMENTATION_SPEED_ROCK_M_S: f64 = 1.0;
+const FRAGMENTATION_SPEED_ICE_M_S: f64 = 10.0;
+/// Fraction of a pebble's mass that is water ice outside the ice line
+/// (Lodders 2003, ApJ 591, 1220: about half of the condensable solids).
+pub const ICE_MASS_FRACTION: f64 = 0.5;
+/// Efficiency with which dust grows into drifting pebbles (Lambrechts &
+/// Johansen 2014, A&A 572, A107, §2: ε_D = 0.05).
+const PEBBLE_GROWTH_EFFICIENCY: f64 = 0.05;
+
+/// Hill radius, AU.
+pub fn hill_radius(a_au: f64, mass_msun: f64, star_mass_msun: f64) -> f64 {
+    a_au * pow(mass_msun / (3.0 * star_mass_msun), 1.0 / 3.0)
+}
+
+/// Radius of the pebble production front, AU: the distance at which dust
+/// has just had time to grow into pebbles and start drifting.
+///
+/// Lambrechts & Johansen (2014), eq. 10:
+/// `r_g = (3/16)^(1/3) (G M★)^(1/3) (ε_D Z)^(2/3) t^(2/3)`.
+pub fn pebble_front_radius(star_mass_msun: f64, dust_to_gas: f64, t_yr: f64) -> f64 {
+    pow(3.0 / 16.0, 1.0 / 3.0)
+        * pow(G * star_mass_msun, 1.0 / 3.0)
+        * pow(PEBBLE_GROWTH_EFFICIENCY * dust_to_gas, 2.0 / 3.0)
+        * pow(t_yr.max(0.0), 2.0 / 3.0)
+}
+
+/// Mass of pebbles drifting inward through the disk per year, M☉/yr.
+///
+/// Lambrechts & Johansen (2014), eq. 14: the front sweeps up the dust it
+/// passes, `Ṁ_F = 2π r_g (dr_g/dt) Z Σ_g(r_g)`, with `dr_g/dt = (2/3) r_g/t`.
+/// The dust is taken to lie where the gas was at the start (their disk does
+/// not evolve; here the gas spreads, and dust that has decoupled from it
+/// does not follow), so the pebbles produced can never outweigh the disk's
+/// dust. The flux dies away once the front has passed the outer disk, and
+/// stops when the gas is gone (pebbles drift only where there is gas).
+pub fn pebble_flux(disk: &Disk, t_yr: f64) -> f64 {
+    if t_yr <= 0.0 {
+        return 0.0;
+    }
+    let spec = disk.spec();
+    let front = pebble_front_radius(spec.star_mass_msun, spec.dust_to_gas, t_yr);
+    let speed = 2.0 / 3.0 * front / t_yr;
+    2.0 * core::f64::consts::PI
+        * front
+        * speed
+        * spec.dust_to_gas
+        * disk.gas_surface_density(front, 0.0)
+        * disk.gas_fraction(t_yr)
+}
+
+/// Stokes number of the pebbles at a radius: the drift-limited value, or
+/// less where collisions shatter them first.
+///
+/// Fragmentation limit (Birnstiel, Klahr & Ercolano 2012, A&A 539, A148,
+/// eq. 8): `St = v_f² / (3 α c_s²)`, with a lower fragmentation speed
+/// inside the ice line, where grains have lost their sticky ice mantles.
+pub fn stokes_number(
+    disk: &Disk,
+    r_au: f64,
+    t_yr: f64,
+    drift_limited: f64,
+    alpha_turbulent: f64,
+    ice_line_au: f64,
+) -> f64 {
+    let v_f = M_PER_S_IN_AU_YR
+        * if r_au < ice_line_au {
+            FRAGMENTATION_SPEED_ROCK_M_S
+        } else {
+            FRAGMENTATION_SPEED_ICE_M_S
+        };
+    let cs = disk.sound_speed(r_au, t_yr);
+    let fragmentation = v_f * v_f / (3.0 * alpha_turbulent * cs * cs);
+    drift_limited.min(fragmentation)
+}
+
+/// Mass at which a seed starts accreting pebbles efficiently from its whole
+/// Hill sphere, M☉.
+///
+/// Lambrechts & Johansen (2012, A&A 544, A32), eq. 33:
+/// `M_t = sqrt(1/3) (η v_K)³ / (G Ω)`.
+pub fn transition_mass(disk: &Disk, r_au: f64, t_yr: f64) -> f64 {
+    let omega = disk.omega(r_au);
+    let dv = disk.eta(r_au, t_yr) * r_au * omega;
+    sqrt(1.0 / 3.0) * dv * dv * dv / (G * omega)
+}
+
+/// Rate at which a body accretes pebbles, M☉/yr, given the pebble flux
+/// reaching its orbit. Never more than that flux.
+///
+/// Hill-regime accretion (Lambrechts & Johansen 2012; in the form of
+/// Bitsch, Lambrechts & Johansen 2015, A&A 582, A112, eqs. 7–10):
+/// `Ṁ = 2 (St/0.1)^(2/3) r_H v_H Σ_peb` when the pebbles lie in a layer
+/// thinner than the accretion radius, reduced by
+/// `π (St/0.1)^(1/3) r_H / (2 sqrt(2π) H_peb)` when they do not. The pebble
+/// layer's thickness is `H_peb = H sqrt(α/(α + St))` (Youdin & Lithwick
+/// 2007) and its surface density follows from the flux and the drift speed
+/// `2 St η v_K`. Valid for `St ≲ 0.1` and bodies above [`transition_mass`].
+pub fn pebble_accretion_rate(
+    disk: &Disk,
+    r_au: f64,
+    t_yr: f64,
+    mass_msun: f64,
+    flux_msun_yr: f64,
+    stokes: f64,
+    alpha_turbulent: f64,
+) -> f64 {
+    if flux_msun_yr <= 0.0 || stokes <= 0.0 {
+        return 0.0;
+    }
+    let omega = disk.omega(r_au);
+    let drift = 2.0 * stokes * disk.eta(r_au, t_yr) * r_au * omega;
+    if drift <= 0.0 {
+        return 0.0;
+    }
+    let sigma_peb = flux_msun_yr / (2.0 * core::f64::consts::PI * r_au * drift);
+    let r_h = hill_radius(r_au, mass_msun, disk.spec().star_mass_msun);
+    let tau = (stokes / 0.1).min(1.0);
+    let flat = 2.0 * pow(tau, 2.0 / 3.0) * r_h * r_h * omega * sigma_peb;
+    let h_gas = disk.aspect_ratio(r_au, t_yr) * r_au;
+    let h_peb = h_gas * sqrt(alpha_turbulent / (alpha_turbulent + stokes));
+    let reach = core::f64::consts::PI * pow(tau, 1.0 / 3.0) * r_h
+        / (2.0 * sqrt(2.0 * core::f64::consts::PI));
+    let rate = if reach < h_peb {
+        flat * reach / h_peb
+    } else {
+        flat
+    };
+    rate.min(flux_msun_yr)
+}
+
+/// Mass at which a planet carves a gap deep enough to stop pebbles
+/// reaching it, M☉.
+///
+/// Bitsch et al. (2018, A&A 612, A30), eqs. 10–11:
+/// `M_iso = 25 M⊕ · (h/0.05)³ · [0.34 (log α₃ / log α)⁴ + 0.66] ·
+/// [1 − (d ln P/d ln r + 2.5)/6]`, with `α₃ = 10⁻³`. Fitted to 3D
+/// hydrodynamical simulations.
+pub fn pebble_isolation_mass(disk: &Disk, r_au: f64, t_yr: f64, alpha_turbulent: f64) -> f64 {
+    let h = disk.aspect_ratio(r_au, t_yr);
+    let turbulence = 0.34 * pow(log10(1.0e-3) / log10(alpha_turbulent), 4.0) + 0.66;
+    let pressure = 1.0 - (disk.pressure_slope(r_au, t_yr) + 2.5) / 6.0;
+    25.0 * EARTH_MASS_MSUN * pow(h / 0.05, 3.0) * turbulence * pressure
+}
+
+/// Gap-opening parameter `K = q² h⁻⁵ α⁻¹` (Kanagawa et al. 2015). The gas
+/// surface density in the gap is `1/(1 + 0.04 K)` of its unperturbed value
+/// (Kanagawa et al. 2018, ApJ 861, 140, eq. 11).
+pub fn gap_parameter(
+    disk: &Disk,
+    r_au: f64,
+    t_yr: f64,
+    mass_msun: f64,
+    alpha_turbulent: f64,
+) -> f64 {
+    let q = mass_msun / disk.spec().star_mass_msun;
+    q * q / (pow(disk.aspect_ratio(r_au, t_yr), 5.0) * alpha_turbulent)
+}
+
+/// Rate of change of a planet's orbital radius by disk migration, AU/yr
+/// (negative: inward).
+///
+/// Type I torque for a locally isothermal disk (D'Angelo & Lubow 2010,
+/// ApJ 724, 730, eq. 49): `Γ = −(1.36 + 0.62 β_Σ + 0.43 β_T) (q/h)² Σ a⁴ Ω²`,
+/// giving `da/dt = 2Γ/(M_p a Ω)`. As the planet opens a gap the torque
+/// falls with the gas density there, by `1/(1 + 0.04 K)`, which carries the
+/// rate smoothly into the slow type II regime (Kanagawa, Tanaka & Szuszkiewicz
+/// 2018). Not included: corotation torques, which can halt or reverse
+/// migration in parts of the disk (Paardekooper et al. 2011).
+pub fn migration_rate(
+    disk: &Disk,
+    a_au: f64,
+    t_yr: f64,
+    mass_msun: f64,
+    alpha_turbulent: f64,
+) -> f64 {
+    let sigma = disk.gas_surface_density(a_au, t_yr);
+    if sigma <= 0.0 {
+        return 0.0;
+    }
+    let star = disk.spec().star_mass_msun;
+    let q = mass_msun / star;
+    let h = disk.aspect_ratio(a_au, t_yr);
+    let coefficient = 1.36
+        + 0.62 * disk.surface_density_slope(a_au, t_yr)
+        + 0.43 * disk.temperature_slope(a_au, t_yr);
+    let gap = 1.0 + 0.04 * gap_parameter(disk, a_au, t_yr, mass_msun, alpha_turbulent);
+    -2.0 * coefficient * q * (sigma * a_au * a_au / star) / (h * h) * a_au * disk.omega(a_au) / gap
+}
+
+/// Rate at which an envelope contracts and draws in gas before runaway,
+/// M☉/yr.
+///
+/// Bitsch, Lambrechts & Johansen (2015), eq. 17 (after Piso & Youdin 2014):
+/// `Ṁ = 0.00175 f⁻² (κ/1 cm² g⁻¹)⁻¹ (ρ_c/5.5 g cm⁻³)^(-1/6) (M_c/M⊕)^(11/3)
+/// (M_env/0.1 M⊕)⁻¹ (T/81 K)^(-1/2) M⊕/Myr`, with their `f = 0.2`,
+/// `κ = 0.05 cm²/g` and `ρ_c = 5.5 g/cm³`.
+pub fn envelope_contraction_rate(core_msun: f64, envelope_msun: f64, temperature_k: f64) -> f64 {
+    const F: f64 = 0.2;
+    const KAPPA_CM2_G: f64 = 0.05;
+    let core = core_msun / EARTH_MASS_MSUN;
+    let envelope = (envelope_msun / EARTH_MASS_MSUN).max(1.0e-6);
+    let earth_masses_per_myr = 0.00175 / (F * F) / KAPPA_CM2_G * pow(core, 11.0 / 3.0)
+        / (envelope / 0.1)
+        / sqrt(temperature_k / 81.0);
+    earth_masses_per_myr * EARTH_MASS_MSUN / 1.0e6
+}
+
+/// Rate of runaway gas accretion, M☉/yr.
+///
+/// Machida et al. (2010, MNRAS 405, 1227), as used by Bitsch et al. (2015,
+/// eqs. 18–19): the smaller of `0.83 Ω Σ H² (r_H/H)^(9/2)` and
+/// `0.14 Ω Σ H²`, and never more than 80% of the gas flowing through the
+/// disk.
+pub fn runaway_accretion_rate(disk: &Disk, a_au: f64, t_yr: f64, mass_msun: f64) -> f64 {
+    let sigma = disk.gas_surface_density(a_au, t_yr);
+    let h_gas = disk.aspect_ratio(a_au, t_yr) * a_au;
+    let r_h = hill_radius(a_au, mass_msun, disk.spec().star_mass_msun);
+    let base = disk.omega(a_au) * sigma * h_gas * h_gas;
+    let low = 0.83 * base * pow(r_h / h_gas, 4.5);
+    let high = 0.14 * base;
+    low.min(high).min(0.8 * disk.accretion_rate(t_yr))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sg_disk::DiskSpec;
+
+    const ALPHA_T: f64 = 1.0e-4;
+
+    fn disk() -> Disk {
+        Disk::new(DiskSpec {
+            star_mass_msun: 1.0,
+            star_luminosity_lsun: 1.0,
+            initial_mass_msun: 0.05,
+            characteristic_radius_au: 40.0,
+            alpha: 5.0e-3,
+            dispersal_time_yr: 3.0e6,
+            dust_to_gas: 0.0149,
+            inner_edge_au: 0.05,
+            outer_edge_au: 1000.0,
+        })
+        .unwrap()
+    }
+
+    fn earths(msun: f64) -> f64 {
+        msun / EARTH_MASS_MSUN
+    }
+
+    /// Lambrechts & Johansen (2014): the front reaches roughly 100 AU in a
+    /// million years, and the flux is of order 10⁻⁴ M⊕/yr.
+    #[test]
+    fn pebble_front_and_flux_have_the_published_scale() {
+        let front = pebble_front_radius(1.0, 0.01, 1.0e6);
+        assert!((80.0..160.0).contains(&front), "{front}");
+        // t^(2/3): eight times later, four times farther.
+        assert!((pebble_front_radius(1.0, 0.01, 8.0e6) / front - 4.0).abs() < 1e-9);
+        let flux = earths(pebble_flux(&disk(), 3.0e5));
+        assert!((1.0e-5..1.0e-3).contains(&flux), "{flux} M⊕/yr");
+        assert_eq!(pebble_flux(&disk(), 0.0), 0.0);
+        assert_eq!(pebble_flux(&disk(), 5.0e6), 0.0);
+    }
+
+    /// Pebbles drawn from the whole disk cannot outweigh its dust.
+    #[test]
+    fn pebble_flux_does_not_exceed_the_dust_supply() {
+        let disk = disk();
+        let n = 30_000;
+        let dt = 3.0e6 / f64::from(n);
+        let total: f64 = (0..n)
+            .map(|k| pebble_flux(&disk, (f64::from(k) + 0.5) * dt) * dt)
+            .sum();
+        let dust = disk.spec().dust_to_gas * disk.spec().initial_mass_msun;
+        assert!(total < dust, "{} vs {} M⊕", earths(total), earths(dust));
+        assert!(total > 0.2 * dust);
+    }
+
+    #[test]
+    fn pebbles_are_smaller_inside_the_ice_line() {
+        let disk = disk();
+        let ice = disk.water_ice_line(1.0e6);
+        let inside = stokes_number(&disk, 0.5 * ice, 1.0e6, 0.05, ALPHA_T, ice);
+        let outside = stokes_number(&disk, 3.0 * ice, 1.0e6, 0.05, ALPHA_T, ice);
+        assert!(inside < outside, "{inside} {outside}");
+        assert!(outside <= 0.05 && inside > 0.0);
+    }
+
+    /// Seeds start at 10⁻⁴–10⁻² M⊕ (Bitsch et al. 2015, §2.3).
+    #[test]
+    fn transition_mass_is_a_fraction_of_the_moon_to_mars() {
+        let disk = disk();
+        for r in [1.0, 5.0, 20.0] {
+            let m = earths(transition_mass(&disk, r, 1.0e6));
+            assert!((1.0e-5..5.0e-2).contains(&m), "{r} AU: {m} M⊕");
+        }
+        assert!(transition_mass(&disk, 20.0, 1.0e6) > transition_mass(&disk, 1.0, 1.0e6));
+    }
+
+    #[test]
+    fn pebble_accretion_grows_with_mass_and_never_exceeds_the_flux() {
+        let disk = disk();
+        let (r, t) = (5.0, 5.0e5);
+        let flux = pebble_flux(&disk, t);
+        let rate = |m_earth: f64| {
+            pebble_accretion_rate(&disk, r, t, m_earth * EARTH_MASS_MSUN, flux, 0.05, ALPHA_T)
+        };
+        assert!(rate(0.01) < rate(0.1) && rate(0.1) < rate(1.0));
+        for m in [1.0e-3, 0.1, 10.0, 1000.0] {
+            assert!(rate(m) <= flux);
+        }
+        // An Earth-mass core doubles in well under a million years.
+        let doubling_yr = EARTH_MASS_MSUN / rate(1.0);
+        assert!((1.0e3..1.0e6).contains(&doubling_yr), "{doubling_yr}");
+        assert_eq!(
+            pebble_accretion_rate(&disk, r, t, EARTH_MASS_MSUN, 0.0, 0.05, ALPHA_T),
+            0.0
+        );
+    }
+
+    /// Bitsch et al. (2018): 25 M⊕ at h = 0.05, α = 10⁻³ and
+    /// d ln P/d ln r = −2.5; lower in a quieter disk.
+    #[test]
+    fn isolation_mass_matches_the_published_normalisation() {
+        let disk = disk();
+        let (r, t) = (5.0, 1.0e6);
+        let h = disk.aspect_ratio(r, t);
+        let slope = disk.pressure_slope(r, t);
+        let expected = 25.0 * (h / 0.05).powi(3) * (1.0 - (slope + 2.5) / 6.0);
+        let got = earths(pebble_isolation_mass(&disk, r, t, 1.0e-3));
+        assert!((got / expected - 1.0).abs() < 1e-12, "{got} vs {expected}");
+        assert!(
+            pebble_isolation_mass(&disk, r, t, 1.0e-4) < pebble_isolation_mass(&disk, r, t, 1.0e-3)
+        );
+        // A few to a few tens of Earth masses across the planet-forming region.
+        for r in [0.5, 5.0, 30.0] {
+            let m = earths(pebble_isolation_mass(&disk, r, t, ALPHA_T));
+            assert!((0.5..80.0).contains(&m), "{r} AU: {m}");
+        }
+    }
+
+    /// A 10 M⊕ core at 5 AU migrates inward on a 10⁴–10⁶ year timescale
+    /// (Tanaka et al. 2002), and a Jupiter, having opened a gap, far slower.
+    #[test]
+    fn migration_is_inward_and_slows_when_a_gap_opens() {
+        let disk = disk();
+        let (a, t) = (5.0, 1.0e6);
+        let core = 10.0 * EARTH_MASS_MSUN;
+        let rate = migration_rate(&disk, a, t, core, ALPHA_T);
+        assert!(rate < 0.0);
+        let timescale = a / -rate;
+        assert!((1.0e4..2.0e6).contains(&timescale), "{timescale}");
+        // Without a gap the rate is proportional to mass.
+        let no_gap = |m: f64| -migration_rate(&disk, a, t, m, 1.0e9);
+        assert!((no_gap(2.0 * core) / no_gap(core) - 2.0).abs() < 1e-9);
+        let jupiter = 318.0 * EARTH_MASS_MSUN;
+        assert!(gap_parameter(&disk, a, t, jupiter, ALPHA_T) > 1.0e3);
+        let slow = a / -migration_rate(&disk, a, t, jupiter, ALPHA_T);
+        assert!(slow > 10.0 * timescale, "{slow}");
+        assert_eq!(migration_rate(&disk, a, 5.0e6, core, ALPHA_T), 0.0);
+    }
+
+    /// Bitsch et al. (2015), eq. 17 with f = 0.2 and κ = 0.05: a 10 M⊕ core
+    /// with a 1 M⊕ envelope at 81 K accretes 0.875·10^(11/3)/10 ≈ 406 M⊕/Myr.
+    #[test]
+    fn envelope_contraction_matches_the_published_rate() {
+        let rate = envelope_contraction_rate(10.0 * EARTH_MASS_MSUN, EARTH_MASS_MSUN, 81.0);
+        let per_myr = earths(rate) * 1.0e6;
+        assert!(
+            (per_myr - 0.875 * 10f64.powf(11.0 / 3.0) / 10.0).abs() < 1e-6,
+            "{per_myr}"
+        );
+        // Strongly dependent on core mass.
+        let small = envelope_contraction_rate(3.0 * EARTH_MASS_MSUN, 0.3 * EARTH_MASS_MSUN, 81.0);
+        assert!(rate > 20.0 * small);
+    }
+
+    #[test]
+    fn runaway_accretion_is_capped_by_the_disk() {
+        let disk = disk();
+        let (a, t) = (5.0, 1.0e6);
+        let saturn = runaway_accretion_rate(&disk, a, t, 95.0 * EARTH_MASS_MSUN);
+        assert!(saturn > 0.0 && saturn <= 0.8 * disk.accretion_rate(t));
+        // A Jupiter mass in 10⁴–10⁷ years.
+        let jupiter_yr = 318.0 * EARTH_MASS_MSUN / saturn;
+        assert!((1.0e4..1.0e7).contains(&jupiter_yr), "{jupiter_yr}");
+        assert_eq!(
+            runaway_accretion_rate(&disk, a, 5.0e6, 95.0 * EARTH_MASS_MSUN),
+            0.0
+        );
+    }
+}

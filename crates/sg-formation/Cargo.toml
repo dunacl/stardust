@@ -1,6 +1,6 @@
 [package]
 name = "sg-formation"
-description = "Planetesimal formation, solid growth, gas accretion, migration (PLAN.md §5.3-5.6). Stub until M4."
+description = "Pebble accretion, gas accretion and migration in a gas disk (PLAN.md §5.3-5.6)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,6 +8,11 @@ publish.workspace = true
 
 [dependencies]
 sg-core.workspace = true
+sg-disk.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
 
 [lints]
 workspace = true

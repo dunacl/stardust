@@ -1,5 +1,9 @@
-//! Modern planet formation: planetesimal formation, pebble and planetesimal
-//! accretion, gas accretion and migration (PLAN.md §5.3–5.6).
+//! Planet formation in a gas disk (PLAN.md §5.3–5.6): seeds grow by
+//! accreting pebbles, stop at the pebble isolation mass, contract and then
+//! run away in gas, and migrate through the disk as they do.
 //!
-//! Stub: implemented in M4. The Classic (Accrete) tier does not live here; it
-//! is the separable `sg-classic` crate (PLAN.md D18).
+//! [`physics`] holds the rates; [`evolve`] integrates a system of embryos
+//! through the life of the disk.
+
+pub mod evolve;
+pub mod physics;
