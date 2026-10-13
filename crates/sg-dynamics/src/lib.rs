@@ -8,4 +8,5 @@
 //! allowed to use `wgpu`, headless, behind a `gpu` feature.
 
 pub mod kepler;
+pub mod late;
 pub mod stability;

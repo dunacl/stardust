@@ -1,6 +1,6 @@
 [package]
 name = "sg-planet"
-description = "Interiors, atmospheres, climate, habitability, visual descriptors (PLAN.md §5.8-5.9). Stub until M4."
+description = "Planet radii, atmospheric escape, tidal locking and classes (PLAN.md §5.8-5.9)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,6 +8,9 @@ publish.workspace = true
 
 [dependencies]
 sg-core.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
 
 [lints]
 workspace = true
