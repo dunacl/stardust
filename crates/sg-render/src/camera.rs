@@ -1,7 +1,9 @@
 //! Orbit camera and click selection.
 
+use crate::gesture::{self, Finger, Gesture, TapTracker};
 use crate::scene::{BodyPlacements, Selection, Target};
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit};
+use bevy::input::touch::Touches;
 use bevy::math::DVec3;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
@@ -130,8 +132,8 @@ pub(crate) fn control_camera(
         orbit.drag_pixels += motion.delta.length();
         if orbit.drag_pixels > CLICK_SLOP_PIXELS {
             orbit.swing = None;
-            orbit.yaw -= motion.delta.x * 0.005;
-            orbit.pitch = (orbit.pitch + motion.delta.y * 0.005).clamp(-1.55, 1.55);
+            orbit.yaw -= motion.delta.x * TURN_PER_PIXEL;
+            orbit.pitch = (orbit.pitch + motion.delta.y * TURN_PER_PIXEL).clamp(-1.55, 1.55);
         }
     }
     if scroll.delta.y != 0.0 {
@@ -141,6 +143,69 @@ pub(crate) fn control_camera(
         };
         orbit.goal_distance =
             (orbit.goal_distance * (-0.12 * notches).exp()).clamp(MIN_DISTANCE, MAX_DISTANCE);
+    }
+}
+
+/// Radians the view turns per pixel dragged, by mouse or finger.
+const TURN_PER_PIXEL: f32 = 0.005;
+
+/// What the touch system remembers between frames.
+#[derive(Default)]
+pub(crate) struct TouchState {
+    tap: TapTracker,
+    /// The touch in progress began on a panel: leave it to the panel.
+    on_ui: bool,
+}
+
+/// Turns, zooms and selects by touch ([`crate::gesture`]).
+pub(crate) fn touch_camera(
+    mut orbit: ResMut<OrbitCamera>,
+    captured: Res<PointerCaptured>,
+    touches: Res<Touches>,
+    camera: Single<(&Camera, &GlobalTransform), With<Camera3d>>,
+    placements: Res<BodyPlacements>,
+    mut selection: ResMut<Selection>,
+    mut state: Local<TouchState>,
+) {
+    let down: Vec<Finger> = touches
+        .iter()
+        .map(|touch| Finger {
+            id: touch.id(),
+            previous: touch.previous_position(),
+            position: touch.position(),
+        })
+        .collect();
+    let lifted: Vec<(u64, Vec2)> = touches
+        .iter_just_released()
+        .map(|touch| (touch.id(), touch.position()))
+        .collect();
+    if down.is_empty() && lifted.is_empty() {
+        state.on_ui = false;
+        return;
+    }
+    if touches.any_just_pressed() && down.len() == 1 && captured.0 {
+        state.on_ui = true;
+    }
+    if state.on_ui {
+        state.tap.cancel();
+        return;
+    }
+    match gesture::gesture(&down) {
+        Gesture::Turn(delta) => {
+            orbit.swing = None;
+            orbit.yaw -= delta.x * TURN_PER_PIXEL;
+            orbit.pitch = (orbit.pitch + delta.y * TURN_PER_PIXEL).clamp(-1.55, 1.55);
+        }
+        Gesture::Pinch { zoom } => {
+            orbit.goal_distance = (orbit.goal_distance * zoom).clamp(MIN_DISTANCE, MAX_DISTANCE);
+        }
+        Gesture::None => {}
+    }
+    if let Some(at) = state.tap.update(&down, &lifted) {
+        let picked = pick_at(at, *camera, &placements);
+        if selection.0 != picked {
+            selection.0 = picked;
+        }
     }
 }
 
@@ -250,10 +315,19 @@ pub(crate) fn pick(
     let Some(cursor) = window.cursor_position() else {
         return;
     };
-    let (camera, camera_transform) = *camera;
-    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor) else {
-        return;
-    };
+    let picked = pick_at(cursor, *camera, &placements);
+    if selection.0 != picked {
+        selection.0 = picked;
+    }
+}
+
+/// The body under a point of the window, if any.
+fn pick_at(
+    point: Vec2,
+    (camera, camera_transform): (&Camera, &GlobalTransform),
+    placements: &BodyPlacements,
+) -> Option<Target> {
+    let ray = camera.viewport_to_world(camera_transform, point).ok()?;
     let direction: Vec3 = ray.direction.into();
 
     let mut best: Option<(f32, Target)> = None;
@@ -267,10 +341,7 @@ pub(crate) fn pick(
             }
         }
     }
-    let picked = best.map(|(_, target)| target);
-    if selection.0 != picked {
-        selection.0 = picked;
-    }
+    best.map(|(_, target)| target)
 }
 
 #[cfg(test)]

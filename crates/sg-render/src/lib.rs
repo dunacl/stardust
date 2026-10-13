@@ -21,6 +21,7 @@ pub mod belt;
 pub mod camera;
 pub mod disk;
 pub mod display;
+pub mod gesture;
 pub mod layout;
 pub mod palette;
 pub mod planet;

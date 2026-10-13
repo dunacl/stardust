@@ -829,6 +829,7 @@ impl Plugin for StardustRenderPlugin {
                 Update,
                 (
                     camera::control_camera,
+                    camera::touch_camera,
                     camera::rebase_camera,
                     advance,
                     sync_scene,
