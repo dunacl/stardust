@@ -1,9 +1,9 @@
-//! WebAssembly entry points.
+//! Windowless WebAssembly entry point for the determinism check.
 //!
-//! M1 exposes one raw C-ABI function, used by `scripts/check-determinism.sh`
-//! to prove that the WASM build produces the same bits as the native one.
-//! The `wasm-bindgen` API for JS/TS consumers arrives with the web build
-//! (M2).
+//! One raw C-ABI function, used by `scripts/check-determinism.sh` to prove
+//! that a wasm32 build produces the same bits as the native one. It runs in
+//! Node with no GPU or canvas, which the web app (`sg-app` compiled to
+//! WebAssembly, PLAN.md D29) cannot.
 
 use sg_schema::{Multiplicity, SimulationParams, SystemSpec};
 

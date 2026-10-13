@@ -29,6 +29,10 @@ step "simulation crates build for wasm32-unknown-unknown"
 # shellcheck disable=SC2086
 cargo build -q --target wasm32-unknown-unknown $(printf -- '-p %s ' $SIM_CRATES) -p sg-wasm
 
+step "the app compiles for the web, WebGL2 and WebGPU"
+cargo check -q -p sg-app --target wasm32-unknown-unknown
+cargo check -q -p sg-app --target wasm32-unknown-unknown --features webgpu
+
 step "dependency rules"
 scripts/check-deps.sh
 

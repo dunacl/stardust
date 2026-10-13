@@ -16,6 +16,7 @@ SCALE  ?= enlarged
 MASS   ?= 1
 COUNT  ?= 1000
 SHOTS  ?= target/shots
+PORT   ?= 8080
 
 SIM_CRATES := sg-core sg-stellar sg-disk sg-formation sg-dynamics sg-planet sg-classic sg-schema sg-sim
 APP        := $(CARGO) run -q -p sg-app --
@@ -28,8 +29,8 @@ help: ## List the targets
 	@/usr/bin/awk 'BEGIN { FS = ":.*## " } \
 		/^##@/ { printf "\n%s\n", substr($$0, 5); next } \
 		/^[a-z0-9-]+:.*## / { printf "  %-16s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
-	@printf '\nVariables: SEED=%s PRESET=%s SCALE=%s MASS=%s COUNT=%s\n' \
-		'$(SEED)' '$(PRESET)' '$(SCALE)' '$(MASS)' '$(COUNT)'
+	@printf '\nVariables: SEED=%s PRESET=%s SCALE=%s MASS=%s COUNT=%s PORT=%s\n' \
+		'$(SEED)' '$(PRESET)' '$(SCALE)' '$(MASS)' '$(COUNT)' '$(PORT)'
 	@printf '  PRESET: sun-like | red-dwarf | random    SCALE: true | enlarged | schematic\n'
 
 ##@ Everything
@@ -62,6 +63,23 @@ sim-json: ## Print one system as JSON: snapshot, timeline, diagnostics
 .PHONY: batch
 batch: ## Simulate COUNT systems into target/batch.jsonl
 	$(CARGO) run -q --release -p sg-cli -- batch --count $(COUNT) --mass $(MASS) --out target/batch.jsonl
+
+##@ Web build (target/web)
+
+.PHONY: web
+web: ## Build the web app, WebGPU and WebGL2 (several minutes)
+	scripts/build-web.sh
+
+.PHONY: serve
+serve: ## Serve target/web at http://localhost:8080, or PORT (run `make web` first)
+	@test -f target/web/index.html || { echo "run 'make web' first"; exit 1; }
+	@printf 'Stardust at http://localhost:%s  (add ?renderer=webgl2 to force the fallback)\n' '$(PORT)'
+	/usr/bin/python3 -m http.server $(PORT) --bind 127.0.0.1 --directory target/web
+
+.PHONY: web-shot
+web-shot: ## Screenshot the served web app in headless Firefox (needs `make serve` running)
+	@mkdir -p $(SHOTS)
+	node scripts/web-shot.mjs 'http://127.0.0.1:$(PORT)/?seed=$(SEED)&preset=$(PRESET)&scale=$(SCALE)&time=1' $(SHOTS)/web.png
 
 ##@ Visual checks (PNG files in target/shots)
 
@@ -113,8 +131,10 @@ lint: ## Clippy with warnings as errors, with and without Classic
 	$(CARGO) clippy -p sg-sim --no-default-features --all-targets -- -D warnings
 
 .PHONY: wasm
-wasm: ## Simulation crates build for wasm32-unknown-unknown
+wasm: ## Simulation crates and the app compile for wasm32-unknown-unknown
 	$(CARGO) build -q --target wasm32-unknown-unknown $(addprefix -p ,$(SIM_CRATES)) -p sg-wasm
+	$(CARGO) check -q --target wasm32-unknown-unknown -p sg-app
+	$(CARGO) check -q --target wasm32-unknown-unknown -p sg-app --features webgpu
 
 .PHONY: deps
 deps: ## Dependency rules: no Bevy in sim crates, Classic separable

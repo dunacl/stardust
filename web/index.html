@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stardust</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #010103; overflow: hidden; }
+  body { font: 15px/1.5 system-ui, sans-serif; color: #cdd6e6; }
+  #stage { position: fixed; inset: 0; }
+  #stardust-canvas { display: block; width: 100%; height: 100%; outline: none; }
+  #status {
+    position: fixed; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 6px;
+    text-align: center; padding: 24px; pointer-events: none;
+  }
+  #status strong { font-size: 22px; font-weight: 600; letter-spacing: 0.04em; }
+  #status.error { pointer-events: auto; }
+  #status.error #message { color: #f0a090; max-width: 40em; }
+  #status.hidden:not(.error) { display: none; }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="stardust-canvas"></canvas></div>
+<div id="status">
+  <strong>Stardust</strong>
+  <span id="message">Loading…</span>
+</div>
+<script type="module">
+  // Two builds are published side by side, because the engine cannot hold
+  // both renderers in one binary: WebGPU where the browser offers a working
+  // adapter, WebGL2 otherwise. `?renderer=webgl2` or `?renderer=webgpu`
+  // forces one.
+  const status = document.getElementById("status");
+  const message = document.getElementById("message");
+
+  function fail(text) {
+    status.classList.remove("hidden");
+    status.classList.add("error");
+    message.textContent = text;
+  }
+
+  async function hasWebGpu() {
+    if (!navigator.gpu) return false;
+    try {
+      return (await navigator.gpu.requestAdapter()) !== null;
+    } catch {
+      return false;
+    }
+  }
+
+  function hasWebGl2() {
+    try {
+      return document.createElement("canvas").getContext("webgl2") !== null;
+    } catch {
+      return false;
+    }
+  }
+
+  const forced = new URLSearchParams(location.search).get("renderer");
+
+  async function pickRenderer() {
+    if (forced === "webgpu" || forced === "webgl2") return forced;
+    if (await hasWebGpu()) return "webgpu";
+    if (hasWebGl2()) return "webgl2";
+    return null;
+  }
+
+  const renderer = await pickRenderer();
+  if (renderer === null) {
+    fail("This browser offers neither WebGPU nor WebGL2, and Stardust needs one of them.");
+  } else {
+    document.documentElement.dataset.renderer = renderer;
+    // The engine starts asynchronously, so a renderer that fails does so
+    // after `init` has returned, as an uncaught error. If WebGPU was our own
+    // choice, fall back to WebGL2 once; otherwise say what happened.
+    window.addEventListener("error", (event) => {
+      if (String(event.message).includes("Using exceptions for control flow")) return;
+      if (renderer === "webgpu" && forced === null && hasWebGl2()) {
+        const url = new URL(location.href);
+        url.searchParams.set("renderer", "webgl2");
+        location.replace(url);
+        return;
+      }
+      const hint = renderer === "webgpu" ? " Try adding ?renderer=webgl2 to the address." : "";
+      fail(`Stardust stopped with an error.${hint}`);
+    });
+    message.textContent = `Loading (${renderer === "webgpu" ? "WebGPU" : "WebGL2"})…`;
+    try {
+      const { default: init } = await import(`./${renderer}/stardust.js`);
+      await init();
+    } catch (error) {
+      // The engine leaves its start-up call by throwing once its main loop
+      // is scheduled; that one is not a failure.
+      if (!String(error).includes("Using exceptions for control flow")) {
+        console.error(error);
+        fail(`Stardust could not start: ${error}`);
+        throw error;
+      }
+    }
+    if (!status.classList.contains("error")) {
+      status.classList.add("hidden");
+      document.getElementById("stardust-canvas").focus();
+    }
+  }
+</script>
+</body>
+</html>

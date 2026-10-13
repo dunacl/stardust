@@ -13,8 +13,19 @@ sg-render.workspace = true
 sg-core.workspace = true
 bevy.workspace = true
 bevy_egui.workspace = true
-anyhow.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 clap.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# Already in the tree through Bevy; used to read the page's query string.
+web-sys = { version = "0.3", features = ["Window", "Location"] }
+
+[features]
+# Build the web app for WebGPU instead of WebGL2. Bevy cannot do both in
+# one binary, so the web build makes two and the page picks one
+# (scripts/build-web.sh).
+webgpu = ["bevy/webgpu"]
 
 [lints]
 workspace = true

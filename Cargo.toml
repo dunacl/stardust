@@ -56,3 +56,12 @@ opt-level = 2
 
 [profile.release]
 opt-level = 3
+
+# The web app: optimised for download size.
+[profile.web]
+inherits = "release"
+opt-level = "s"
+lto = true
+codegen-units = 1
+# Function names alone are more than half of an unstripped build.
+strip = true

@@ -1,7 +1,9 @@
 //! Stardust application (PLAN.md §9).
 //!
-//! M2: pick a preset or adjust parameters, press Simulate, watch the system
-//! form, then explore it and click bodies for their data cards.
+//! Pick a preset or adjust parameters, press Simulate, watch the system
+//! form, then explore it and click bodies for their data cards. The same
+//! code runs on the desktop and, compiled to WebAssembly, in a browser
+//! (`scripts/build-web.sh`).
 //!
 //! ```sh
 //! cargo run -p sg-app
@@ -10,146 +12,47 @@
 //! ```
 
 mod cards;
+#[cfg(not(target_arch = "wasm32"))]
+mod desktop;
+mod launch;
 mod state;
 mod ui;
 
 use bevy::prelude::*;
-use bevy::render::view::screenshot::{save_to_disk, Screenshot};
-use bevy::window::{WindowLevel, WindowOccluded, WindowResolution};
+use bevy::window::{WindowLevel, WindowResolution};
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
-use clap::{Parser, ValueEnum};
-use sg_render::{ScaleMode, StardustRenderPlugin, Target};
-use sg_schema::{BodyId, PresetId};
+use launch::Launch;
+use sg_render::{StardustRenderPlugin, Target};
+use sg_schema::BodyId;
 use state::AppState;
-use std::path::PathBuf;
 
-#[derive(Parser)]
-#[command(
-    name = "sg-app",
-    version,
-    about = "Stardust planetary system simulator"
-)]
-struct Args {
-    /// Random seed (non-zero).
-    #[arg(long, default_value_t = 42)]
-    seed: u64,
-    /// Starting preset.
-    #[arg(long, value_enum, default_value_t = PresetArg::SunLike)]
-    preset: PresetArg,
-    /// Scale mode to start in.
-    #[arg(long, value_enum, default_value_t = ScaleArg::Enlarged)]
-    scale: ScaleArg,
-    /// Start at this fraction of the formation timeline (0 = empty disk,
-    /// 1 = finished system) instead of playing it.
-    #[arg(long)]
-    time: Option<f64>,
-    /// Select the Nth planet outward (1-based), or 0 for the star.
-    #[arg(long)]
-    select: Option<usize>,
-    /// Render a few frames, save a screenshot here, and exit. For checking
-    /// the visuals without a person at the keyboard.
-    #[arg(long)]
-    screenshot: Option<PathBuf>,
-    /// Hide the UI panels (useful with --screenshot).
-    #[arg(long)]
-    no_ui: bool,
+/// The `<canvas>` the web build draws into (`web/index.html`).
+const WEB_CANVAS: &str = "#stardust-canvas";
+
+#[cfg(not(target_arch = "wasm32"))]
+fn launch_options() -> Launch {
+    desktop::launch()
 }
 
-#[derive(Clone, Copy, ValueEnum)]
-enum PresetArg {
-    SunLike,
-    RedDwarf,
-    Random,
+#[cfg(target_arch = "wasm32")]
+fn launch_options() -> Launch {
+    let query = web_sys::window()
+        .and_then(|window| window.location().search().ok())
+        .unwrap_or_default();
+    Launch::from_query(&query)
 }
 
-#[derive(Clone, Copy, ValueEnum)]
-enum ScaleArg {
-    True,
-    Enlarged,
-    Schematic,
-}
+fn main() {
+    let launch = launch_options();
 
-/// Screenshot mode. The capture waits for the window to have been visible
-/// for both a number of frames and an amount of time: shaders compile in the
-/// background, and a window hidden behind others is not drawn at all, so a
-/// frame count alone can pass with nothing on screen.
-#[derive(Resource, Default)]
-struct Capture {
-    path: PathBuf,
-    occluded: bool,
-    /// Frames drawn, and the time, since the window was last uncovered.
-    visible_frames: u32,
-    visible_since_secs: f32,
-    /// Seconds since startup at which the screenshot was requested.
-    captured_at_secs: Option<f32>,
-}
-
-const CAPTURE_AFTER_FRAMES: u32 = 90;
-const CAPTURE_AFTER_SECS: f32 = 2.5;
-/// Time allowed for the screenshot to be written before exiting.
-const EXIT_AFTER_CAPTURE_SECS: f32 = 1.0;
-/// Give up if the window stays hidden this long.
-const CAPTURE_TIMEOUT_SECS: f32 = 30.0;
-
-fn capture(
-    mut commands: Commands,
-    mut capture: ResMut<Capture>,
-    mut occlusion: MessageReader<WindowOccluded>,
-    time: Res<Time<Real>>,
-    mut exit: MessageWriter<AppExit>,
-) {
-    let now = time.elapsed_secs();
-    for change in occlusion.read() {
-        capture.occluded = change.occluded;
-        capture.visible_frames = 0;
-        capture.visible_since_secs = now;
-    }
-    if let Some(at) = capture.captured_at_secs {
-        if now >= at + EXIT_AFTER_CAPTURE_SECS {
-            exit.write(AppExit::Success);
-        }
-        return;
-    }
-    if capture.occluded {
-        if now >= CAPTURE_TIMEOUT_SECS {
-            error!("no screenshot: the window stayed hidden behind other windows");
-            exit.write(AppExit::error());
-        }
-        return;
-    }
-    capture.visible_frames += 1;
-    if capture.visible_frames >= CAPTURE_AFTER_FRAMES
-        && now >= capture.visible_since_secs + CAPTURE_AFTER_SECS
-    {
-        commands
-            .spawn(Screenshot::primary_window())
-            .observe(save_to_disk(capture.path.clone()));
-        capture.captured_at_secs = Some(now);
-    }
-}
-
-fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
-
-    let preset = match args.preset {
-        PresetArg::SunLike => PresetId::SunLike,
-        PresetArg::RedDwarf => PresetId::RedDwarf,
-        PresetArg::Random => PresetId::Random,
-    };
-    let scale = match args.scale {
-        ScaleArg::True => ScaleMode::True,
-        ScaleArg::Enlarged => ScaleMode::Exaggerated,
-        ScaleArg::Schematic => ScaleMode::Schematic,
-    };
-
-    let mut state = AppState::new(preset, args.seed);
-    state.show_ui = !args.no_ui;
+    let mut state = AppState::new(launch.preset, launch.seed);
+    state.show_ui = launch.show_ui;
     state.start = state::StartOptions {
-        scale,
-        time_fraction: args.time,
+        scale: launch.scale,
+        time_fraction: launch.time,
         // Resolved to a body once the first system exists.
-        select: args.select,
-        frozen: args.screenshot.is_some(),
+        select: launch.select,
+        frozen: launch.screenshot.is_some(),
     };
 
     let mut app = App::new();
@@ -159,11 +62,14 @@ fn main() -> anyhow::Result<()> {
             resolution: WindowResolution::new(1440, 900),
             // A screenshot needs the window drawn, and a covered window is
             // not: keep it in front for the few seconds it exists.
-            window_level: if args.screenshot.is_some() {
+            window_level: if launch.screenshot.is_some() {
                 WindowLevel::AlwaysOnTop
             } else {
                 WindowLevel::Normal
             },
+            // Web only; ignored elsewhere.
+            canvas: Some(WEB_CANVAS.into()),
+            fit_canvas_to_parent: true,
             ..default()
         }),
         ..default()
@@ -174,13 +80,12 @@ fn main() -> anyhow::Result<()> {
     .add_systems(Startup, state::simulate_on_startup)
     .add_systems(EguiPrimaryContextPass, ui::draw);
 
-    if let Some(path) = args.screenshot {
-        app.insert_resource(Capture { path, ..default() })
-            .add_systems(Update, capture);
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(path) = launch.screenshot {
+        desktop::add_capture(&mut app, path);
     }
 
     app.run();
-    Ok(())
 }
 
 /// Resolves `--select N` against a finished system.
