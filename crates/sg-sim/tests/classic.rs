@@ -48,9 +48,9 @@ fn snapshot_hashes_are_pinned() {
 }
 
 const PINNED: [(u64, f64, &str); 3] = [
-    (1, 1.0, "b4bc2dc1bd23b903"),
-    (42, 1.0, "ac5518cf4fdbe3d2"),
-    (7, 0.3, "2652fd3714575fcc"),
+    (1, 1.0, "d31632bc46941d4b"),
+    (42, 1.0, "8e6c47f2805d6d4c"),
+    (7, 0.3, "9a1f9ced29fe06e3"),
 ];
 
 #[test]

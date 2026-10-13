@@ -319,6 +319,12 @@ pub struct DiskSummary {
     pub dust_to_gas: f64,
     /// Where the water ice line was when the gas cleared.
     pub final_ice_line_au: f64,
+    /// Radius `R₁` of the self-similar gas profile: most of the mass lies
+    /// within it at the start.
+    pub characteristic_radius_au: f64,
+    /// Viscous time at `R₁`: how fast the gas drains onto the star and
+    /// spreads outward.
+    pub viscous_time_myr: f64,
 }
 
 /// The range of orbits open to planets of one host: inside the limit a

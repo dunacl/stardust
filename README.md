@@ -44,11 +44,13 @@ make run PRESET=circumbinary SCALE=schematic  # planets around two suns
 make run TIER=classic                       # the StarGen model
 make sim SEED=7                             # one system as text
 make validate                               # 3000 systems vs exoplanet surveys
+make shots OFFSCREEN=1                      # reference pictures into target/shots
+make bench                                  # frame rate
 make ci                                     # every automated check
 ```
 
 In the app: drag to rotate, scroll to zoom, click a star or planet for its
-data card. The panel on the left chooses the model, the preset and its
+data card and a close look at it. The panel on the left chooses the model, the preset and its
 parameters; the bar at the bottom plays the formation back.
 
 ### In a browser
@@ -96,8 +98,11 @@ docs/              progress, decision records, the Classic model's constants
 - **Measured.** The modern model is compared with real exoplanet statistics,
   and the report keeps its failures in.
 - **Honest about what is drawn.** The renderer draws what the simulation
-  produced. Where it shows something the model does not give (the sky, the
-  rocks of a belt), the code and the interface say so.
+  produced: a planet's oceans, ice and cloud cover the fractions the model
+  gives, a giant's colours follow its temperature, the disk thins and
+  clears as the model says. Where it shows something the model does not
+  give (the sky, the rocks of a belt, the shape of a coastline), the code
+  and the interface say so.
 
 ## Licence
 

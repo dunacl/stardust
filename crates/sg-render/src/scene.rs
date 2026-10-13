@@ -114,6 +114,8 @@ pub struct ViewSettings {
     pub show_backdrop: bool,
     /// Names beside the star and planets. Drawn by the app.
     pub show_labels: bool,
+    /// The disk of gas and dust during formation playback.
+    pub show_disk: bool,
 }
 
 impl Default for ViewSettings {
@@ -126,6 +128,7 @@ impl Default for ViewSettings {
             show_stability_limits: true,
             show_backdrop: true,
             show_labels: true,
+            show_disk: true,
         }
     }
 }
@@ -820,6 +823,7 @@ impl Plugin for StardustRenderPlugin {
             .init_resource::<sky::SkyState>();
         planet::build(app);
         crate::star::build(app);
+        crate::disk::build(app);
         app.add_systems(Startup, (setup, camera::spawn_camera))
             .add_systems(
                 Update,
@@ -829,6 +833,7 @@ impl Plugin for StardustRenderPlugin {
                     advance,
                     sync_scene,
                     belt::sync_belts,
+                    crate::disk::sync_disks,
                     camera::apply_camera,
                     sky::sync_sky,
                     camera::pick,

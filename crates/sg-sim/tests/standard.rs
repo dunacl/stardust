@@ -272,8 +272,8 @@ fn standard_hashes_are_pinned() {
 }
 
 const PINNED: [&str; 4] = [
-    "5df6cd7090370595",
-    "d34b9aca9b15a0d2",
-    "920434d30b47d589",
-    "9fa0be68175e7797",
+    "8528458469cc1c5c",
+    "fc91e7c8a53e158c",
+    "01c73fdcb119b5fe",
+    "eaf31bf404d6494e",
 ];

@@ -5311,6 +5311,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "sg-core",
+ "sg-disk",
  "sg-dynamics",
  "sg-schema",
  "sg-sim",

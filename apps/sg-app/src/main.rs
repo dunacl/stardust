@@ -68,6 +68,12 @@ fn main() {
                 WindowLevel::Normal
             },
             // Web only; ignored elsewhere.
+            // Measuring the frame rate: do not wait for the display.
+            present_mode: if launch.bench.is_some() {
+                bevy::window::PresentMode::AutoNoVsync
+            } else {
+                bevy::window::PresentMode::AutoVsync
+            },
             canvas: Some(WEB_CANVAS.into()),
             fit_canvas_to_parent: true,
             ..default()
@@ -81,8 +87,13 @@ fn main() {
     .add_systems(EguiPrimaryContextPass, ui::draw);
 
     #[cfg(not(target_arch = "wasm32"))]
-    if let Some(path) = launch.screenshot {
-        desktop::add_capture(&mut app, path, launch.offscreen);
+    if launch.screenshot.is_some() || launch.bench.is_some() {
+        desktop::add_capture(
+            &mut app,
+            launch.screenshot.unwrap_or_default(),
+            launch.offscreen,
+            launch.bench,
+        );
     }
 
     app.run();

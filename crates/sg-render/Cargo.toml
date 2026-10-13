@@ -10,6 +10,7 @@ publish.workspace = true
 sg-core.workspace = true
 sg-schema.workspace = true
 sg-dynamics.workspace = true
+sg-disk.workspace = true
 sg-stellar.workspace = true
 sg-sim.workspace = true
 bevy.workspace = true

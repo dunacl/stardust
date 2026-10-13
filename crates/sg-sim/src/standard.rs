@@ -488,6 +488,8 @@ pub(crate) fn simulate(
             initial_mass_msun: spec.initial_mass_msun,
             dust_to_gas: spec.dust_to_gas,
             final_ice_line_au: result.disk.water_ice_line(spec.dispersal_time_yr),
+            characteristic_radius_au: spec.characteristic_radius_au,
+            viscous_time_myr: result.disk.viscous_time_yr() / 1.0e6,
         });
         let hz = match stars::habitable_zone(plan) {
             Ok(hz) => Some(hz),

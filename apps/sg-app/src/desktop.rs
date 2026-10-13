@@ -49,6 +49,10 @@ struct Args {
     /// the screen locked. The panels are left out; the name labels are drawn.
     #[arg(long)]
     offscreen: bool,
+    /// Measure the frame rate for this many seconds and exit: the scene is
+    /// drawn off screen at 2560×1440 with no frame-rate cap, orbits running.
+    #[arg(long)]
+    bench: Option<f32>,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -94,10 +98,20 @@ struct Capture {
     offscreen: bool,
     /// That image, once the camera has been pointed at it.
     target: Option<Handle<Image>>,
+    /// Measure the frame rate for this long instead of saving an image.
+    bench_secs: Option<f32>,
+    /// Frames drawn and the time when the measurement began.
+    bench_from: Option<(u32, f32)>,
+    frames: u32,
 }
 
 /// Size of an off-screen screenshot, pixels.
 const OFFSCREEN_SIZE: (u32, u32) = (1440, 900);
+/// Size of the image the frame rate is measured at: the desktop budget of
+/// PLAN.md §8.6 is set at 1440p.
+const BENCH_SIZE: (u32, u32) = (2560, 1440);
+/// Seconds before the measurement starts: shaders compile in the first few.
+const BENCH_WARM_UP_SECS: f32 = 4.0;
 
 /// Points the scene camera at an image, once it exists.
 fn redirect_camera(
@@ -112,9 +126,14 @@ fn redirect_camera(
     let Ok(camera) = camera.single() else {
         return;
     };
+    let size = if capture.bench_secs.is_some() {
+        BENCH_SIZE
+    } else {
+        OFFSCREEN_SIZE
+    };
     let image = images.add(Image::new_target_texture(
-        OFFSCREEN_SIZE.0,
-        OFFSCREEN_SIZE.1,
+        size.0,
+        size.1,
         TextureFormat::Rgba8UnormSrgb,
         None,
     ));
@@ -151,6 +170,26 @@ fn capture(
         return;
     }
     if capture.offscreen && capture.target.is_none() {
+        return;
+    }
+    if let Some(secs) = capture.bench_secs {
+        capture.frames += 1;
+        match capture.bench_from {
+            None if now >= BENCH_WARM_UP_SECS => capture.bench_from = Some((capture.frames, now)),
+            Some((first, since)) if now >= since + secs => {
+                let frames = capture.frames - first;
+                let elapsed = now - since;
+                println!(
+                    "bench: {frames} frames in {elapsed:.1} s at {}x{}: {:.2} ms per frame, {:.0} fps",
+                    BENCH_SIZE.0,
+                    BENCH_SIZE.1,
+                    1000.0 * elapsed / frames as f32,
+                    frames as f32 / elapsed
+                );
+                exit.write(AppExit::Success);
+            }
+            _ => {}
+        }
         return;
     }
     if capture.occluded && !capture.offscreen {
@@ -203,16 +242,18 @@ pub fn launch() -> Launch {
         time: args.time,
         select: args.select,
         screenshot: args.screenshot,
-        offscreen: args.offscreen,
-        show_ui: !args.no_ui && !args.offscreen,
+        offscreen: args.offscreen || args.bench.is_some(),
+        bench: args.bench,
+        show_ui: !args.no_ui && !args.offscreen && args.bench.is_none(),
     }
 }
 
 /// Adds screenshot mode to the app.
-pub fn add_capture(app: &mut App, path: PathBuf, offscreen: bool) {
+pub fn add_capture(app: &mut App, path: PathBuf, offscreen: bool, bench_secs: Option<f32>) {
     app.insert_resource(Capture {
         path,
         offscreen,
+        bench_secs,
         ..default()
     })
     .add_systems(Update, (redirect_camera, capture).chain());

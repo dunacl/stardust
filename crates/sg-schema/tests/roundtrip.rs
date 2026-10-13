@@ -143,6 +143,8 @@ fn sample_snapshot() -> SystemSnapshot {
             initial_mass_msun: 0.05,
             dust_to_gas: 0.0149,
             final_ice_line_au: 1.1,
+            characteristic_radius_au: 35.0,
+            viscous_time_myr: 0.4,
         }],
         habitable_zones: vec![HabitableZone {
             host: HostRef::Star(StarId(0)),

@@ -153,11 +153,16 @@ pub(crate) fn apply_camera(
     mut camera: Single<&mut Transform, With<Camera3d>>,
     mut followed: Local<Option<Target>>,
 ) {
+    // How far the focus still is from where it is heading. Easing this
+    // offset, rather than the focus itself, keeps a moving body centred:
+    // easing toward a moving goal would trail behind it.
+    let mut lag = orbit.focus - orbit.goal_focus;
     // Follow whatever is selected, and move in on a new selection.
     if let Some(target) = selection.0 {
         if let Some(placement) = placements.get(target) {
             orbit.goal_focus = placement.position;
             if *followed != Some(target) {
+                lag = orbit.focus - placement.position;
                 orbit.goal_distance =
                     (placement.focus_radius * 9.0).clamp(MIN_DISTANCE, MAX_DISTANCE);
                 *followed = Some(target);
@@ -185,8 +190,7 @@ pub(crate) fn apply_camera(
             orbit.swing = None;
         }
     }
-    let goal_focus = orbit.goal_focus;
-    orbit.focus = orbit.focus.lerp(goal_focus, ease);
+    orbit.focus = orbit.goal_focus + lag * (1.0 - ease);
     // Ease distance in log space so zooming feels even at every scale.
     let log = orbit.distance.ln() + (orbit.goal_distance.ln() - orbit.distance.ln()) * ease;
     orbit.distance = log.exp();

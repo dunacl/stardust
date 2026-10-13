@@ -119,6 +119,23 @@ pub fn viscous_temperature(
         * pow(r_au, -0.9)
 }
 
+/// Shape of the self-similar gas profile: surface density at `r/R₁` and
+/// dimensionless time `T = 1 + t/t_s`, relative to `M₀/(2π R₁²)`
+/// (Hartmann et al. 1998, eq. 20 for γ = 1): `(r/R₁)⁻¹ · T^(-3/2) ·
+/// exp(−(r/R₁)/T)`. For anything that needs the profile without the whole
+/// [`Disk`], such as drawing it; valid wherever the solution is, `r > 0`
+/// and `T ≥ 1`.
+pub fn relative_surface_density(r_over_r1: f64, big_t: f64) -> f64 {
+    pow(big_t, -1.5) * exp(-r_over_r1 / big_t) / r_over_r1
+}
+
+/// Fraction of the gas still present at `t_yr` in a disk whose dispersal
+/// starts at `dispersal_time_yr`: 1 until then, falling linearly to 0 over
+/// the clearing interval (PLAN.md D36: dispersal is imposed, not modelled).
+pub fn gas_fraction(t_yr: f64, dispersal_time_yr: f64) -> f64 {
+    (1.0 - (t_yr - dispersal_time_yr) / (CLEARING_FRACTION * dispersal_time_yr)).clamp(0.0, 1.0)
+}
+
 impl Disk {
     pub fn new(spec: DiskSpec) -> Result<Self, DiskError> {
         let positive = [
@@ -325,6 +342,31 @@ mod tests {
 
     fn disk() -> Disk {
         Disk::new(spec()).unwrap()
+    }
+
+    /// The stand-alone profile and clearing functions are the disk's own.
+    #[test]
+    fn free_functions_agree_with_the_disk() {
+        let disk = disk();
+        let spec = disk.spec();
+        let r1 = spec.characteristic_radius_au;
+        let scale = spec.initial_mass_msun / (2.0 * core::f64::consts::PI * r1 * r1);
+        for t in [0.0, 5.0e5, 2.9e6, 3.1e6, 3.2e6] {
+            let big_t = 1.0 + t / disk.viscous_time_yr();
+            assert_eq!(
+                gas_fraction(t, spec.dispersal_time_yr),
+                disk.gas_fraction(t)
+            );
+            for r in [0.1, 1.0, 40.0, 300.0] {
+                let free = scale
+                    * relative_surface_density(r / r1, big_t)
+                    * gas_fraction(t, spec.dispersal_time_yr);
+                let own = disk.gas_surface_density(r, t);
+                assert!((free - own).abs() <= 1e-12 * own.abs(), "{r} {t}");
+            }
+        }
+        // At R₁ and t = 0 the relative density is 1/e.
+        assert!((relative_surface_density(1.0, 1.0) - (-1.0_f64).exp()).abs() < 1e-15);
     }
 
     /// With G = 4π², a body at 1 AU from a solar-mass star takes one year.

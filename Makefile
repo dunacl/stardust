@@ -21,6 +21,8 @@ PORT   ?= 8080
 
 SIM_CRATES := sg-core sg-stellar sg-disk sg-formation sg-dynamics sg-planet sg-classic sg-schema sg-sim
 APP        := $(CARGO) run -q -p sg-app --
+# OFFSCREEN=1 draws screenshots into an image: no window needs to be visible.
+APP        += $(if $(OFFSCREEN),--offscreen,)
 APP_ARGS   := --seed $(SEED) --preset $(PRESET) --tier $(TIER) --scale $(SCALE)
 
 .DEFAULT_GOAL := help
@@ -92,6 +94,10 @@ shot: ## One screenshot of the current SEED/PRESET/SCALE
 	@mkdir -p $(SHOTS)
 	$(APP) $(APP_ARGS) --screenshot $(SHOTS)/shot.png
 
+.PHONY: bench
+bench: ## Frame rate of the current SEED/PRESET/SCALE at 2560x1440, drawn off screen
+	$(CARGO) run -q --release -p sg-app -- $(APP_ARGS) --bench 6
+
 .PHONY: shots
 shots: ## The reference set: scales, formation, close-ups, red dwarf, binaries, triple, belt
 	@mkdir -p $(SHOTS)
@@ -110,6 +116,12 @@ shots: ## The reference set: scales, formation, close-ups, red dwarf, binaries, 
 	$(APP) --seed $(SEED) --preset s-type-binary --select 0 --screenshot $(SHOTS)/binary-star-card.png
 	$(APP) --seed 736 --tier classic --select 3 --screenshot $(SHOTS)/asteroid-belt.png
 	$(APP) --seed 2 --preset hot-jupiter --select 1 --screenshot $(SHOTS)/hot-jupiter.png
+	$(APP) --seed 42 --tier classic --select 7 --screenshot $(SHOTS)/terrestrial.png
+	$(APP) --seed 42 --tier classic --select 11 --screenshot $(SHOTS)/jovian.png
+	$(APP) --seed 42 --tier classic --select 12 --screenshot $(SHOTS)/martian.png
+	$(APP) --seed 42 --tier classic --scale true --select 16 --screenshot $(SHOTS)/far-planet-true-scale.png
+	$(APP) --seed 2 --preset hot-jupiter --scale schematic --time 0.25 --screenshot $(SHOTS)/disk-standard.png
+	$(APP) --seed 42 --tier classic --scale schematic --time 0.4 --screenshot $(SHOTS)/disk-classic.png
 	@printf 'screenshots written to %s\n' '$(SHOTS)'
 
 ##@ Individual checks

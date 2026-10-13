@@ -23,6 +23,8 @@ pub struct Launch {
     pub screenshot: Option<PathBuf>,
     /// Desktop only: draw that screenshot off screen.
     pub offscreen: bool,
+    /// Desktop only: measure the frame rate for this many seconds and exit.
+    pub bench: Option<f32>,
     pub show_ui: bool,
 }
 
@@ -37,6 +39,7 @@ impl Default for Launch {
             select: None,
             screenshot: None,
             offscreen: false,
+            bench: None,
             show_ui: true,
         }
     }
@@ -116,6 +119,7 @@ mod tests {
                 select: Some(3),
                 screenshot: None,
                 offscreen: false,
+                bench: None,
                 show_ui: false,
             }
         );

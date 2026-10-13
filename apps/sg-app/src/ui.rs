@@ -330,6 +330,11 @@ fn view_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
     });
     ui.horizontal(|ui| {
         ui.checkbox(&mut targets.settings.show_labels, "Names");
+        ui.checkbox(&mut targets.settings.show_disk, "Disk, while forming")
+            .on_hover_text(
+                "The gas and dust the planets grow in. How dense it is, where giants have \
+                 opened gaps and when it clears come from the model; the streaks do not.",
+            );
         ui.checkbox(&mut targets.settings.show_backdrop, "Sky backdrop")
             .on_hover_text("Scenery: the stars and galaxies behind the system are not simulated.");
     });
