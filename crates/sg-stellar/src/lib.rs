@@ -6,6 +6,8 @@
 //! the scaling relations here are replaced by the Tout et al. (1996) /
 //! Hurley et al. (2000) fits.
 
+pub mod evolution;
+
 use sg_core::constants::SOLAR_TEFF_K;
 use sg_core::math::{pow, sqrt};
 use sg_core::units::{Au, Kelvin, SolarLuminosity, SolarMass, SolarRadius};
