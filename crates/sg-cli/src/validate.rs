@@ -447,6 +447,21 @@ pub fn report(
         n,
         &mut out,
     );
+    // Where the giants are: Kepler's third law for one solar mass, which
+    // the population's stars are.
+    let giants: Vec<f64> = systems
+        .iter()
+        .flat_map(|s| &s.planets)
+        .filter(|(_, _, m)| *m >= GIANT_MASS_MEARTH)
+        .map(|(p, _, _)| (*p / 365.25).powf(2.0 / 3.0))
+        .collect();
+    histogram(
+        "Distances of giant planets (≥ 0.3 M_J) from their stars (AU, for 1 M☉)",
+        &[0.01, 0.1, 0.3, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 20.0, 100.0],
+        &giants,
+        n,
+        &mut out,
+    );
     out
 }
 
