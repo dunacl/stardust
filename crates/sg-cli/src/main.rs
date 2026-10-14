@@ -442,6 +442,14 @@ fn summary(result: &SimulationResult) -> String {
         result.timeline.events.len(),
         result.timeline.keyframes.len()
     );
+    for standing in sg_sim::long_term_stability(snap) {
+        let _ = writeln!(
+            out,
+            "long term, planets of {}: {}",
+            host_name(snap, standing.host),
+            standing.describe()
+        );
+    }
     for warning in &result.diagnostics.warnings {
         let _ = writeln!(out, "warning: {warning}");
     }

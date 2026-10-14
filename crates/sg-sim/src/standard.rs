@@ -100,6 +100,62 @@ fn central_radius_au(plan: &stars::DiskPlan, system: &stars::StellarSystem) -> f
     }
 }
 
+/// Neighbouring planets' orbits are kept this many mutual Hill radii apart
+/// at their closest: `2√3`, inside which two planets on circular orbits
+/// are not Hill-stable (Gladman 1993, Icarus 106, 247).
+const CLEARANCE_HILL: f64 = 3.464;
+
+/// Reduces drawn eccentricities where they would bring neighbours of one
+/// host too close: for each pair, outward, the inner planet's apocentre
+/// and the outer one's pericentre must stay [`CLEARANCE_HILL`] mutual Hill
+/// radii apart, and if they do not, both eccentricities are scaled down
+/// by the same factor until they do. Orbits that were integrated (`keep`)
+/// are left as the integration found them.
+fn calm_eccentricities(bodies: &mut [Body], host: HostRef, star_mass_msun: f64, keep: &[BodyId]) {
+    let mut order: Vec<usize> = (0..bodies.len())
+        .filter(|k| bodies[*k].host == host && bodies[*k].kind == BodyKind::Planet)
+        .collect();
+    order.sort_by(|x, y| bodies[*x].orbit.a_au.total_cmp(&bodies[*y].orbit.a_au));
+    for pair in order.windows(2) {
+        let (inner, outer) = (&bodies[pair[0]], &bodies[pair[1]]);
+        if keep.contains(&inner.id) && keep.contains(&outer.id) {
+            continue;
+        }
+        let (a_in, a_out) = (inner.orbit.a_au, outer.orbit.a_au);
+        let hill = sg_core::math::cbrt(
+            (inner.mass_mearth + outer.mass_mearth)
+                / SOLAR_MASS_IN_EARTH_MASSES
+                / (3.0 * star_mass_msun),
+        ) * 0.5
+            * (a_in + a_out);
+        let room = (a_out - a_in - CLEARANCE_HILL * hill).max(0.0);
+        // How far the pair's eccentricities bring them toward each other.
+        let (reach_in, reach_out) = (
+            if keep.contains(&inner.id) {
+                0.0
+            } else {
+                inner.orbit.e * a_in
+            },
+            if keep.contains(&outer.id) {
+                0.0
+            } else {
+                outer.orbit.e * a_out
+            },
+        );
+        let fixed = inner.orbit.e * a_in + outer.orbit.e * a_out - reach_in - reach_out;
+        let reach = reach_in + reach_out;
+        if reach <= 0.0 || fixed + reach <= room {
+            continue;
+        }
+        let factor = ((room - fixed) / reach).clamp(0.0, 1.0);
+        for k in pair {
+            if !keep.contains(&bodies[*k].id) {
+                bodies[*k].orbit.e *= factor;
+            }
+        }
+    }
+}
+
 /// Rayleigh scale of final eccentricities: undisturbed, and after late
 /// mergers.
 const ECCENTRICITY_SCALE: (f64, f64) = (0.02, 0.06);
@@ -472,7 +528,7 @@ pub(crate) fn simulate(
                 )
             })
             .flatten();
-        let (settled, late): (Vec<Orbiter>, Vec<late::Merger>) = match &mut nbody {
+        let (settled, mut late): (Vec<Orbiter>, Vec<late::Merger>) = match &mut nbody {
             Some(stage) => {
                 // The integrated planets as they ended, the small ones as
                 // they were; the stability rule then applies to every pair
@@ -590,6 +646,57 @@ pub(crate) fn simulate(
             .collect();
         let belts = sweep_leftovers(&mut planets, &outcome.planetesimals, &plan, age_gyr * 1.0e9);
         planets.retain(|p| earths(p.embryo.mass_msun()) >= MIN_PLANET_MASS_MEARTH);
+
+        // The leftovers swept up have made some planets heavier, and so
+        // wider in their Hill radii: neighbours that passed the stability
+        // rule before may fail it now. It is applied once more.
+        let active: Vec<u32> = nbody
+            .as_ref()
+            .map_or_else(Vec::new, |stage| stage.active.clone());
+        let orbiters: Vec<Orbiter> = planets
+            .iter()
+            .map(|p| Orbiter {
+                id: p.embryo.id,
+                a_au: p.embryo.a_au,
+                mass_msun: p.embryo.mass_msun(),
+            })
+            .collect();
+        let (resettled, more) = late::settle_except(orbiters, plan.central_mass_msun, |x, y| {
+            active.contains(&x.id) && active.contains(&y.id)
+        });
+        for merger in &more {
+            let Some(index) = planets.iter().position(|p| p.embryo.id == merger.absorbed) else {
+                continue;
+            };
+            let absorbed = planets.remove(index);
+            if let Some(survivor) = planets.iter_mut().find(|p| p.embryo.id == merger.survivor) {
+                survivor.embryo.core_msun += absorbed.embryo.core_msun;
+                survivor.embryo.envelope_msun += absorbed.embryo.envelope_msun;
+                survivor.embryo.water_msun += absorbed.embryo.water_msun;
+                survivor.embryo.mergers += absorbed.embryo.mergers + 1;
+                survivor.embryo.runaway |= absorbed.embryo.runaway;
+                survivor.embryo.resonance = None;
+                survivor.late_mergers += absorbed.late_mergers + 1;
+            }
+        }
+        for orbiter in &resettled {
+            if let Some(planet) = planets.iter_mut().find(|p| p.embryo.id == orbiter.id) {
+                planet.embryo.a_au = orbiter.a_au;
+            }
+        }
+        planets.sort_by(|x, y| {
+            x.embryo
+                .a_au
+                .total_cmp(&y.embryo.a_au)
+                .then(x.embryo.id.cmp(&y.embryo.id))
+        });
+        if let Some(stage) = &mut nbody {
+            let span = stage.span_yr;
+            stage
+                .mergers
+                .extend(more.iter().map(|m| (span, m.survivor, m.absorbed)));
+        }
+        late.extend(more);
         let seeded = seeds.len() as u32;
         results.push(DiskResult {
             plan,
@@ -783,6 +890,27 @@ pub(crate) fn simulate(
         end_yr,
         params.timeline.record_events,
     );
+    // Eccentricities were drawn planet by planet; neighbours must still
+    // keep clear of each other.
+    let integrated: Vec<BodyId> = results
+        .iter()
+        .flat_map(|result| {
+            result
+                .planets
+                .iter()
+                .filter(|p| p.orbit.is_some())
+                .map(|p| BodyId(p.embryo.id + result.id_offset))
+        })
+        .collect();
+    for result in &results {
+        calm_eccentricities(
+            &mut bodies,
+            result.plan.host,
+            result.plan.central_mass_msun,
+            &integrated,
+        );
+    }
+
     // Moons and rings, after the planets (`moons.rs`).
     let moon_events = crate::moons::attach(&mut bodies, params.seed, |host| {
         results

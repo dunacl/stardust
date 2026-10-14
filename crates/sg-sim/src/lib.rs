@@ -20,7 +20,9 @@ mod high;
 mod moons;
 pub mod names;
 mod presets;
+mod stability;
 mod standard;
+pub use stability::{long_term_stability, HostStability};
 mod stars;
 
 pub use presets::{preset_availability, preset_params, PresetAvailability, ALL_PRESETS};
@@ -30,7 +32,7 @@ use sg_schema::{EventTimeline, Fidelity, SimulationParams, SystemSnapshot, SCHEM
 
 /// Version of the physical model. Bump whenever a change alters outputs for
 /// existing parameters (CLAUDE.md hard rule 7).
-pub const MODEL_VERSION: &str = "0.7.0";
+pub const MODEL_VERSION: &str = "0.8.0";
 
 /// Everything a run produces.
 #[derive(Debug, Clone, PartialEq)]

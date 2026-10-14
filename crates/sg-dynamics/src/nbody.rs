@@ -1066,7 +1066,7 @@ mod tests {
         let changed = system.bodies.len() < 2
             || system.bodies.iter().any(|b| {
                 elements_from_state(b.pos, b.vel, G * (1.0 + b.mass_msun))
-                    .is_none_or(|el| el.e > 0.01)
+                    .map_or(true, |el| el.e > 0.01)
             });
         assert!(changed);
     }

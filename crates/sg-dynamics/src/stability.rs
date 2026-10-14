@@ -73,6 +73,83 @@ pub fn p_type_critical_ratio(m1: SolarMass, m2: SolarMass, e_binary: f64) -> f64
         + 4.61 * e * e * mu * mu
 }
 
+/// A planet's orbit, for the long-term stability of a planetary system.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PlanetOrbit {
+    pub mass_msun: f64,
+    pub a_au: f64,
+    pub e: f64,
+    /// Inclination to the system's plane, radians.
+    pub i_rad: f64,
+}
+
+/// Angular momentum deficit of a set of planets, in units where
+/// `G·M★ = 1`: `Σ m·√a·(1 − √(1−e²)·cos i)`, the angular momentum they
+/// would gain if every orbit were made circular and coplanar. It is
+/// conserved by the secular (long-term averaged) motion, and can be passed
+/// between planets (Laskar 1997, A&A 317, L75).
+pub fn angular_momentum_deficit(planets: &[PlanetOrbit]) -> f64 {
+    planets
+        .iter()
+        .map(|p| {
+            p.mass_msun * sqrt(p.a_au) * (1.0 - sqrt(1.0 - p.e * p.e) * sg_core::math::cos(p.i_rad))
+        })
+        .sum()
+}
+
+/// Critical relative angular momentum deficit of a pair of planets: with
+/// more than this (relative to the outer planet's circular angular
+/// momentum) their orbits can be made to cross.
+///
+/// Laskar & Petit (2017), A&A 605, A72, eqs. 29, 35 and 39: with
+/// `α = a/a′` and `γ = m/m′` (inner over outer), the critical inner
+/// eccentricity `e₀` solves
+/// `α·e + γ·e/√(α(1−e²) + γ²e²) − 1 + α = 0`, the outer one is
+/// `e₀′ = 1 − α − α·e₀`, and
+/// `C_c = γ√α·(1 − √(1−e₀²)) + (1 − √(1−e₀′²))`. Valid for `0 < α < 1`.
+pub fn critical_amd(alpha: f64, gamma: f64) -> f64 {
+    let alpha = alpha.clamp(1.0e-9, 1.0 - 1.0e-12);
+    let f = |e: f64| {
+        alpha * e + gamma * e / sqrt(alpha * (1.0 - e * e) + gamma * gamma * e * e) - 1.0 + alpha
+    };
+    // f(0) = α − 1 < 0 and f(1) = 2α > 0, and f rises with e.
+    let (mut lo, mut hi) = (0.0f64, 1.0f64);
+    for _ in 0..80 {
+        let mid = 0.5 * (lo + hi);
+        if f(mid) < 0.0 {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    let e0 = 0.5 * (lo + hi);
+    let e0_outer = (1.0 - alpha - alpha * e0).clamp(0.0, 1.0);
+    gamma * sqrt(alpha) * (1.0 - sqrt(1.0 - e0 * e0)) + (1.0 - sqrt(1.0 - e0_outer * e0_outer))
+}
+
+/// The AMD-stability coefficient `β` of each neighbouring pair of a
+/// system, ordered outward: the system's whole angular momentum deficit,
+/// relative to the outer planet's circular angular momentum, over the
+/// pair's critical value ([`critical_amd`]). A pair with `β < 1` can never
+/// be brought to cross orbits by slow exchanges of angular momentum, even
+/// if all of the system's deficit were given to it: it is "AMD-stable"
+/// (Laskar & Petit 2017, eq. 58). `β > 1` does not mean the pair will
+/// collide, only that this argument does not forbid it. Mean-motion
+/// resonances and close encounters are outside the argument either way.
+pub fn amd_coefficients(planets: &[PlanetOrbit]) -> Vec<f64> {
+    let mut sorted = planets.to_vec();
+    sorted.sort_by(|a, b| a.a_au.total_cmp(&b.a_au));
+    let deficit = angular_momentum_deficit(&sorted);
+    sorted
+        .windows(2)
+        .map(|pair| {
+            let (inner, outer) = (pair[0], pair[1]);
+            let relative = deficit / (outer.mass_msun * sqrt(outer.a_au));
+            relative / critical_amd(inner.a_au / outer.a_au, inner.mass_msun / outer.mass_msun)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -152,5 +229,79 @@ mod tests {
             prop_assert!(s < p);
             prop_assert!(s <= s_type_critical_ratio(SolarMass(m1), SolarMass(m2), 0.0) + 1e-12);
         }
+    }
+
+    fn planet(mass_mearth: f64, a_au: f64, e: f64, i_deg: f64) -> PlanetOrbit {
+        PlanetOrbit {
+            mass_msun: mass_mearth * 3.003e-6,
+            a_au,
+            e,
+            i_rad: i_deg.to_radians(),
+        }
+    }
+
+    /// The Solar System, with inclinations to the invariable plane.
+    fn solar_system() -> Vec<PlanetOrbit> {
+        vec![
+            planet(0.0553, 0.387, 0.2056, 6.3),
+            planet(0.815, 0.723, 0.0068, 2.2),
+            planet(1.0, 1.0, 0.0167, 1.6),
+            planet(0.107, 1.524, 0.0934, 1.7),
+            planet(317.8, 5.203, 0.0484, 0.3),
+            planet(95.2, 9.537, 0.0539, 0.9),
+            planet(14.5, 19.19, 0.0473, 1.0),
+            planet(17.1, 30.07, 0.0086, 0.7),
+        ]
+    }
+
+    #[test]
+    fn critical_amd_has_its_limits_right() {
+        // Orbits far apart can hold almost a whole circular angular
+        // momentum before crossing; orbits side by side almost none.
+        assert!(critical_amd(0.01, 1.0) > 0.8);
+        assert!(critical_amd(0.99, 1.0) < 1e-3);
+        // It falls as the orbits approach.
+        let mut previous = critical_amd(0.05, 0.5);
+        for k in 2..19 {
+            let now = critical_amd(0.05 * f64::from(k), 0.5);
+            assert!(now < previous);
+            previous = now;
+        }
+        // The critical eccentricities put pericentre and apocentre
+        // together: for a massless inner planet (γ → 0) the outer orbit
+        // stays circular and the inner one reaches e = 1/α − 1.
+        let alpha = 0.8;
+        let c = critical_amd(alpha, 1e-9);
+        assert!(c < 1e-6, "{c}");
+    }
+
+    /// Laskar & Petit (2017), §5 and table 2: the outer Solar System is
+    /// AMD-stable; the inner planets are not, taken with the giants' share
+    /// of the deficit, and are when taken on their own.
+    #[test]
+    fn the_outer_solar_system_is_amd_stable_and_the_inner_is_not() {
+        let all = solar_system();
+        let beta = amd_coefficients(&all);
+        assert_eq!(beta.len(), 7);
+        // Jupiter–Saturn, Saturn–Uranus, Uranus–Neptune.
+        for (k, b) in beta.iter().enumerate().skip(4) {
+            assert!(*b < 1.0, "outer pair {k}: {b}");
+        }
+        // Mercury–Venus, Venus–Earth, Earth–Mars with the whole system's
+        // deficit, nearly all of it the giants'.
+        for (k, b) in beta.iter().enumerate().take(3) {
+            assert!(*b > 1.0, "inner pair {k}: {b}");
+        }
+        // The inner four alone, as if cut off from the giants.
+        let inner = amd_coefficients(&all[..4]);
+        assert!(inner.iter().all(|b| *b < 1.0), "{inner:?}");
+    }
+
+    #[test]
+    fn circular_coplanar_systems_have_no_deficit() {
+        let system = [planet(1.0, 1.0, 0.0, 0.0), planet(2.0, 1.2, 0.0, 0.0)];
+        assert_eq!(angular_momentum_deficit(&system), 0.0);
+        assert_eq!(amd_coefficients(&system), vec![0.0]);
+        assert!(amd_coefficients(&system[..1]).is_empty());
     }
 }

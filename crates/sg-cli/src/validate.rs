@@ -58,6 +58,15 @@ impl SystemStats {
         self.any(|(p, _, m)| (10.0..2000.0).contains(p) && *m >= GIANT_MASS_MEARTH)
     }
 
+    /// A giant of 0.3 Jupiter masses or more between 3 and 7 AU of a
+    /// Sun-like star (periods of 1898 to 6765 days): a "Jupiter analogue"
+    /// as Wittenmyer et al. (2016) count them.
+    pub fn has_jupiter_analogue(&self) -> bool {
+        self.planets
+            .iter()
+            .any(|(p, _, m)| *m >= GIANT_MASS_MEARTH && (1898.0..=6765.0).contains(p))
+    }
+
     pub fn has_giant(&self) -> bool {
         self.any(|(p, _, m)| *p < 2000.0 && *m >= GIANT_MASS_MEARTH)
     }
@@ -194,6 +203,7 @@ pub fn metrics(systems: &[SystemStats]) -> Vec<Metric> {
     let (small, small_err) = percent(count(SystemStats::has_small_close_planet), n);
     let (hot, hot_err) = percent(count(SystemStats::has_hot_jupiter), n);
     let (cool, cool_err) = percent(count(SystemStats::has_cool_giant), n);
+    let (analogue, analogue_err) = percent(count(SystemStats::has_jupiter_analogue), n);
 
     let rich: Vec<&SystemStats> = systems.iter().filter(|s| s.feh > 0.1).collect();
     let poor: Vec<&SystemStats> = systems.iter().filter(|s| s.feh < -0.1).collect();
@@ -237,6 +247,15 @@ pub fn metrics(systems: &[SystemStats]) -> Vec<Metric> {
             observed: "about 10%",
             source: "Cumming et al. 2008, PASP 120, 531 (10.5% for 0.3–10 M_J inside 2000 days)",
             tolerance: (4.0, 25.0),
+            unit: "%",
+        },
+        Metric {
+            name: "Stars with a Jupiter analogue (≥ 0.3 M_J at 3–7 AU)",
+            model: analogue,
+            model_error: analogue_err,
+            observed: "about 6%",
+            source: "Wittenmyer et al. 2016, ApJ 819, 28 (6.2 +2.8/−1.6% of Sun-like stars)",
+            tolerance: (2.0, 15.0),
             unit: "%",
         },
         Metric {
@@ -480,7 +499,11 @@ mod tests {
             systems.push(system(-0.2, if k < 5 { &giant } else { &[] }));
             systems.push(system(0.0, &giant));
         }
-        let ratio = &metrics(&systems)[3];
+        let all = metrics(&systems);
+        let ratio = all
+            .iter()
+            .find(|m| m.name.starts_with("Giant-planet rate"))
+            .expect("the metallicity metric");
         assert!((ratio.model - 4.0).abs() < 1e-9);
         assert!(ratio.passes());
     }
