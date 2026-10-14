@@ -49,6 +49,9 @@ struct Args {
     /// the screen locked.
     #[arg(long)]
     offscreen: bool,
+    /// Show the frame rate in a corner (also a box in the panel).
+    #[arg(long)]
+    fps: bool,
     /// On a narrow window, start with the controls drawer open.
     #[arg(long)]
     drawer: bool,
@@ -275,6 +278,7 @@ pub fn launch() -> Launch {
         }),
         size: args.size,
         drawer: args.drawer,
+        fps: args.fps,
     }
 }
 

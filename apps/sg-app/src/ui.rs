@@ -212,7 +212,7 @@ fn controls(ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTar
         );
     }
 
-    view_controls(ui, targets);
+    view_controls(ui, targets, &mut state.show_fps);
 }
 
 /// A simulation's duration for display: milliseconds below a second.
@@ -325,7 +325,7 @@ fn classic_controls(ui: &mut egui::Ui, state: &mut AppState) {
     });
 }
 
-fn view_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
+fn view_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets, show_fps: &mut bool) {
     ui.separator();
     ui.label(RichText::new("View").strong());
     let mut mode = targets.settings.scale.to;
@@ -369,6 +369,7 @@ fn view_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
         for quality in Quality::ALL {
             ui.radio_value(&mut targets.settings.quality, quality, quality.label());
         }
+        ui.checkbox(show_fps, "Frame rate");
     })
     .response
     .on_hover_text(
@@ -776,6 +777,25 @@ fn narrow_layout(
     }
 }
 
+/// The frame rate in the top right corner, under the data card's place on
+/// a wide screen and clear of the controls button on a narrow one. Shown
+/// whether or not the panels are.
+fn frame_rate_readout(ctx: &egui::Context, state: &AppState) {
+    let (Some(fps), Some(ms)) = (state.frame_rate.fps(), state.frame_rate.frame_ms()) else {
+        return;
+    };
+    egui::Area::new(egui::Id::new("frame-rate"))
+        .anchor(Align2::RIGHT_BOTTOM, [-10.0, -6.0])
+        .interactable(false)
+        .show(ctx, |ui| {
+            let text = RichText::new(format!("{fps:.0} fps · {ms:.1} ms"))
+                .monospace()
+                .small()
+                .color(MUTED);
+            ui.add(egui::Label::new(text).wrap_mode(egui::TextWrapMode::Extend));
+        });
+}
+
 pub fn draw(
     mut contexts: EguiContexts,
     mut state: ResMut<AppState>,
@@ -783,8 +803,13 @@ pub fn draw(
     mut captured: ResMut<PointerCaptured>,
     placements: Res<BodyPlacements>,
     camera: Single<(&Camera, &GlobalTransform), With<Camera3d>>,
+    time: Res<Time<Real>>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
+    state.frame_rate.record(time.delta_secs());
+    if state.show_fps {
+        frame_rate_readout(ctx, &state);
+    }
     if targets.settings.show_labels {
         let (camera, camera_transform) = *camera;
         labels(ctx, &targets, &placements, camera, camera_transform);

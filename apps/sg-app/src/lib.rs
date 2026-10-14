@@ -61,6 +61,7 @@ pub fn run() {
 
     let mut state = AppState::new(launch.preset, launch.seed, launch.fidelity);
     state.show_ui = launch.show_ui;
+    state.show_fps = launch.fps;
     if launch.drawer {
         state.panel_open = Some(true);
     }

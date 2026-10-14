@@ -32,6 +32,8 @@ pub struct Launch {
     pub size: Option<(u32, u32)>,
     /// Start with the controls drawer open on a narrow screen.
     pub drawer: bool,
+    /// Show the frame rate.
+    pub fps: bool,
 }
 
 impl Default for Launch {
@@ -50,6 +52,7 @@ impl Default for Launch {
             quality: None,
             size: None,
             drawer: false,
+            fps: false,
         }
     }
 }
@@ -96,6 +99,7 @@ impl Launch {
                 "time" => launch.time = value.parse().ok().filter(|t: &f64| t.is_finite()),
                 "select" => launch.select = value.parse().ok(),
                 "ui" => launch.show_ui = value != "0",
+                "fps" => launch.fps = value != "0",
                 "quality" => match value {
                     "full" => launch.quality = Some(Quality::Full),
                     "reduced" => launch.quality = Some(Quality::Reduced),
@@ -122,7 +126,7 @@ mod tests {
     fn query_sets_the_starting_system() {
         let launch = Launch::from_query(
             "?seed=7&preset=red-dwarf&tier=classic&scale=schematic&select=3&time=0.5&ui=0\
-             &quality=reduced",
+             &quality=reduced&fps=1",
         );
         assert_eq!(
             launch,
@@ -140,6 +144,7 @@ mod tests {
                 quality: Some(Quality::Reduced),
                 size: None,
                 drawer: false,
+                fps: true,
             }
         );
     }

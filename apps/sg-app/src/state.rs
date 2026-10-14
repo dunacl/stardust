@@ -41,6 +41,47 @@ pub struct AppState {
     /// Whether the control panel is open where it is a drawer (narrow
     /// screens). Unset until the first frame shows how wide the screen is.
     pub panel_open: Option<bool>,
+    /// Show the frame rate in a corner.
+    pub show_fps: bool,
+    pub frame_rate: FrameRate,
+}
+
+/// A running average of the frame time, for the frame-rate display.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct FrameRate {
+    /// Smoothed time per frame, seconds; 0 until the first frame.
+    smoothed_secs: f32,
+}
+
+impl FrameRate {
+    /// Time over which the average forgets, seconds: long enough for a
+    /// steady number to read, short enough to follow a change.
+    const MEMORY_SECS: f32 = 0.5;
+
+    /// Takes in one frame that lasted `dt_secs`.
+    pub fn record(&mut self, dt_secs: f32) {
+        if !(dt_secs > 0.0 && dt_secs.is_finite()) {
+            return;
+        }
+        if self.smoothed_secs <= 0.0 {
+            self.smoothed_secs = dt_secs;
+            return;
+        }
+        // An exponential average whose weight follows the frame's own
+        // length, so the memory is the same at any frame rate.
+        let weight = (dt_secs / Self::MEMORY_SECS).min(1.0);
+        self.smoothed_secs += (dt_secs - self.smoothed_secs) * weight;
+    }
+
+    /// Frames per second, or `None` before any frame.
+    pub fn fps(&self) -> Option<f32> {
+        (self.smoothed_secs > 0.0).then(|| 1.0 / self.smoothed_secs)
+    }
+
+    /// Milliseconds per frame, or `None` before any frame.
+    pub fn frame_ms(&self) -> Option<f32> {
+        (self.smoothed_secs > 0.0).then_some(self.smoothed_secs * 1000.0)
+    }
 }
 
 impl AppState {
@@ -55,6 +96,8 @@ impl AppState {
             start: StartOptions::default(),
             last_simulation_ms: None,
             panel_open: None,
+            show_fps: false,
+            frame_rate: FrameRate::default(),
         }
     }
 
@@ -148,5 +191,36 @@ pub fn simulate_on_startup(mut state: ResMut<AppState>, mut targets: SimulationT
         if let Some(target) = crate::nth_target(result, n) {
             targets.selection.0 = Some(target);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn frame_rate_settles_on_a_steady_rate_and_follows_a_change() {
+        let mut rate = FrameRate::default();
+        assert_eq!(rate.fps(), None);
+        // Ignored: nonsense intervals.
+        rate.record(0.0);
+        rate.record(f32::NAN);
+        assert_eq!(rate.fps(), None);
+        for _ in 0..120 {
+            rate.record(1.0 / 60.0);
+        }
+        assert!((rate.fps().unwrap() - 60.0).abs() < 0.01);
+        assert!((rate.frame_ms().unwrap() - 16.667).abs() < 0.01);
+        // Dropping to 30 fps shows within about a second...
+        for _ in 0..30 {
+            rate.record(1.0 / 30.0);
+        }
+        assert!((rate.fps().unwrap() - 30.0).abs() < 5.0);
+        // ...and three seconds after one long hitch the reading is back.
+        rate.record(0.4);
+        for _ in 0..90 {
+            rate.record(1.0 / 30.0);
+        }
+        assert!((rate.fps().unwrap() - 30.0).abs() < 3.0);
     }
 }

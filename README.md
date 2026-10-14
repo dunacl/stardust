@@ -54,6 +54,9 @@ make bench                                  # frame rate
 make ci                                     # every automated check
 ```
 
+Tick *Frame rate* in the panel (or start with `--fps`, or `?fps=1` in a
+link) to see frames per second in the corner.
+
 In the app: drag to rotate, scroll or pinch to zoom, click or tap a star or
 planet for its data card and a close look at it. The panel on the left chooses the model, the preset and its
 parameters; the bar at the bottom plays the formation back.
