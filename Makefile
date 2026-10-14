@@ -34,7 +34,7 @@ help: ## List the targets
 		/^[a-z0-9-]+:.*## / { printf "  %-16s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 	@printf '\nVariables: SEED=%s PRESET=%s SCALE=%s MASS=%s COUNT=%s PORT=%s\n' \
 		'$(SEED)' '$(PRESET)' '$(SCALE)' '$(MASS)' '$(COUNT)' '$(PORT)'
-	@printf '  TIER: standard | classic\n'
+	@printf '  TIER: standard | classic | high\n'
 	@printf '  PRESET: sun-like | red-dwarf | hot-jupiter | metal-poor | massive-a-star |\n'
 	@printf '          circumbinary | s-type-binary | hierarchical-triple | random\n'
 	@printf '  SCALE: true | enlarged | schematic\n'
