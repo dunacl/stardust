@@ -15,10 +15,13 @@ use sg_core::math::{pow, sqrt};
 /// Two planets alone are stable if separated by more than `2√3` mutual Hill
 /// radii (Gladman 1993, Icarus 106, 247).
 pub const PAIR_STABILITY_HILL: f64 = 3.464;
-/// Systems of three or more planets closer than about 10 mutual Hill radii
-/// are always unstable on long timescales (Chambers, Wetherill & Boss 1996,
-/// Icarus 119, 261).
-pub const MULTI_STABILITY_HILL: f64 = 10.0;
+/// Three or more planets closer than this many mutual Hill radii do not
+/// survive for billions of years. Pu & Wu (2015, ApJ 807, 44) find from
+/// N-body integrations that systems of similar planets need about 10 on
+/// circular, coplanar orbits and about 12 with eccentricities near 0.02,
+/// which is what this tier gives its planets; and that Kepler's systems of
+/// four or more planets cluster at about 12, as if pared down to it.
+pub const MULTI_STABILITY_HILL: f64 = 12.0;
 
 /// A planet as the stability step sees it.
 #[derive(Debug, Clone, Copy, PartialEq)]

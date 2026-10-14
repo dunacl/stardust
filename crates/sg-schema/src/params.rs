@@ -146,7 +146,7 @@ impl Default for DiskParams {
     fn default() -> Self {
         Self {
             mass_fraction: None,
-            mass_fraction_median: 0.012,
+            mass_fraction_median: 0.008,
             lifetime_myr: None,
             alpha_viscous: 5.0e-3,
         }
@@ -224,9 +224,9 @@ impl Default for StandardParams {
             alpha_turbulent: 1.0e-4,
             alpha_gap: 1.0e-4,
             stokes_drift: 0.05,
-            planetesimal_efficiency: 0.1,
+            planetesimal_efficiency: 0.05,
             envelope_cooling_time_yr: 1.0e9,
-            migration_efficiency: 0.2,
+            migration_efficiency: 0.1,
         }
     }
 }

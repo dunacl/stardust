@@ -200,6 +200,25 @@ pub struct Outcome {
     pub planetesimals: Vec<Ring>,
     /// Integration steps taken.
     pub steps: u64,
+    /// Where the pebbles went.
+    pub budget: SolidsBudget,
+}
+
+/// Where the solids that drifted inward as pebbles ended up, M☉. The four
+/// parts sum to `supplied` (less the water lost at the ice line, counted
+/// in `sublimated`).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct SolidsBudget {
+    /// Pebbles that set out from the pebble front.
+    pub supplied: f64,
+    /// Ice that turned to vapour on crossing the ice line.
+    pub sublimated: f64,
+    /// Turned into planetesimals.
+    pub to_planetesimals: f64,
+    /// Accreted directly by embryos.
+    pub to_embryos: f64,
+    /// Drifted through the inner edge and onto the star.
+    pub onto_star: f64,
 }
 
 /// Longest step, years.
@@ -409,6 +428,7 @@ pub fn evolve(
     let mut frames = Vec::with_capacity(frame_times_yr.len());
     let mut next_frame = 0usize;
     let mut steps = 0u64;
+    let mut budget = SolidsBudget::default();
     let mut t = 0.0f64;
 
     let frame = |t_yr: f64, bodies: &[Embryo]| {
@@ -472,6 +492,8 @@ pub fn evolve(
         let ice_line = disk.water_ice_line(t);
         let front = physics::pebble_front_radius(star, disk.spec().dust_to_gas, t).min(outer_edge);
         let mut flux = physics::pebble_flux(disk, t);
+        let supplied_rate = flux;
+        let mut sublimated_rate = 0.0;
         let mut past_ice_line = false;
         let n = bodies.len();
         let mut solid_rate = vec![0.0f64; n];
@@ -492,11 +514,14 @@ pub fn evolve(
                 let i = next_body;
                 let b = &bodies[i];
                 if !past_ice_line && b.a_au < ice_line {
+                    sublimated_rate = ICE_MASS_FRACTION * flux;
                     flux *= 1.0 - ICE_MASS_FRACTION;
                     past_ice_line = true;
                 }
                 if b.isolated {
                     // Its pressure bump holds back all pebbles from outside.
+                    // (Letting 10–50% leak through was tried and changes
+                    // the population very little: PLAN.md D51.)
                     flux = 0.0;
                 }
                 // A body halted at the disk's inner edge sits where the gas
@@ -577,6 +602,7 @@ pub fn evolve(
                 continue;
             }
             if !past_ice_line && mid < ice_line {
+                sublimated_rate = ICE_MASS_FRACTION * flux;
                 flux *= 1.0 - ICE_MASS_FRACTION;
                 past_ice_line = true;
             }
@@ -592,6 +618,9 @@ pub fn evolve(
                 flux -= ring_rate[c];
             }
         }
+
+        // What is left of the flux reaches the star.
+        let onto_star_rate = flux.max(0.0);
 
         // Chains: neighbours held in resonance move together, at the rate
         // their summed torques give (weights are orbital angular momenta).
@@ -642,9 +671,14 @@ pub fn evolve(
         }
         dt = dt.min(end - t).max(1.0e-6);
 
+        budget.supplied += supplied_rate * dt;
+        budget.sublimated += sublimated_rate * dt;
+        budget.onto_star += onto_star_rate * dt;
+        budget.to_embryos += solid_rate.iter().sum::<f64>() * dt;
         // New planetesimals.
         for c in 0..RING_COUNT {
             let formed = ring_rate[c] * dt;
+            budget.to_planetesimals += formed;
             rings[c].mass_msun += formed;
             if ring_icy[c] {
                 rings[c].water_msun += ICE_MASS_FRACTION * formed;
@@ -803,6 +837,7 @@ pub fn evolve(
         frames,
         planetesimals: rings,
         steps,
+        budget,
     }
 }
 
@@ -834,6 +869,76 @@ mod tests {
     /// ignored: embryos appear when their site has enough planetesimals.)
     fn seeds(list: &[(f64, f64)]) -> Vec<Seed> {
         list.iter().map(|(a_au, _)| Seed { a_au: *a_au }).collect()
+    }
+
+    /// Prints where the solids of a typical disk go. Run with
+    /// `cargo test -p sg-formation solids_budget -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "diagnostic"]
+    fn solids_budget_of_a_typical_disk() {
+        for (mass, dust) in [(0.012, 0.0149), (0.03, 0.0149), (0.012, 0.03)] {
+            let disk = Disk::new(DiskSpec {
+                star_mass_msun: 1.0,
+                star_luminosity_lsun: 1.0,
+                initial_mass_msun: mass,
+                characteristic_radius_au: 40.0,
+                alpha: 5.0e-3,
+                dispersal_time_yr: 3.0e6,
+                dust_to_gas: dust,
+                inner_edge_au: 0.05,
+                outer_edge_au: 1000.0,
+            })
+            .unwrap();
+            let sites: Vec<Seed> = ring_sites(&disk)
+                .into_iter()
+                .filter(|s| s.a_au >= 0.1 && s.a_au <= 60.0)
+                .collect();
+            let out = evolve(&disk, &GrowthParams::default(), &sites, &[]);
+            let b = out.budget;
+            println!(
+                "disk {mass} Msun, Z {dust}: dust {:.0} ME; supplied {:.1}, sublimated {:.1}, \
+                 planetesimals {:.1}, embryos by pebbles {:.2}, onto star {:.1}",
+                earths(mass * dust),
+                earths(b.supplied),
+                earths(b.sublimated),
+                earths(b.to_planetesimals),
+                earths(b.to_embryos),
+                earths(b.onto_star)
+            );
+            let zone = |lo: f64, hi: f64| {
+                let p: f64 = out
+                    .planets
+                    .iter()
+                    .filter(|p| p.a_au >= lo && p.a_au < hi)
+                    .map(|p| earths(p.core_msun))
+                    .sum();
+                let n = out
+                    .planets
+                    .iter()
+                    .filter(|p| p.a_au >= lo && p.a_au < hi)
+                    .count();
+                let left: f64 = out
+                    .planetesimals
+                    .iter()
+                    .filter(|r| r.inner_au >= lo && r.inner_au < hi)
+                    .map(|r| earths(r.mass_msun))
+                    .sum();
+                (n, p, left)
+            };
+            for (lo, hi) in [(0.0, 0.42), (0.42, 2.0), (2.0, 10.0), (10.0, 300.0)] {
+                let (n, planets, left) = zone(lo, hi);
+                println!("  {lo:>5}-{hi:<5} AU: {n:>2} planets, {planets:>7.2} ME in cores, {left:>7.2} ME planetesimals left");
+            }
+            let t = 1.0e6;
+            for r in [0.1, 0.3, 1.0, 3.0] {
+                println!(
+                    "  at {r} AU, 1 Myr: transition mass {:.4} ME, isolation {:.2} ME, ice line {:.2} AU",
+                    earths(physics::transition_mass(&disk, r, t)),
+                    earths(physics::pebble_isolation_mass(&disk, r, t, 1.0e-4)),
+                    disk.water_ice_line(t)
+                );
+            }
+        }
     }
 
     #[test]

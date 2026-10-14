@@ -29,7 +29,7 @@ use sg_schema::{EventTimeline, Fidelity, SimulationParams, SystemSnapshot, SCHEM
 
 /// Version of the physical model. Bump whenever a change alters outputs for
 /// existing parameters (CLAUDE.md hard rule 7).
-pub const MODEL_VERSION: &str = "0.5.0";
+pub const MODEL_VERSION: &str = "0.6.0";
 
 /// Everything a run produces.
 #[derive(Debug, Clone, PartialEq)]

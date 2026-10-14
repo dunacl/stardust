@@ -148,10 +148,15 @@ pub fn size_class_ratio(systems: &[SystemStats]) -> Option<f64> {
 /// Surveys cannot yet count these reliably, so this is reported, not
 /// scored.
 pub fn sub_earths_per_star(systems: &[SystemStats]) -> f64 {
+    close_in_per_star(systems, 0.5, 1.0)
+}
+
+/// Planets per star inside 100 days with radii in `[low, high)` R⊕.
+pub fn close_in_per_star(systems: &[SystemStats], low: f64, high: f64) -> f64 {
     let count = systems
         .iter()
         .flat_map(|s| &s.planets)
-        .filter(|(p, r, _)| *p < 100.0 && (0.5..1.0).contains(r))
+        .filter(|(p, r, _)| *p < 100.0 && (low..high).contains(r))
         .count();
     count as f64 / systems.len().max(1) as f64
 }
@@ -347,9 +352,19 @@ pub fn report(
     let _ = writeln!(
         out,
         "\nNot scored: the model has {:.1} planets smaller than the Earth (0.5–1 R⊕) inside 100 \
-         days per star. Surveys are too incomplete at these sizes to give a firm number, but \
-         this is probably several times too many.",
+         days per star, formed where they are from local planetesimals. Surveys are too \
+         incomplete at these sizes to give a firm number; it is probably too many (the Solar \
+         System has one, Mercury).",
         sub_earths_per_star(systems)
+    );
+    let _ = writeln!(
+        out,
+        "\nNot scored: the model has {:.2} planets of 1.25–1.75 R⊕ inside 100 days per star, \
+         against {:.2} of 1–1.25 R⊕. Surveys find the lower of the two size peaks at about \
+         1.3 R⊕ (Fulton et al. 2017), so the model's rocky planets are too small: it makes \
+         few bare cores of 2–5 Earth masses.",
+        close_in_per_star(systems, 1.25, 1.75),
+        close_in_per_star(systems, 1.0, 1.25),
     );
     let _ = writeln!(out, "\nSources:\n");
     for m in &all {
