@@ -38,6 +38,21 @@ pub struct SystemSnapshot {
     pub planet_zones: Vec<PlanetZone>,
 }
 
+impl SystemSnapshot {
+    /// The planets, in the order of `bodies` (outward for each host).
+    /// `bodies` also holds their moons, after all the planets.
+    pub fn planets(&self) -> impl Iterator<Item = &Body> {
+        self.bodies.iter().filter(|b| b.kind != BodyKind::Moon)
+    }
+
+    /// The moons of the body with this id, in order outward.
+    pub fn moons_of(&self, planet: BodyId) -> impl Iterator<Item = &Body> {
+        self.bodies
+            .iter()
+            .filter(move |b| b.kind == BodyKind::Moon && b.host == HostRef::Body(planet))
+    }
+}
+
 /// Stars and their mutual orbits. A `Pair`'s `orbit` is the orbit of `b`
 /// relative to `a`; each moves about their common centre of mass, which is
 /// what `HostRef::Barycenter(id)` refers to. All orbits share one plane.

@@ -28,7 +28,14 @@ impl SystemStats {
     pub fn from_result(result: &SimulationResult, feh: f64) -> Self {
         Self {
             feh,
-            planets: result.snapshot.bodies.iter().map(planet).collect(),
+            // Planets only: moons are bodies too, and orbit in days.
+            planets: result
+                .snapshot
+                .bodies
+                .iter()
+                .filter(|b| b.kind == sg_schema::BodyKind::Planet)
+                .map(planet)
+                .collect(),
         }
     }
 

@@ -572,13 +572,30 @@ fn selected_card(targets: &SimulationTargets) -> Option<Card> {
         }
         Target::Body(id) => {
             let body = snapshot.bodies.iter().find(|b| b.id == id)?;
-            // Counted outward among the planets of the same host.
+            // Counted outward among the planets (or moons) of the same host.
             let number = snapshot
                 .bodies
                 .iter()
                 .filter(|b| b.host == body.host && b.orbit.a_au <= body.orbit.a_au)
                 .count();
-            Some(cards::body_card(body, number))
+            if let HostRef::Body(planet) = body.host {
+                let planet = snapshot.bodies.iter().find(|b| b.id == planet)?;
+                let origin = result
+                    .timeline
+                    .events
+                    .iter()
+                    .find_map(|event| match event.kind {
+                        sg_schema::EventKind::MoonFormed {
+                            moon, mechanism, ..
+                        } if moon == id => Some(mechanism),
+                        _ => None,
+                    });
+                return Some(cards::moon_card(body, planet, number, origin));
+            }
+            Some(cards::with_moons(
+                cards::body_card(body, number),
+                snapshot.moons_of(id).count(),
+            ))
         }
     }
 }

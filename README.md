@@ -25,7 +25,7 @@ All work around one, two or three stars.
 |---|---|
 | Where things stand | [`docs/PROGRESS.md`](docs/PROGRESS.md) |
 | Plan, science model, decisions | [`PLAN.md`](PLAN.md) |
-| How the model compares with real planets | [`validation/report-0.6.0.md`](validation/report-0.6.0.md) |
+| How the model compares with real planets | [`validation/report-0.7.0.md`](validation/report-0.7.0.md) |
 | Rules for working in this repository | [`CLAUDE.md`](CLAUDE.md) |
 
 ## Quick start
@@ -47,6 +47,7 @@ make run PRESET=hot-jupiter SEED=2          # a giant on a four-day orbit
 make run PRESET=circumbinary SCALE=schematic  # planets around two suns
 make run TIER=classic                       # the StarGen model
 make run TIER=high SEED=345                 # giants that scatter one another
+make run TIER=classic SEED=1                # click the 7th planet: rings and a moon
 make sim SEED=7                             # one system as text
 make validate                               # 3000 systems vs exoplanet surveys
 make shots OFFSCREEN=1                      # reference pictures into target/shots

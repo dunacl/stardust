@@ -355,7 +355,7 @@ mod tests {
                     for position in layout.stars.values() {
                         assert!(position.length() as f32 <= extent + 1e-3, "{id:?} {mode:?}");
                     }
-                    for body in &snapshot.bodies {
+                    for body in snapshot.planets() {
                         let centre = layout.host(body.host).unwrap();
                         let apoapsis =
                             scale.distance((body.orbit.a_au * (1.0 + body.orbit.e)) as f32);

@@ -382,9 +382,14 @@ fn pick_at(
 
     let mut best: Option<(f32, Target)> = None;
     for (target, placement) in placements.iter() {
-        // Small or distant bodies get a generous click target.
+        // Small or distant bodies get a generous click target; moons do
+        // not, or they would take the clicks meant for their planets.
         let distance = (placement.position - ray.origin).length();
-        let radius = placement.radius.max(distance * 0.012);
+        let radius = if placement.moon {
+            placement.radius.max(distance * 0.003)
+        } else {
+            placement.radius.max(distance * 0.012)
+        };
         if let Some(hit) = ray_sphere(ray.origin, direction, placement.position, radius) {
             if best.is_none_or(|(d, _)| hit < d) {
                 best = Some((hit, target));

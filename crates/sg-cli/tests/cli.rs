@@ -41,12 +41,13 @@ fn simulate_prints_a_summary_and_json() {
     assert!(output.status.success());
     let text = String::from_utf8_lossy(&output.stdout);
     assert!(text.contains("Star Vorus: G2 1.00 Msun"), "{text}");
-    assert!(text.contains("16 bodies"), "{text}");
+    assert!(text.contains("16 planets, 14 moons"), "{text}");
 
     let output = sg_cli(&["simulate", "--seed", "42", "--json"]);
     assert!(output.status.success());
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid JSON");
-    assert_eq!(json["snapshot"]["bodies"].as_array().unwrap().len(), 16);
+    // Sixteen planets and their fourteen moons.
+    assert_eq!(json["snapshot"]["bodies"].as_array().unwrap().len(), 30);
     assert_eq!(json["diagnostics"]["bit_deterministic"], true);
     assert!(json["timeline"]["events"].as_array().unwrap().len() > 16);
 }

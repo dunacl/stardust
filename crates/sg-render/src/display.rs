@@ -304,7 +304,12 @@ mod tests {
         let result = result();
         let end = timeline_end_myr(&result);
         let just_before = bodies_at(&result, end * (1.0 - 1e-9));
-        let at_end = bodies_at(&result, end);
+        // Moons are not part of formation playback: they appear with the
+        // finished system.
+        let at_end: Vec<DisplayBody> = bodies_at(&result, end)
+            .into_iter()
+            .filter(|b| !matches!(b.host, HostRef::Body(_)))
+            .collect();
         assert_eq!(just_before.len(), at_end.len());
         for (a, b) in just_before.iter().zip(&at_end) {
             assert_eq!(a.id, b.id);

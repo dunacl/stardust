@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc fd20b1cba8c4543adfc9152c238e48e9333e4673fd4c961e558efaae90cbe85c # shrinks to seed = 1, mass = 0.2
+cc d33d28dae1fbc18f88b32b13a96211f479a8bbfeaef1ed92b978eae4550fd5ed # shrinks to seed = 1, mass = 0.2

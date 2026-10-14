@@ -192,10 +192,15 @@ pub fn frame(look: &Appearance, to_star: Vec3, spin: f32) -> [Vec3; 3] {
         let z = x.cross(Vec3::Y).normalize_or(Vec3::Z);
         return [x, z.cross(x), z];
     }
-    let tilt =
-        Quat::from_rotation_y(look.seed) * Quat::from_rotation_x(look.obliquity_deg.to_radians());
-    let turn = tilt * Quat::from_rotation_y(spin);
+    let turn = axis_tilt(look) * Quat::from_rotation_y(spin);
     [turn * Vec3::X, turn * Vec3::Y, turn * Vec3::Z]
+}
+
+/// The rotation that takes the orbit's normal (+Y) to the body's spin
+/// axis: its obliquity, toward a direction fixed by its seed. Its moons
+/// and rings lie in the plane this tilts.
+pub fn axis_tilt(look: &Appearance) -> Quat {
+    Quat::from_rotation_y(look.seed) * Quat::from_rotation_x(look.obliquity_deg.to_radians())
 }
 
 /// Fills in the parts of the uniform that change every frame.

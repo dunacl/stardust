@@ -14,8 +14,8 @@ mod validate;
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use sg_schema::{
-    Body, Fidelity, HierarchyNode, HostRef, Multiplicity, PlanetClass, PresetId, SimulationParams,
-    SystemSnapshot, SystemSpec,
+    Body, BodyKind, Fidelity, HierarchyNode, HostRef, Multiplicity, PlanetClass, PresetId,
+    SimulationParams, SystemSnapshot, SystemSpec,
 };
 use sg_sim::{SimulationResult, MODEL_VERSION};
 use std::collections::BTreeMap;
@@ -378,6 +378,46 @@ fn summary(result: &SimulationResult) -> String {
             let _ = writeln!(out, "{}", body_row(index, body));
         }
     }
+    for planet in &snap.bodies {
+        if let Some(rings) = &planet.rings {
+            let _ = writeln!(
+                out,
+                "\nRings of {}: {:.0}-{:.0} km ({:.2}-{:.2} planetary radii), optical depth {:.1}",
+                planet.name,
+                rings.inner_radius_km,
+                rings.outer_radius_km,
+                rings.inner_radius_km / planet.radius_km,
+                rings.outer_radius_km / planet.radius_km,
+                rings.optical_depth
+            );
+        }
+        let moons: Vec<&Body> = snap
+            .bodies
+            .iter()
+            .filter(|b| b.host == HostRef::Body(planet.id))
+            .collect();
+        if moons.is_empty() {
+            continue;
+        }
+        let _ = writeln!(
+            out,
+            "\nMoons of {}:\n{:>5} {:<10} {:>12} {:>10} {:>10} {:>9}",
+            planet.name, "#", "class", "a (km)", "a (radii)", "mass (ME)", "R (km)"
+        );
+        for (index, moon) in moons.iter().enumerate() {
+            let a_km = moon.orbit.a_au * 1.495_978_707e8;
+            let _ = writeln!(
+                out,
+                "{:>5} {:<10} {:>12.0} {:>10.1} {:>10.5} {:>9.0}",
+                index + 1,
+                class_name(moon.class),
+                a_km,
+                a_km / planet.radius_km,
+                moon.mass_mearth,
+                moon.radius_km
+            );
+        }
+    }
     for belt in &snap.belts {
         let _ = writeln!(
             out,
@@ -390,8 +430,15 @@ fn summary(result: &SimulationResult) -> String {
     }
     let _ = writeln!(
         out,
-        "\n{} bodies, {} formation events, {} keyframes",
-        snap.bodies.len(),
+        "\n{} planets, {} moons, {} formation events, {} keyframes",
+        snap.bodies
+            .iter()
+            .filter(|b| b.kind == BodyKind::Planet)
+            .count(),
+        snap.bodies
+            .iter()
+            .filter(|b| b.kind == BodyKind::Moon)
+            .count(),
         result.timeline.events.len(),
         result.timeline.keyframes.len()
     );
@@ -455,8 +502,9 @@ fn batch(run: &RunArgs, first_seed: u64, count: u64, out: &Path) -> Result<()> {
             .with_context(|| format!("simulating seed {seed}"))?;
         serde_json::to_writer(&mut writer, &result.snapshot)?;
         writer.write_all(b"\n")?;
-        planets += result.snapshot.bodies.len();
-        for body in &result.snapshot.bodies {
+        let is_planet = |b: &&Body| b.kind == BodyKind::Planet;
+        planets += result.snapshot.bodies.iter().filter(is_planet).count();
+        for body in result.snapshot.bodies.iter().filter(is_planet) {
             *classes.entry(class_name(body.class)).or_insert(0) += 1;
             if body.habitability.in_conservative_hz && body.habitability.surface_liquid_water {
                 in_hz_with_water += 1;

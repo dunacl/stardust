@@ -4,7 +4,7 @@
 //! window.
 
 use sg_render::belt::is_belt;
-use sg_schema::{Body, DiskSummary, HabitableZone, PlanetClass, PlanetZone, Star};
+use sg_schema::{Body, DiskSummary, HabitableZone, MoonOrigin, PlanetClass, PlanetZone, Star};
 
 /// A titled list of label/value rows, plus free-text notes.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -450,6 +450,16 @@ pub fn body_card(body: &Body, number: usize) -> Card {
     if body.habitability.surface_liquid_water {
         notes.push("The model finds liquid water on the surface.".into());
     }
+    if let Some(rings) = &body.rings {
+        notes.push(format!(
+            "Rings of ice from {:.1} to {:.1} planetary radii. Where they end follows from the \
+             planet's density (inside that distance its tides pull a moon apart); that this \
+             planet has bright rings at all was drawn, at the Solar System's rate of one giant \
+             in four. The ringlets shown are illustrative.",
+            rings.inner_radius_km / body.radius_km,
+            rings.outer_radius_km / body.radius_km
+        ));
+    }
 
     Card {
         title: body.name.clone(),
@@ -459,6 +469,103 @@ pub fn body_card(body: &Body, number: usize) -> Card {
             host_label(body)
         ),
         sections,
+        notes,
+    }
+}
+
+/// Adds a line about a planet's moons to its card.
+pub fn with_moons(mut card: Card, moons: usize) -> Card {
+    match moons {
+        0 => {}
+        1 => card
+            .notes
+            .push("One moon: zoom out a little to see it.".into()),
+        n => card
+            .notes
+            .push(format!("{n} moons: zoom out a little to see them.")),
+    }
+    card
+}
+
+/// The card of a moon: `number` counts outward among its planet's moons.
+pub fn moon_card(moon: &Body, planet: &Body, number: usize, origin: Option<MoonOrigin>) -> Card {
+    const KM_PER_AU: f64 = 1.495_978_707e8;
+    const LUNAR_MASS_MEARTH: f64 = 0.0123;
+    let a_km = moon.orbit.a_au * KM_PER_AU;
+    let mut body_rows = vec![
+        (
+            "Mass",
+            format!(
+                "{} Earth masses ({:.2} × the Moon)",
+                mass(moon.mass_mearth),
+                moon.mass_mearth / LUNAR_MASS_MEARTH
+            ),
+        ),
+        (
+            "Radius",
+            format!(
+                "{:.0} km ({:.2} × the Moon)",
+                moon.radius_km,
+                moon.radius_km / 1737.4
+            ),
+        ),
+        ("Density", format!("{:.2} g/cm³", moon.density_g_cm3)),
+    ];
+    if let Some(g) = moon.surface_gravity_gees {
+        body_rows.push(("Surface gravity", format!("{g:.3} g")));
+    }
+    body_rows.push(("Equilibrium temperature", celsius(moon.equilibrium_temp_k)));
+    let mut notes = vec![match origin {
+        Some(MoonOrigin::GiantImpact) => format!(
+            "Formed from the debris of a collision between {} and another body, as the Moon \
+             is thought to have. About one rocky planet in twelve gets such a moon.",
+            planet.name
+        ),
+        Some(MoonOrigin::CircumplanetaryDisk) | None => format!(
+            "Grew in the disk of gas and dust around {} as the planet formed, as the large \
+             moons of Jupiter and Saturn did.",
+            planet.name
+        ),
+        Some(MoonOrigin::Capture) => format!("Captured by {}.", planet.name),
+    }];
+    notes.push(
+        if moon.composition.water_frac >= 0.1 {
+            "Half ice, half rock: it is cold enough here for ice to last."
+        } else {
+            "Rock: too warm here for ice to last."
+        }
+        .into(),
+    );
+    notes.push(
+        "Its mass and distance were drawn within what such moons are known to have; its \
+         formation was not simulated. Shown circling 20 times slower than the orbital clock. \
+         The terrain is illustrative."
+            .into(),
+    );
+    Card {
+        title: moon.name.clone(),
+        subtitle: format!("{} moon of {}", ordinal(number), planet.name),
+        sections: vec![
+            Section {
+                heading: "Orbit",
+                rows: vec![
+                    (
+                        "Distance",
+                        format!(
+                            "{:.0} km ({:.1} planetary radii)",
+                            a_km,
+                            a_km / planet.radius_km
+                        ),
+                    ),
+                    ("Eccentricity", format!("{:.3}", moon.orbit.e)),
+                    ("Month", duration(moon.orbit.period_days * 24.0)),
+                ],
+            },
+            Section {
+                heading: "Body",
+                rows: body_rows,
+            },
+        ],
         notes,
     }
 }
@@ -698,5 +805,38 @@ mod tests {
         assert!(card.notes.iter().any(|n| n.contains("captured gas")));
         let rows: Vec<_> = card.sections.iter().flat_map(|s| s.rows.clone()).collect();
         assert!(rows.iter().all(|(k, _)| *k != "Surface gravity"));
+    }
+
+    #[test]
+    fn moons_and_rings_have_their_say_on_the_cards() {
+        // Seed 1 of the Classic tier: Ama h has rings and a moon.
+        let result = sg_sim::simulate(&sg_schema::SimulationParams {
+            seed: 1,
+            ..sg_schema::SimulationParams::default()
+        })
+        .expect("classic run");
+        let snapshot = &result.snapshot;
+        let ringed = snapshot
+            .planets()
+            .find(|b| b.rings.is_some())
+            .expect("rings");
+        let card = body_card(ringed, 7);
+        assert!(card
+            .notes
+            .iter()
+            .any(|n| n.starts_with("Rings of ice from 1.2 to")));
+        let moons: Vec<&Body> = snapshot.moons_of(ringed.id).collect();
+        assert!(!moons.is_empty());
+        let counted = with_moons(card.clone(), moons.len());
+        assert_eq!(counted.notes.len(), card.notes.len() + 1);
+        assert_eq!(with_moons(card.clone(), 0).notes, card.notes);
+
+        let moon = moon_card(moons[0], ringed, 1, Some(MoonOrigin::CircumplanetaryDisk));
+        assert_eq!(moon.subtitle, format!("1st moon of {}", ringed.name));
+        assert!(moon.sections[0].rows[0].1.contains("planetary radii"));
+        assert!(moon.notes[0].contains("Grew in the disk"));
+        assert!(moon.notes.iter().any(|n| n.contains("not simulated")));
+        let impact = moon_card(moons[0], ringed, 1, Some(MoonOrigin::GiantImpact));
+        assert!(impact.notes[0].contains("collision"));
     }
 }

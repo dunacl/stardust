@@ -35,10 +35,10 @@ fn same_params_give_identical_results() {
 /// (Linux, macOS, Windows, WASM) for this model version. If a deliberate
 /// model change alters them, bump `MODEL_VERSION` and update the values; a
 /// schema change (which also changes the serialised snapshot) updates the
-/// values only. Last updated for schema 0.9.0 and model 0.6.0.
+/// values only. Last updated for schema 0.9.0 and model 0.7.0.
 #[test]
 fn snapshot_hashes_are_pinned() {
-    assert_eq!(MODEL_VERSION, "0.6.0");
+    assert_eq!(MODEL_VERSION, "0.7.0");
     let got: Vec<String> = PINNED
         .iter()
         .map(|(seed, mass, _)| snapshot_hash(&simulate(&params(*seed, *mass)).unwrap().snapshot))
@@ -48,9 +48,9 @@ fn snapshot_hashes_are_pinned() {
 }
 
 const PINNED: [(u64, f64, &str); 3] = [
-    (1, 1.0, "ab9d986508b5ffd1"),
-    (42, 1.0, "669ca3fda8ff70b2"),
-    (7, 0.3, "fb4d83d2861daf54"),
+    (1, 1.0, "d2c3ffa7073b33d2"),
+    (42, 1.0, "ff8c8c284d540c66"),
+    (7, 0.3, "e27eb85736efdeb4"),
 ];
 
 #[test]
@@ -74,11 +74,11 @@ fn sun_like_system_is_described_sensibly() {
     assert!((hz.conservative_inner_au - 0.950).abs() < 2e-3);
     assert!((hz.conservative_outer_au - 1.676).abs() < 2e-3);
 
-    assert_eq!(snap.bodies.len(), 16);
-    for pair in snap.bodies.windows(2) {
+    assert_eq!(snap.planets().count(), 16);
+    for pair in snap.planets().collect::<Vec<_>>().windows(2) {
         assert!(pair[0].orbit.a_au < pair[1].orbit.a_au);
     }
-    for body in &snap.bodies {
+    for body in snap.planets() {
         let c = &body.composition;
         let sum = c.metal_frac + c.rock_frac + c.water_frac + c.volatiles_frac + c.h_he_frac;
         assert!((sum - 1.0).abs() < 1e-12);
@@ -106,8 +106,16 @@ fn timeline_is_ordered_and_ends_at_the_final_system() {
         timeline.events.first().unwrap().kind,
         EventKind::DiskFormed { .. }
     ));
+    // The dust is gone at the end; moons, which are added to StarGen's
+    // planets, are recorded after it.
+    let last_of_formation = timeline
+        .events
+        .iter()
+        .rev()
+        .find(|e| !matches!(e.kind, EventKind::MoonFormed { .. }))
+        .unwrap();
     assert!(matches!(
-        timeline.events.last().unwrap().kind,
+        last_of_formation.kind,
         EventKind::DiskDispersed { .. }
     ));
     for pair in timeline.events.windows(2) {
@@ -122,7 +130,7 @@ fn timeline_is_ordered_and_ends_at_the_final_system() {
     // The last keyframe holds exactly the bodies of the snapshot.
     let last = timeline.keyframes.last().unwrap();
     assert_eq!(last.t_myr, window);
-    let mut final_ids: Vec<BodyId> = result.snapshot.bodies.iter().map(|b| b.id).collect();
+    let mut final_ids: Vec<BodyId> = result.snapshot.planets().map(|b| b.id).collect();
     final_ids.sort();
     let keyframe_ids: Vec<BodyId> = last.bodies.iter().map(|b| b.id).collect();
     assert_eq!(keyframe_ids, final_ids);
@@ -131,7 +139,7 @@ fn timeline_is_ordered_and_ends_at_the_final_system() {
     let count = |f: fn(&EventKind) -> bool| timeline.events.iter().filter(|e| f(&e.kind)).count();
     let injected = count(|k| matches!(k, EventKind::EmbryoInjected { .. }));
     let collisions = count(|k| matches!(k, EventKind::Collision { .. }));
-    assert_eq!(injected - collisions, result.snapshot.bodies.len());
+    assert_eq!(injected - collisions, result.snapshot.planets().count());
 }
 
 #[test]
@@ -268,8 +276,8 @@ proptest! {
             prop_assert!(pair[0].t_myr <= pair[1].t_myr);
         }
         let last = result.timeline.keyframes.last().unwrap();
-        prop_assert_eq!(last.bodies.len(), result.snapshot.bodies.len());
-        for pair in result.snapshot.bodies.windows(2) {
+        prop_assert_eq!(last.bodies.len(), result.snapshot.planets().count());
+        for pair in result.snapshot.planets().collect::<Vec<_>>().windows(2) {
             prop_assert!(pair[0].orbit.a_au <= pair[1].orbit.a_au);
         }
     }

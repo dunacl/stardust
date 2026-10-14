@@ -92,6 +92,17 @@ pub fn planet_name(star_name: &str, index: usize) -> String {
     }
 }
 
+/// Designation of a planet's moon at `index` counting outward from 0:
+/// the planet's name and a Roman numeral, as for the moons of the Solar
+/// System's planets (`Jupiter I` is Io).
+pub fn moon_name(planet_name: &str, index: usize) -> String {
+    const NUMERALS: [&str; 10] = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
+    match NUMERALS.get(index) {
+        Some(numeral) => format!("{planet_name} {numeral}"),
+        None => format!("{planet_name} moon {}", index + 1),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

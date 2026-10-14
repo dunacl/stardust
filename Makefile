@@ -135,6 +135,10 @@ shots: ## The reference set: scales, formation, close-ups, red dwarf, binaries, 
 	$(APP) --seed 42 --tier classic --size 390x844 --select 7 --screenshot $(SHOTS)/phone-card.png
 	$(APP) --seed 42 --tier classic --size 390x844 --drawer --screenshot $(SHOTS)/phone-drawer.png
 	$(APP) --seed 42 --tier classic --select 7 --quality reduced --screenshot $(SHOTS)/reduced.png
+	$(APP) --seed 1 --tier classic --select 7 --screenshot $(SHOTS)/rings-and-moon.png
+	$(APP) --seed 1 --tier classic --select 11 --screenshot $(SHOTS)/rings-tilted.png
+	$(APP) --seed 42 --tier classic --select 11 --screenshot $(SHOTS)/moons.png
+	$(APP) --seed 345 --tier high --scale schematic --screenshot $(SHOTS)/high-scattered-giants.png
 	@printf 'screenshots written to %s\n' '$(SHOTS)'
 
 ##@ Individual checks

@@ -4,9 +4,13 @@
 //!
 //! Masses are in Earth masses, radii in Earth radii, distances in AU.
 //!
+//! Moons and rings are in [`moons`].
+//!
 //! Not modelled yet: surface climate and atmospheric composition, the
 //! inflated radii of strongly irradiated giants, core-powered mass loss,
 //! and interior differentiation beyond a fixed rock-to-iron ratio.
+
+pub mod moons;
 
 use sg_core::math::{exp, ln, log10, pow, sqrt};
 

@@ -203,12 +203,31 @@ pub struct Placement {
     /// Size of what the camera should frame when this is selected: the body
     /// itself, or for a belt a stretch of the belt.
     pub focus_radius: f32,
+    /// A moon: drawn at its size with no minimum, so that it is seen only
+    /// from near its planet, and not given a generous click target.
+    pub moon: bool,
 }
 
 /// Scene position and drawn radius of everything selectable, refreshed
 /// every frame.
 #[derive(Resource, Debug, Default)]
-pub struct BodyPlacements(BTreeMap<Target, Placement>);
+pub struct BodyPlacements(BTreeMap<Target, Placement>, Vec<MoonOrbit>);
+
+/// The path of a moon around its planet this frame, for drawing it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MoonOrbit {
+    pub planet: BodyId,
+    pub moon: BodyId,
+    /// The planet's position.
+    pub centre: Vec3,
+    /// Two perpendicular vectors spanning the orbit's plane, each the
+    /// length of the orbit's semi-major axis as drawn.
+    pub across: Vec3,
+    pub along: Vec3,
+    pub e: f32,
+    /// Direction of pericentre in the plane, radians from `across`.
+    pub arg_periapsis: f32,
+}
 
 impl BodyPlacements {
     pub fn get(&self, target: Target) -> Option<Placement> {
@@ -217,6 +236,11 @@ impl BodyPlacements {
 
     pub fn iter(&self) -> impl Iterator<Item = (Target, Placement)> + '_ {
         self.0.iter().map(|(t, p)| (*t, *p))
+    }
+
+    /// The moons' paths this frame.
+    pub fn moon_orbits(&self) -> &[MoonOrbit] {
+        &self.1
     }
 }
 
@@ -393,6 +417,7 @@ fn sync_scene(
     >,
 ) {
     placements.0.clear();
+    placements.1.clear();
     let Some(result) = view.result() else {
         return;
     };
@@ -497,6 +522,7 @@ fn sync_scene(
                 radius,
                 body_radius,
                 focus_radius: body_radius,
+                moon: false,
             },
         );
     }
@@ -512,23 +538,68 @@ fn sync_scene(
     let spin = (TAU * playback.orbit_days / DRAWN_ROTATION_DAYS).rem_euclid(TAU) as f32;
     let shown = display::bodies_at(result, playback.t_myr);
     let mut stale: Vec<BodyId> = entities.bodies.keys().copied().collect();
+    // Where each planet is this frame, for its moons, which follow it in
+    // the list.
+    let mut planets_now: BTreeMap<BodyId, PlanetNow> = BTreeMap::new();
     for body in &shown {
-        let (Some(centre), Some(true_centre), Some(host_mass)) = (
-            layout.host(body.host),
-            true_layout.host(body.host),
-            layout::host_mass(snapshot, body.host),
-        ) else {
-            continue;
-        };
-        stale.retain(|id| *id != body.id);
-        let orbital = kepler::position(elements(body, host_mass, playback.orbit_days));
-        let offset = layout::map_offset(scale, orbital);
-        let world = centre + offset;
-        let position = orbit.local(world);
-        let true_position = true_centre + layout::to_scene(orbital);
         let presence = body.presence.clamp(0.0, 1.0);
         let body_radius = scale.planet_radius(body.radius_km as f32);
-        let radius = body_radius.max(apparent_floor(position)) * presence.max(0.02);
+        let is_moon = matches!(body.host, HostRef::Body(_));
+        let (world, true_position, offset_length) = if let HostRef::Body(planet) = body.host {
+            let Some(host) = planets_now.get(&planet) else {
+                continue;
+            };
+            let offset = moon_offset(body, host, playback.orbit_days);
+            let semi_major = (body.a_au * KM_PER_AU / host.radius_km) as f32 * host.body_radius;
+            placements.1.push(MoonOrbit {
+                planet,
+                moon: body.id,
+                centre: orbit.local(host.world),
+                across: host.tilt * Vec3::X * semi_major,
+                along: host.tilt * Vec3::NEG_Z * semi_major,
+                e: body.e as f32,
+                arg_periapsis: body.arg_periapsis_deg.to_radians() as f32,
+            });
+            (host.world + offset, host.true_position, offset.length())
+        } else {
+            let (Some(centre), Some(true_centre), Some(host_mass)) = (
+                layout.host(body.host),
+                true_layout.host(body.host),
+                layout::host_mass(snapshot, body.host),
+            ) else {
+                continue;
+            };
+            let orbital = kepler::position(elements(body, host_mass, playback.orbit_days));
+            let offset = layout::map_offset(scale, orbital);
+            (
+                centre + offset,
+                true_centre + layout::to_scene(orbital),
+                offset.length(),
+            )
+        };
+        stale.retain(|id| *id != body.id);
+        let position = orbit.local(world);
+        // A planet is never drawn smaller than a dot; a moon is drawn at
+        // its size, and so comes into view as its planet is approached.
+        let radius = if is_moon {
+            // ...unless it or its planet is selected: then it is at least
+            // a small dot, so that the moons of the planet in view can be
+            // found.
+            let in_view = match (selection.0, body.host) {
+                (Some(Target::Body(selected)), HostRef::Body(planet)) => {
+                    selected == planet || selected == body.id
+                }
+                _ => false,
+            };
+            let floor = if in_view {
+                MOON_APPARENT_FLOOR * apparent_floor(position)
+            } else {
+                0.0
+            };
+            body_radius.max(floor) * presence.max(0.02)
+        } else {
+            body_radius.max(apparent_floor(position)) * presence.max(0.02)
+        };
         let transform = Transform::from_translation(position).with_scale(Vec3::splat(radius));
 
         let shares = planet::light_shares(
@@ -650,13 +721,47 @@ fn sync_scene(
                 radius,
                 body_radius,
                 focus_radius: match body.class {
-                    Some(class) if belt::is_belt_sized(class, body.mass_mearth) => {
-                        offset.length() as f32 * belt::SELECTED_VIEW_FRACTION
+                    Some(class) if !is_moon && belt::is_belt_sized(class, body.mass_mearth) => {
+                        offset_length as f32 * belt::SELECTED_VIEW_FRACTION
+                    }
+                    // A planet with moons is framed a little wider, to
+                    // bring the innermost into view.
+                    _ if !is_moon && body.class.is_some() => {
+                        let innermost = snapshot
+                            .moons_of(body.id)
+                            .map(|moon| moon.orbit.a_au * KM_PER_AU / body.radius_km)
+                            .fold(f64::INFINITY, f64::min);
+                        if innermost.is_finite() {
+                            body_radius * (0.3 * innermost as f32).clamp(1.0, 2.5)
+                        } else {
+                            body_radius
+                        }
                     }
                     _ => body_radius,
                 },
+                moon: is_moon,
             },
         );
+        if !is_moon {
+            let tilt = entities
+                .bodies
+                .get(&body.id)
+                .and_then(|entity| bodies.get(*entity).ok())
+                .map_or(Quat::IDENTITY, |(_, visual, _)| {
+                    planet::axis_tilt(&visual.look)
+                });
+            planets_now.insert(
+                body.id,
+                PlanetNow {
+                    world,
+                    true_position,
+                    body_radius,
+                    radius_km: body.radius_km,
+                    mass_mearth: body.mass_mearth,
+                    tilt,
+                },
+            );
+        }
     }
     for id in stale {
         if let Some(entity) = entities.bodies.remove(&id) {
@@ -729,6 +834,55 @@ fn sync_scene(
     }
 }
 
+/// A planet as placed this frame, for placing its moons and rings.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PlanetNow {
+    pub world: DVec3,
+    /// Its position at true scale, AU: what its moons are lit by.
+    pub true_position: DVec3,
+    /// Radius the scale mode draws it at.
+    pub body_radius: f32,
+    pub radius_km: f64,
+    pub mass_mearth: f64,
+    /// Orbit normal to spin axis.
+    pub tilt: Quat,
+}
+
+/// Moons are drawn going round this many times slower than the orbital
+/// clock would have them: at a rate that shows planets circling their
+/// star, a moon with a month of a few days would be a blur. A drawing
+/// convention, like the slowed rotation of the planets.
+pub const MOON_CLOCK_SLOWDOWN: f64 = 20.0;
+/// The smallest a moon of the selected planet is drawn, as a fraction of
+/// the smallest a planet is.
+const MOON_APPARENT_FLOOR: f32 = 0.6;
+const EARTHS_PER_SUN: f64 = 332_946.0;
+const KM_PER_AU: f64 = 1.495_978_707e8;
+
+/// Where a moon is relative to its planet, in scene units. Its distance
+/// keeps its true proportion to the planet's radius as drawn, so that in
+/// every scale mode it sits as many planetary radii out as it really
+/// does; its orbit lies in the planet's equatorial plane.
+pub(crate) fn moon_offset(moon: &DisplayBody, planet: &PlanetNow, orbit_days: f64) -> DVec3 {
+    let period = kepler::orbital_period(
+        Au(moon.a_au),
+        SolarMass(planet.mass_mearth / EARTHS_PER_SUN),
+    )
+    .0;
+    let unit = kepler::position(Elements {
+        a: Au(1.0),
+        e: moon.e,
+        i: 0.0,
+        long_asc_node: 0.0,
+        arg_periapsis: moon.arg_periapsis_deg.to_radians(),
+        mean_anomaly: moon.mean_anomaly_deg.to_radians()
+            + TAU * orbit_days / (period * MOON_CLOCK_SLOWDOWN),
+    });
+    let radii = moon.a_au * KM_PER_AU / planet.radius_km;
+    let flat = layout::to_scene(unit).as_vec3();
+    (planet.tilt * flat).as_dvec3() * radii * f64::from(planet.body_radius)
+}
+
 fn star_position_of(layout: &Layout, star: &Star) -> DVec3 {
     layout.stars.get(&star.id).copied().unwrap_or(DVec3::ZERO)
 }
@@ -772,6 +926,7 @@ fn draw_overlays(
     settings: Res<ViewSettings>,
     selection: Res<Selection>,
     orbit: Res<OrbitCamera>,
+    placements: Res<BodyPlacements>,
 ) {
     let Some(result) = view.result() else {
         return;
@@ -846,6 +1001,40 @@ fn draw_overlays(
         }
     }
 
+    // The paths of the moons of the selected planet (or of the planet
+    // whose moon is selected).
+    if settings.show_orbits {
+        let chosen = match selection.0 {
+            Some(Target::Body(id)) => placements
+                .moon_orbits()
+                .iter()
+                .find(|m| m.moon == id)
+                .map_or(Some(id), |m| Some(m.planet)),
+            _ => None,
+        };
+        for path in placements
+            .moon_orbits()
+            .iter()
+            .filter(|m| Some(m.planet) == chosen)
+        {
+            let color = if selection.0 == Some(Target::Body(path.moon)) {
+                palette::ORBIT_SELECTED_COLOR
+            } else {
+                palette::ORBIT_COLOR
+            };
+            let minor = (1.0 - path.e * path.e).sqrt();
+            let (sin_w, cos_w) = path.arg_periapsis.sin_cos();
+            let points = (0..=ORBIT_SEGMENTS).map(|k| {
+                let big_e = std::f32::consts::TAU * k as f32 / ORBIT_SEGMENTS as f32;
+                // In the orbit's plane, pericentre along +x.
+                let (x, y) = (big_e.cos() - path.e, minor * big_e.sin());
+                let (px, py) = (x * cos_w - y * sin_w, x * sin_w + y * cos_w);
+                path.centre + path.across * px + path.along * py
+            });
+            gizmos.linestrip(points, color);
+        }
+    }
+
     if settings.show_formation_highlights {
         let lookback = view.timeline_end_myr() * HIGHLIGHT_LOOKBACK;
         for highlight in display::highlights_at(result, playback.t_myr, lookback) {
@@ -896,6 +1085,7 @@ impl Plugin for StardustRenderPlugin {
         planet::build(app);
         crate::star::build(app);
         crate::disk::build(app);
+        crate::ring::build(app);
         app.add_systems(Startup, (setup, camera::spawn_camera))
             .add_systems(
                 Update,
@@ -908,6 +1098,7 @@ impl Plugin for StardustRenderPlugin {
                     sync_scene,
                     belt::sync_belts,
                     crate::disk::sync_disks,
+                    crate::ring::sync_rings,
                     camera::apply_camera,
                     sky::sync_sky,
                     camera::pick,

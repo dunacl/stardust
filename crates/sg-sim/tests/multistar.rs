@@ -44,7 +44,7 @@ fn check_consistency(result: &SimulationResult) {
     ids.dedup();
     assert_eq!(ids.len(), snap.bodies.len(), "body ids are unique");
 
-    for body in &snap.bodies {
+    for body in snap.planets() {
         assert!(host_exists(&body.host));
         let zone = snap
             .planet_zones
@@ -76,7 +76,9 @@ fn check_consistency(result: &SimulationResult) {
     let last = result.timeline.keyframes.last().unwrap();
     let mut final_ids: Vec<BodyId> = last.bodies.iter().map(|b| b.id).collect();
     final_ids.sort();
-    assert_eq!(final_ids, ids);
+    let mut planet_ids: Vec<BodyId> = snap.planets().map(|b| b.id).collect();
+    planet_ids.sort();
+    assert_eq!(final_ids, planet_ids);
     for keyframe in &result.timeline.keyframes {
         assert!(keyframe.bodies.iter().all(|b| host_exists(&b.host)));
     }
@@ -97,7 +99,7 @@ fn circumbinary_preset_forms_planets_around_the_pair() {
         let snap = &result.snapshot;
         assert_eq!(stars(&snap.hierarchy).len(), 2);
         assert!(!snap.bodies.is_empty());
-        for body in &snap.bodies {
+        for body in snap.planets() {
             assert_eq!(body.host, HostRef::Barycenter(NodeId(0)));
             assert!(body.orbit.a_au > 0.64, "{}", body.orbit.a_au);
         }
@@ -120,10 +122,10 @@ fn s_type_preset_forms_planets_around_each_star() {
         let result = preset(PresetId::STypeBinary, seed);
         check_consistency(&result);
         let snap = &result.snapshot;
-        let around = |host: HostRef| snap.bodies.iter().filter(move |b| b.host == host);
+        let around = |host: HostRef| snap.planets().filter(move |b| b.host == host);
         assert!(around(HostRef::Star(StarId(0))).count() > 0);
         assert!(around(HostRef::Star(StarId(1))).count() > 0);
-        assert!(snap.bodies.iter().all(|b| b.orbit.a_au < 3.0));
+        assert!(snap.planets().all(|b| b.orbit.a_au < 3.0));
         assert_eq!(snap.habitable_zones.len(), 2);
         let first_of_b = around(HostRef::Star(StarId(1))).next().unwrap();
         assert!(first_of_b.name.ends_with(" B b"), "{}", first_of_b.name);
@@ -139,7 +141,7 @@ fn triple_preset_forms_planets_in_nested_zones() {
         check_consistency(&result);
         let snap = &result.snapshot;
         assert_eq!(stars(&snap.hierarchy).len(), 3);
-        for body in &snap.bodies {
+        for body in snap.planets() {
             match body.host {
                 // Around the inner pair: between its own limit and the one
                 // set by the third star.
@@ -208,8 +210,8 @@ fn multi_star_hashes_are_pinned() {
 }
 
 const PINNED: [&str; 4] = [
-    "018963be08950c49",
-    "8c7dcf1a092d678b",
-    "af73968d9a66e530",
-    "2428465f11b5d13d",
+    "67f09ce86f1833d8",
+    "3b74004e3f53eb00",
+    "cf8c829ab0923e29",
+    "1d22067c7fd0f96f",
 ];

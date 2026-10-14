@@ -525,6 +525,15 @@ fn simulate_extended(
     }
     check(observer, Stage::Assembly, 0.95)?;
 
+    // Moons and rings: an addition to StarGen's planets (`moons.rs`).
+    let moon_events = crate::moons::attach(&mut bodies, params.seed, |host| {
+        system
+            .disks
+            .iter()
+            .find(|disk| disk.host == host)
+            .map(|disk| disk.central_mass_msun)
+    });
+
     let snapshot = SystemSnapshot {
         schema_version: SCHEMA_VERSION.to_string(),
         model_version: MODEL_VERSION.to_string(),
@@ -537,11 +546,14 @@ fn simulate_extended(
         habitable_zones,
         planet_zones,
     };
-    let timeline = timeline(
+    let mut timeline = timeline(
         &disk_runs,
         &params.timeline,
         params.formation.classic.protoplanet_mass_msun,
     );
+    if params.timeline.record_events {
+        crate::moons::record(&mut timeline, moon_events);
+    }
     check(observer, Stage::Assembly, 1.0)?;
 
     Ok(SimulationResult {
@@ -609,7 +621,7 @@ fn simulate_faithful(
 
     let star_name = names::star_name(params.seed);
     let mut angles = RngStream::new(params.seed, ModuleId::ORBIT_ANGLES);
-    let bodies = system
+    let mut bodies: Vec<Body> = system
         .planets
         .iter()
         .enumerate()
@@ -626,6 +638,9 @@ fn simulate_faithful(
             )
         })
         .collect();
+    // Moons and rings: an addition to StarGen's planets (`moons.rs`).
+    let moon_events =
+        crate::moons::attach(&mut bodies, params.seed, |_| Some(system.star.mass_msun));
 
     check(observer, Stage::Assembly, 0.95)?;
 
@@ -659,7 +674,7 @@ fn simulate_faithful(
         }],
     };
 
-    let timeline = timeline(
+    let mut timeline = timeline(
         &[DiskRun {
             disk: DISK,
             host: HostRef::Star(STAR),
@@ -669,6 +684,9 @@ fn simulate_faithful(
         &params.timeline,
         params.formation.classic.protoplanet_mass_msun,
     );
+    if params.timeline.record_events {
+        crate::moons::record(&mut timeline, moon_events);
+    }
     check(observer, Stage::Assembly, 1.0)?;
 
     Ok(SimulationResult {

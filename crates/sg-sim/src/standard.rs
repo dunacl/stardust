@@ -776,13 +776,23 @@ pub(crate) fn simulate(
     }
     check(observer, Stage::Assembly, 0.95)?;
 
-    let timeline = timeline(
+    let mut timeline = timeline(
         &results,
         &bodies,
         &frame_times,
         end_yr,
         params.timeline.record_events,
     );
+    // Moons and rings, after the planets (`moons.rs`).
+    let moon_events = crate::moons::attach(&mut bodies, params.seed, |host| {
+        results
+            .iter()
+            .find(|result| result.plan.host == host)
+            .map(|result| result.plan.central_mass_msun)
+    });
+    if params.timeline.record_events {
+        crate::moons::record(&mut timeline, moon_events);
+    }
     let snapshot = SystemSnapshot {
         schema_version: SCHEMA_VERSION.to_string(),
         model_version: MODEL_VERSION.to_string(),

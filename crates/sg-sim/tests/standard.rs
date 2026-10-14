@@ -36,7 +36,7 @@ fn check_consistency(result: &SimulationResult) {
     ids.dedup();
     assert_eq!(ids.len(), snap.bodies.len());
 
-    for body in &snap.bodies {
+    for body in snap.planets() {
         let zone = snap
             .planet_zones
             .iter()
@@ -75,7 +75,7 @@ fn check_consistency(result: &SimulationResult) {
         assert_eq!(giant, c.h_he_frac >= 0.5);
     }
     // Planets of one host are listed outward.
-    for pair in snap.bodies.windows(2) {
+    for pair in snap.planets().collect::<Vec<_>>().windows(2) {
         if pair[0].host == pair[1].host {
             assert!(pair[0].orbit.a_au <= pair[1].orbit.a_au);
         }
@@ -96,7 +96,9 @@ fn check_consistency(result: &SimulationResult) {
     let last = t.keyframes.last().unwrap();
     let mut final_ids: Vec<BodyId> = last.bodies.iter().map(|b| b.id).collect();
     final_ids.sort();
-    assert_eq!(final_ids, ids);
+    let mut planet_ids: Vec<BodyId> = snap.planets().map(|b| b.id).collect();
+    planet_ids.sort();
+    assert_eq!(final_ids, planet_ids);
     for body in &last.bodies {
         let planet = snap.bodies.iter().find(|b| b.id == body.id).unwrap();
         assert_eq!(body.mass_mearth, planet.mass_mearth);
@@ -147,7 +149,7 @@ fn multiple_stars_confine_their_planets() {
             Fidelity::Standard,
         ))
         .unwrap();
-        for body in &circumbinary.snapshot.bodies {
+        for body in circumbinary.snapshot.planets() {
             assert_eq!(body.host, HostRef::Barycenter(NodeId(0)));
             assert!(body.orbit.a_au > 0.64);
         }
@@ -157,7 +159,7 @@ fn multiple_stars_confine_their_planets() {
             Fidelity::Standard,
         ))
         .unwrap();
-        for body in &binary.snapshot.bodies {
+        for body in binary.snapshot.planets() {
             assert!(matches!(body.host, HostRef::Star(_)));
             assert!(body.orbit.a_au < 2.8, "{}", body.orbit.a_au);
         }
@@ -212,11 +214,7 @@ fn migration_can_be_switched_off() {
     check_consistency(&fixed);
     // Without migration nothing ends up at the disk's inner edge.
     let inner = fixed.snapshot.disks_at_dispersal[0].inner_au;
-    assert!(fixed
-        .snapshot
-        .bodies
-        .iter()
-        .all(|b| b.orbit.a_au > 1.9 * inner));
+    assert!(fixed.snapshot.planets().all(|b| b.orbit.a_au > 1.9 * inner));
 }
 
 #[test]
@@ -272,8 +270,8 @@ fn standard_hashes_are_pinned() {
 }
 
 const PINNED: [&str; 4] = [
-    "5f3e5d60610eebe5",
-    "6706221822ef41e3",
-    "4a28b378fc8fc3d5",
-    "9222ba007073ae4e",
+    "8a836387806f1898",
+    "4018b2e3de3d2503",
+    "c467cd8ec936b7c4",
+    "e1761ced064385cb",
 ];

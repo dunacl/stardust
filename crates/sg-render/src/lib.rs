@@ -25,6 +25,7 @@ pub mod gesture;
 pub mod layout;
 pub mod palette;
 pub mod planet;
+pub mod ring;
 pub mod scale;
 pub mod scene;
 pub mod sky;
