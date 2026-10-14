@@ -12,8 +12,10 @@
 //!    al. 2019, A&A 627, A83).
 //! 2. **Embryos.** An embryo appears at one of the given sites once the
 //!    planetesimals around it amount to its seed mass, and grows by sweeping
-//!    them up ([`physics::planetesimal_accretion_time_yr`]). When it
-//!    outgrows the pebble transition mass it accretes pebbles as well. So
+//!    them up ([`physics::planetesimal_accretion_time_yr`]), and accretes
+//!    pebbles from the start, at an efficiency that is negligible for the
+//!    smallest seeds and rises steeply with mass
+//!    ([`physics::pebble_accretion_efficiency`]). So
 //!    how soon embryos appear, and how fast they grow, follows from how much
 //!    solid material the disk has.
 //! 3. **Gas.** A body past isolation contracts its envelope and, once the
@@ -32,8 +34,7 @@
 //! Simplifications: orbits are circular and coplanar while gas is present;
 //! resonance capture is certain, in first-order resonances only; mergers
 //! are perfect; a body accretes
-//! planetesimals only from the ring it is in; pebble accretion below the
-//! transition mass is neglected; the sites where embryos can appear are
+//! planetesimals only from the ring it is in; the sites where embryos can appear are
 //! given, not predicted. Lenz et al. form planetesimals only from pebbles
 //! with Stokes numbers above 0.01, which with the fragmentation limit used
 //! here would leave the region inside the ice line without any; that limit
@@ -546,9 +547,7 @@ pub fn evolve(
                     } else {
                         supply
                     };
-                } else if b.a_au <= front
-                    && b.mass_msun() >= physics::transition_mass(disk, b.a_au, t)
-                {
+                } else if b.a_au <= front {
                     let stokes = physics::stokes_number(
                         disk,
                         b.a_au,

@@ -4,7 +4,7 @@
 //!
 //! Units as in `sg-disk`: AU, solar masses, years (`G = 4π²`).
 
-use sg_core::math::{log10, pow, sqrt};
+use sg_core::math::{cbrt, exp, log10, pow, sqrt};
 use sg_disk::{Disk, G};
 
 /// One Earth mass in solar masses.
@@ -42,26 +42,37 @@ pub fn pebble_front_radius(star_mass_msun: f64, dust_to_gas: f64, t_yr: f64) -> 
 
 /// Mass of pebbles drifting inward through the disk per year, M☉/yr.
 ///
-/// Lambrechts & Johansen (2014), eq. 14: the front sweeps up the dust it
-/// passes, `Ṁ_F = 2π r_g (dr_g/dt) Z Σ_g(r_g)`, with `dr_g/dt = (2/3) r_g/t`.
-/// The dust is taken to lie where the gas was at the start (their disk does
-/// not evolve; here the gas spreads, and dust that has decoupled from it
-/// does not follow), so the pebbles produced can never outweigh the disk's
-/// dust. The flux dies away once the front has passed the outer disk, and
-/// stops when the gas is gone (pebbles drift only where there is gas).
+/// Lambrechts & Johansen (2014), eq. 14: the front where dust has grown into
+/// pebbles moves outward and turns the dust it reaches into pebbles,
+/// `Ṁ_F = 2π r_g (dr_g/dt) Z Σ_g(r_g)`, with `dr_g/dt = (2/3) r_g/t`. Their
+/// disk does not evolve. Here it spreads, and the dust that has not yet
+/// grown is small enough to move with the gas (Birnstiel, Klahr & Ercolano
+/// 2012), so the dust at the front is `Z` times the gas there *now*, and the
+/// front gains what the gas carries across it: `Ṁ_F = Z (2π r_g (dr_g/dt)
+/// Σ_g(r_g, t) + Ṁ_g(r_g, t))`, with `Ṁ_g` the inward gas flow
+/// ([`Disk::mass_flow_rate`], negative where the disk spreads outward
+/// ahead of the front). Dust that has not reached the front has never been
+/// converted, so it keeps the initial `Z`; in total the pebbles never
+/// outweigh the disk's dust. A spreading disk keeps feeding pebbles long
+/// after the front has passed its initial radius, as viscous models with
+/// drift find (Appelgren, Lambrechts & Johansen 2020, A&A 638, A156: 10–100
+/// M⊕ of dust left at 1–3 Myr). Stops when the gas is gone. Not modelled:
+/// small dust carried onto the star with the gas inside the front, which is
+/// none here because everything inside the front has grown into pebbles.
 pub fn pebble_flux(disk: &Disk, t_yr: f64) -> f64 {
     if t_yr <= 0.0 {
         return 0.0;
     }
     let spec = disk.spec();
     let front = pebble_front_radius(spec.star_mass_msun, spec.dust_to_gas, t_yr);
-    let speed = 2.0 / 3.0 * front / t_yr;
-    2.0 * core::f64::consts::PI
-        * front
-        * speed
-        * spec.dust_to_gas
-        * disk.gas_surface_density(front, 0.0)
-        * disk.gas_fraction(t_yr)
+    // Past the disk's edge there is nothing left to sweep.
+    let (front, speed) = if front < spec.outer_edge_au {
+        (front, 2.0 / 3.0 * front / t_yr)
+    } else {
+        (spec.outer_edge_au, 0.0)
+    };
+    let swept = 2.0 * core::f64::consts::PI * front * speed * disk.gas_surface_density(front, t_yr);
+    (spec.dust_to_gas * (swept + disk.mass_flow_rate(front, t_yr))).max(0.0)
 }
 
 /// Stokes number of the pebbles at a radius: the drift-limited value, or
@@ -100,17 +111,57 @@ pub fn transition_mass(disk: &Disk, r_au: f64, t_yr: f64) -> f64 {
     sqrt(1.0 / 3.0) * dv * dv * dv / (G * omega)
 }
 
-/// Rate at which a body accretes pebbles, M☉/yr, given the pebble flux
-/// reaching its orbit. Never more than that flux.
+/// Fraction of the pebbles drifting past a body on a circular, coplanar
+/// orbit that it accretes: the pebble accretion efficiency.
 ///
-/// Hill-regime accretion (Lambrechts & Johansen 2012; in the form of
-/// Bitsch, Lambrechts & Johansen 2015, A&A 582, A112, eqs. 7–10):
-/// `Ṁ = 2 (St/0.1)^(2/3) r_H v_H Σ_peb` when the pebbles lie in a layer
-/// thinner than the accretion radius, reduced by
-/// `π (St/0.1)^(1/3) r_H / (2 sqrt(2π) H_peb)` when they do not. The pebble
-/// layer's thickness is `H_peb = H sqrt(α/(α + St))` (Youdin & Lithwick
-/// 2007) and its surface density follows from the flux and the drift speed
-/// `2 St η v_K`. Valid for `St ≲ 0.1` and bodies above [`transition_mass`].
+/// Liu & Ormel (2018, A&A 615, A138) for the 2D limit and Ormel & Liu
+/// (2018, A&A 615, A178) for the 3D limit and their combination:
+///
+/// - approach speed `Δv = v_hw / (1 + 5.7 q_p τ_s/η³) + v_sh`, with the
+///   headwind `v_hw = η v_K` and the shear `v_sh = 0.52 (q_p τ_s)^(1/3) v_K`
+///   (Liu & Ormel eq. 10, `a_hw/sh = 5.7`);
+/// - settling factor `f_set = exp(−½ (Δv/v*)²)`, `v* = (q_p/τ_s)^(1/3) v_K`
+///   (eqs. 12–13): pebbles passing too fast to be deflected are not caught,
+///   which sets the mass at which accretion starts in earnest;
+/// - `ε_2D = 0.32 sqrt(q_p Δv / (τ_s η² v_K)) f_set` (eq. 8) and
+///   `ε_3D = 0.39 q_p / (η h_P) f_set²` (Ormel & Liu eq. 22, `A₃` from
+///   their table 1), with `h_P` the pebble layer's aspect ratio;
+/// - `ε = (ε_2D⁻² + ε_3D⁻²)^(-1/2)` (Ormel & Liu eq. 40), and the 2D
+///   saturation `ε → 1 − exp(−ε)` (Liu & Ormel eq. 16) so that it never
+///   exceeds one.
+///
+/// Left out: the ballistic term, which matters only for bodies so small
+/// that geometric collisions dominate (well below 10⁻⁴ M⊕ here), and the
+/// stirring of pebbles by turbulence in `f_set` (Ormel & Liu eq. 37), small
+/// for α ≲ 10⁻³. Valid for `τ_s ≲ 1`.
+pub fn pebble_accretion_efficiency(
+    mass_ratio: f64,
+    stokes: f64,
+    eta: f64,
+    pebble_aspect_ratio: f64,
+) -> f64 {
+    if mass_ratio <= 0.0 || stokes <= 0.0 || eta <= 0.0 || pebble_aspect_ratio <= 0.0 {
+        return 0.0;
+    }
+    let q = mass_ratio;
+    let headwind = eta / (1.0 + 5.7 * q * stokes / (eta * eta * eta));
+    let shear = 0.52 * cbrt(q * stokes);
+    let dv = headwind + shear;
+    let v_star = cbrt(q / stokes);
+    let settling = exp(-0.5 * (dv / v_star) * (dv / v_star));
+    let flat = 0.32 * sqrt(q * dv / (stokes * eta * eta)) * settling;
+    let thick = 0.39 * q / (eta * pebble_aspect_ratio) * settling * settling;
+    if flat <= 0.0 || thick <= 0.0 {
+        return 0.0;
+    }
+    let combined = 1.0 / sqrt(1.0 / (flat * flat) + 1.0 / (thick * thick));
+    1.0 - exp(-combined)
+}
+
+/// Rate at which a body accretes pebbles, M☉/yr, given the pebble flux
+/// reaching its orbit: the flux times [`pebble_accretion_efficiency`].
+/// The pebble layer's thickness is `H_peb = H sqrt(α/(α + St))` (Youdin &
+/// Lithwick 2007, as Ormel & Liu 2018 eq. 15).
 pub fn pebble_accretion_rate(
     disk: &Disk,
     r_au: f64,
@@ -123,25 +174,9 @@ pub fn pebble_accretion_rate(
     if flux_msun_yr <= 0.0 || stokes <= 0.0 {
         return 0.0;
     }
-    let omega = disk.omega(r_au);
-    let drift = 2.0 * stokes * disk.eta(r_au, t_yr) * r_au * omega;
-    if drift <= 0.0 {
-        return 0.0;
-    }
-    let sigma_peb = flux_msun_yr / (2.0 * core::f64::consts::PI * r_au * drift);
-    let r_h = hill_radius(r_au, mass_msun, disk.spec().star_mass_msun);
-    let tau = (stokes / 0.1).min(1.0);
-    let flat = 2.0 * pow(tau, 2.0 / 3.0) * r_h * r_h * omega * sigma_peb;
-    let h_gas = disk.aspect_ratio(r_au, t_yr) * r_au;
-    let h_peb = h_gas * sqrt(alpha_turbulent / (alpha_turbulent + stokes));
-    let reach = core::f64::consts::PI * pow(tau, 1.0 / 3.0) * r_h
-        / (2.0 * sqrt(2.0 * core::f64::consts::PI));
-    let rate = if reach < h_peb {
-        flat * reach / h_peb
-    } else {
-        flat
-    };
-    rate.min(flux_msun_yr)
+    let q = mass_msun / disk.spec().star_mass_msun;
+    let h_peb = disk.aspect_ratio(r_au, t_yr) * sqrt(alpha_turbulent / (alpha_turbulent + stokes));
+    flux_msun_yr * pebble_accretion_efficiency(q, stokes, disk.eta(r_au, t_yr), h_peb)
 }
 
 /// Mass at which a planet carves a gap deep enough to stop pebbles
@@ -393,6 +428,60 @@ mod tests {
             assert!((1.0e-5..5.0e-2).contains(&m), "{r} AU: {m} M⊕");
         }
         assert!(transition_mass(&disk, 20.0, 1.0e6) > transition_mass(&disk, 1.0, 1.0e6));
+    }
+
+    /// Liu et al. (2019, A&A 632, A7), eq. 20, quoting Liu & Ormel (2018):
+    /// in the shear regime `ε_2D ≈ 3×10⁻³ (M/0.01 M⊕)^(2/3) (τ_s/0.01)^(-1/3)
+    /// (η/3×10⁻³)^(-1)` around a solar-mass star; and the 3D limit is
+    /// `0.39 q/(η h_P)` (Ormel & Liu 2018, eq. 22).
+    #[test]
+    fn pebble_accretion_efficiency_has_the_published_limits() {
+        let q = |m_earth: f64| m_earth * EARTH_MASS_MSUN;
+        // A thin pebble layer (2D) for a planet well past the onset mass.
+        // At 10 M⊕ the shear dominates the approach speed; compare before
+        // the saturation `1 − exp(−ε)`. The quoted 3×10⁻³ is rounded from
+        // 0.32·√0.52 (q_p/0.01 M⊕)^(2/3)… = 3.45×10⁻³.
+        let saturated = pebble_accretion_efficiency(q(10.0), 0.01, 3.0e-3, 1.0e-9);
+        let flat = -sg_core::math::ln(1.0 - saturated);
+        let expected = 3.0e-3 * pow(1000.0, 2.0 / 3.0);
+        assert!((flat / expected - 1.0).abs() < 0.2, "{flat} vs {expected}");
+        // A thick layer, where the 3D limit applies.
+        // (with the settling factor, 0.95 here, squared).
+        let h_p = 1.0e-2;
+        let thick = pebble_accretion_efficiency(q(0.01), 0.01, 3.0e-3, h_p);
+        let limit = 0.39 * q(0.01) / (3.0e-3 * h_p);
+        assert!(thick < limit && thick > 0.9 * limit, "{thick} vs {limit}");
+        // Far below the onset mass pebbles pass by untouched.
+        assert!(pebble_accretion_efficiency(q(1.0e-7), 0.01, 3.0e-3, h_p) < 1.0e-12);
+        // Never more than all of them.
+        for m in [1.0e-4, 1.0, 100.0, 1.0e4] {
+            let e = pebble_accretion_efficiency(q(m), 0.1, 1.0e-3, 1.0e-3);
+            assert!((0.0..=1.0).contains(&e), "{m}: {e}");
+        }
+        assert_eq!(pebble_accretion_efficiency(0.0, 0.01, 3.0e-3, h_p), 0.0);
+    }
+
+    /// The flux is drawn from the disk as it spreads, so it lasts longer
+    /// than from a disk frozen at its start, and its total stays below the
+    /// dust there is.
+    #[test]
+    fn a_spreading_disk_feeds_pebbles_for_longer() {
+        let disk = disk();
+        let late = pebble_flux(&disk, 2.0e6);
+        let spec = disk.spec();
+        let front = pebble_front_radius(spec.star_mass_msun, spec.dust_to_gas, 2.0e6);
+        let frozen = 2.0
+            * core::f64::consts::PI
+            * front
+            * (2.0 / 3.0 * front / 2.0e6)
+            * spec.dust_to_gas
+            * disk.gas_surface_density(front, 0.0);
+        assert!(
+            late > frozen,
+            "{} vs {} M⊕/yr",
+            earths(late),
+            earths(frozen)
+        );
     }
 
     #[test]

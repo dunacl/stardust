@@ -208,6 +208,18 @@ impl Disk {
             * self.gas_fraction(t_yr)
     }
 
+    /// Rate at which gas flows inward through radius `r_au`, M☉/yr;
+    /// negative where the disk is spreading outward (Hartmann et al. 1998,
+    /// eq. 35 for γ = 1): `Ṁ(r) = M₀/(2 t_s) · T^(-3/2) · exp(−(r/R₁)/T) ·
+    /// (1 − 2 (r/R₁)/T)`. Gas moves outward beyond `r = R₁ T/2`, carrying
+    /// angular momentum out so the rest can fall in. At small radii it
+    /// tends to [`Disk::accretion_rate`].
+    pub fn mass_flow_rate(&self, r_au: f64, t_yr: f64) -> f64 {
+        let x = r_au / self.spec.characteristic_radius_au;
+        let big_t = self.big_t(t_yr);
+        self.accretion_rate(t_yr) * exp(-x / big_t) * (1.0 - 2.0 * x / big_t)
+    }
+
     /// Gas mass left in the disk, M☉: `M₀ T^(-1/2)`.
     pub fn gas_mass(&self, t_yr: f64) -> f64 {
         self.spec.initial_mass_msun * pow(self.big_t(t_yr), -0.5) * self.gas_fraction(t_yr)
@@ -342,6 +354,44 @@ mod tests {
 
     fn disk() -> Disk {
         Disk::new(spec()).unwrap()
+    }
+
+    /// Hartmann et al. (1998): all the gas inside `R₁T/2` flows in, all
+    /// outside flows out, and the flow at the centre is the accretion rate.
+    #[test]
+    fn mass_flow_turns_outward_beyond_half_the_spreading_radius() {
+        let disk = disk();
+        let t = 1.0e6;
+        let r1 = disk.spec().characteristic_radius_au;
+        let turn = 0.5 * r1 * (1.0 + t / disk.viscous_time_yr());
+        assert!(disk.mass_flow_rate(0.9 * turn, t) > 0.0);
+        assert!(disk.mass_flow_rate(1.1 * turn, t) < 0.0);
+        let centre = disk.mass_flow_rate(1.0e-6, t);
+        assert!((centre / disk.accretion_rate(t) - 1.0).abs() < 1e-6);
+        // Continuity: the mass between the inner edge and r changes by what
+        // flows in at r less what leaves through the edge, checked by
+        // quadrature at two times.
+        let r = 0.5 * turn;
+        let inside = |t: f64| {
+            let n = 4000;
+            let edge = disk.spec().inner_edge_au;
+            let (lo, hi) = (sg_core::math::ln(edge), sg_core::math::ln(r));
+            (0..n)
+                .map(|k| {
+                    let rr = exp(lo + (hi - lo) * (f64::from(k) + 0.5) / f64::from(n));
+                    2.0 * core::f64::consts::PI * rr * rr * disk.gas_surface_density(rr, t)
+                })
+                .sum::<f64>()
+                * (hi - lo)
+                / f64::from(n)
+        };
+        let dt = 1.0e3;
+        let change = (inside(t + dt) - inside(t - dt)) / (2.0 * dt);
+        let net = disk.mass_flow_rate(r, t) - disk.mass_flow_rate(disk.spec().inner_edge_au, t);
+        assert!(
+            (change - net).abs() < 1.0e-3 * net.abs(),
+            "{change} vs {net}"
+        );
     }
 
     /// The stand-alone profile and clearing functions are the disk's own.

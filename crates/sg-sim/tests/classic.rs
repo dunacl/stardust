@@ -35,10 +35,10 @@ fn same_params_give_identical_results() {
 /// (Linux, macOS, Windows, WASM) for this model version. If a deliberate
 /// model change alters them, bump `MODEL_VERSION` and update the values; a
 /// schema change (which also changes the serialised snapshot) updates the
-/// values only. Last updated for schema 0.9.0 and model 0.8.0.
+/// values only. Last updated for schema 0.9.0 and model 0.9.0.
 #[test]
 fn snapshot_hashes_are_pinned() {
-    assert_eq!(MODEL_VERSION, "0.8.0");
+    assert_eq!(MODEL_VERSION, "0.9.0");
     let got: Vec<String> = PINNED
         .iter()
         .map(|(seed, mass, _)| snapshot_hash(&simulate(&params(*seed, *mass)).unwrap().snapshot))
@@ -48,9 +48,9 @@ fn snapshot_hashes_are_pinned() {
 }
 
 const PINNED: [(u64, f64, &str); 3] = [
-    (1, 1.0, "efcb614f532f9165"),
-    (42, 1.0, "b212f29a7e726f7f"),
-    (7, 0.3, "3137c91dff82c051"),
+    (1, 1.0, "4609b7fc2222fd40"),
+    (42, 1.0, "5c5f378d4db756fc"),
+    (7, 0.3, "a90beb539cea307a"),
 ];
 
 #[test]
