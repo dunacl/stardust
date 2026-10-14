@@ -84,6 +84,7 @@ impl Launch {
                 "tier" => match value {
                     "classic" => launch.fidelity = Fidelity::Classic,
                     "standard" => launch.fidelity = Fidelity::Standard,
+                    "high" => launch.fidelity = Fidelity::High,
                     _ => {}
                 },
                 "scale" => match value {

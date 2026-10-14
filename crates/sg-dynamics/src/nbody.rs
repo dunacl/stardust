@@ -307,11 +307,14 @@ impl Default for Settings {
         Self {
             steps_per_orbit: 20.0,
             encounter_hill_radii: 3.0,
-            hermite_eta: 0.02,
+            hermite_eta: 0.01,
             ejection_distance_au: 1000.0,
         }
     }
 }
+
+/// The map's step is reconsidered every this many intervals.
+const STEP_REVIEW_INTERVAL: u64 = 32;
 
 /// Counts of the work done.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -320,6 +323,8 @@ pub struct Work {
     pub map_steps: u64,
     /// Steps of the Hermite scheme.
     pub hermite_steps: u64,
+    /// Intervals handed to the Hermite scheme.
+    pub intervals: u64,
 }
 
 /// Planets around a central mass, being integrated.
@@ -414,8 +419,33 @@ impl Integration {
         integration
     }
 
-    /// The map's step: a fixed fraction of the shortest orbital period. A
-    /// body on an unbound orbit does not set it.
+    /// The step the map should have for the orbits as they are now: a
+    /// fixed fraction of the shortest time any planet takes to round its
+    /// pericentre, `2π·√(q³/μ)`, the period of a circular orbit there. For
+    /// a circular orbit that is its period; for an elongated one it is
+    /// what the kicks must resolve (Wisdom & Holman's map loses accuracy
+    /// when a step spans much of a pericentre passage; Rauch & Holman
+    /// 1999, AJ 117, 1087). A body on an unbound orbit does not set it.
+    fn wanted_step(&self) -> f64 {
+        let shortest = self
+            .bodies
+            .iter()
+            .filter_map(|b| {
+                let mu = G * (self.star_mass_msun + b.mass_msun);
+                let el = elements_from_state(b.pos, b.vel, mu)?;
+                let q = el.a.0 * (1.0 - el.e.min(0.999));
+                Some(core::f64::consts::TAU * sqrt(q * q * q / mu))
+            })
+            .fold(f64::INFINITY, f64::min);
+        if shortest.is_finite() {
+            shortest / self.settings.steps_per_orbit
+        } else {
+            1.0
+        }
+    }
+
+    /// Sets the map's step and the pair factors for the bodies as they
+    /// are; called at the start and whenever a body is merged or lost.
     fn choose_step(&mut self) {
         // The mutual Hill radius of a pair is this factor times their mean
         // distance from the star: `((m₁+m₂)/(3M))^(1/3)·(r₁+r₂)/2`
@@ -431,23 +461,18 @@ impl Integration {
                 ));
             }
         }
-        let shortest = self
-            .bodies
-            .iter()
-            .filter_map(|b| {
-                let mu = G * (self.star_mass_msun + b.mass_msun);
-                let energy = 0.5 * dot(b.vel, b.vel) - mu / norm(b.pos);
-                (energy < 0.0).then(|| {
-                    let a = -0.5 * mu / energy;
-                    core::f64::consts::TAU * sqrt(a * a * a / mu)
-                })
-            })
-            .fold(f64::INFINITY, f64::min);
-        self.step_yr = if shortest.is_finite() {
-            shortest / self.settings.steps_per_orbit
-        } else {
-            1.0
-        };
+        self.step_yr = self.wanted_step();
+    }
+
+    /// Changes the map's step if the orbits have changed enough to need
+    /// it. Checked now and then, not every step: a symplectic map keeps
+    /// its good behaviour only while its step is constant, so the step is
+    /// changed rarely and by a clear margin.
+    fn revise_step(&mut self) {
+        let wanted = self.wanted_step();
+        if wanted < 0.7 * self.step_yr || wanted > 2.0 * self.step_yr {
+            self.step_yr = wanted;
+        }
     }
 
     /// The step of the symplectic map, yr.
@@ -750,8 +775,12 @@ impl Integration {
             if self.work.map_steps + self.work.hermite_steps >= limit {
                 return false;
             }
+            if (self.work.map_steps + self.work.intervals) % STEP_REVIEW_INTERVAL == 0 {
+                self.revise_step();
+            }
             if self.needs_hermite() {
                 self.hermite_interval();
+                self.work.intervals += 1;
             } else {
                 self.map_step();
                 self.remove_lost();
@@ -961,11 +990,13 @@ mod tests {
             Settings::default(),
         );
         let e0 = system.energy();
-        for _ in 0..(20 * 10) {
+        // Ten orbits, an interval at a time. (An interval is the map's
+        // step: a twentieth of the pericentre time, 0.4^1.5 yr.)
+        assert!((system.step_yr() - 0.4f64.powf(1.5) / 20.0).abs() < 1e-6);
+        while system.t_yr < 10.0 {
             system.hermite_interval();
         }
-        // Ten orbits.
-        assert!((system.t_yr - 10.0).abs() < 1e-3);
+        assert!((system.t_yr - 10.0).abs() < 0.02);
         assert!((system.energy() / e0 - 1.0).abs() < 1e-7);
         assert!(system.work.hermite_steps > 2000);
     }
@@ -1125,5 +1156,74 @@ mod tests {
             system
         };
         assert_eq!(run(), run());
+    }
+}
+
+#[cfg(test)]
+mod debug_tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "diagnostic"]
+    fn three_jupiters_energy_trace() {
+        let m = 318.0 * 3.003e-6;
+        let hill = (2.0 * m / 3.0f64).cbrt();
+        let ratio = (1.0 + 1.6 * hill) / (1.0 - 1.6 * hill);
+        let mut bodies = Vec::new();
+        for (k, phase) in [0.3, 2.1, 4.4].iter().enumerate() {
+            let a = 5.0 * ratio.powi(k as i32);
+            let el = Elements {
+                a: Au(a),
+                e: 0.01,
+                i: 0.005,
+                long_asc_node: 1.0 + k as f64,
+                arg_periapsis: 0.5 * k as f64,
+                mean_anomaly: *phase,
+            };
+            let (pos, vel) = state_from_elements(el, G * (1.0 + m));
+            bodies.push(Body {
+                id: k as u32,
+                mass_msun: m,
+                radius_au: 4.7e-4,
+                pos,
+                vel,
+            });
+        }
+        let mut sys = Integration::new(1.0, 0.00465, bodies, Settings::default());
+        let e0 = sys.energy();
+        let mut last = (0u64, 0u64, 0usize);
+        let mut prev = 0.0f64;
+        for k in 1..=40000 {
+            sys.advance(25.0 * f64::from(k), u64::MAX);
+            let err = (sys.energy() + sys.energy_removed) / e0 - 1.0;
+            let now = (sys.work.map_steps, sys.work.hermite_steps, sys.events.len());
+            let jump = (err - prev).abs() > 2e-4;
+            prev = err;
+            if jump || now.2 != last.2 {
+                println!(
+                    "t {:>8.0} err {:>10.2e} map +{} hermite +{} bodies {} step {:.4} events {:?}",
+                    sys.t_yr,
+                    err,
+                    now.0 - last.0,
+                    now.1 - last.1,
+                    sys.bodies.len(),
+                    sys.step_yr(),
+                    &sys.events[last.2..]
+                );
+                for b in &sys.bodies {
+                    let el = elements_from_state(b.pos, b.vel, G * (1.0 + b.mass_msun));
+                    println!(
+                        "     id {} r {:.3} {:?}",
+                        b.id,
+                        norm(b.pos),
+                        el.map(|e| (e.a.0, e.e))
+                    );
+                }
+            }
+            last = now;
+            if err.abs() > 5e-2 || sys.bodies.len() < 3 && k > 30000 {
+                break;
+            }
+        }
     }
 }

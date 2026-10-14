@@ -61,7 +61,18 @@ pub fn separation_in_hill_radii(a: &Orbiter, b: &Orbiter, star_mass_msun: f64) -
 /// (for circular orbits, `√a` weighted by mass).
 ///
 /// Returns the survivors ordered outward and the mergers in order.
-pub fn settle(mut planets: Vec<Orbiter>, star_mass_msun: f64) -> (Vec<Orbiter>, Vec<Merger>) {
+pub fn settle(planets: Vec<Orbiter>, star_mass_msun: f64) -> (Vec<Orbiter>, Vec<Merger>) {
+    settle_except(planets, star_mass_msun, |_, _| false)
+}
+
+/// [`settle`], leaving alone every pair for which `settled(inner, outer)`
+/// is true: pairs whose fate has been found some other way, such as by
+/// integrating their orbits.
+pub fn settle_except(
+    mut planets: Vec<Orbiter>,
+    star_mass_msun: f64,
+    settled: impl Fn(&Orbiter, &Orbiter) -> bool,
+) -> (Vec<Orbiter>, Vec<Merger>) {
     let mut mergers = Vec::new();
     planets.sort_by(|x, y| x.a_au.total_cmp(&y.a_au).then(x.id.cmp(&y.id)));
     loop {
@@ -79,7 +90,7 @@ pub fn settle(mut planets: Vec<Orbiter>, star_mass_msun: f64) -> (Vec<Orbiter>, 
                     separation_in_hill_radii(&pair[0], &pair[1], star_mass_msun),
                 )
             })
-            .filter(|(_, spacing)| *spacing < limit)
+            .filter(|(i, spacing)| *spacing < limit && !settled(&planets[*i], &planets[*i + 1]))
             .min_by(|x, y| x.1.total_cmp(&y.1));
         let Some((i, _)) = closest else {
             return (planets, mergers);

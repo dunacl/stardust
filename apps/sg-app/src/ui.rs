@@ -111,6 +111,14 @@ fn controls(ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTar
                  is modelled exactly as StarGen does; other stars, and all multiple systems, \
                  use modern stars and orbital-stability limits around it.",
             );
+        ui.radio_value(&mut fidelity, Fidelity::High, "High")
+            .on_hover_text(
+                "The Standard model, with the orbits of the massive planets followed directly \
+                 for up to a million years after the gas clears. Giants packed too closely \
+                 throw one another onto elongated orbits or out of the system, where the \
+                 Standard tier would merge them. Takes a few seconds when there are two or \
+                 more massive planets; otherwise it is the Standard tier.",
+            );
         ui.label(RichText::new(format!("model {MODEL_VERSION}")).color(MUTED));
     });
     if fidelity != state.fidelity {
@@ -123,6 +131,7 @@ fn controls(ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTar
         ) {
             (Fidelity::Classic, StellarModel::Fogg1985) => "Shown: Classic, as StarGen",
             (Fidelity::Classic, _) => "Shown: Classic accretion, evolved stars",
+            (Fidelity::High, _) => "Shown: High",
             _ => "Shown: Standard",
         };
         ui.label(RichText::new(shown).small().color(MUTED));
@@ -176,7 +185,7 @@ fn controls(ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTar
         }
     });
 
-    if state.fidelity == Fidelity::Standard {
+    if state.fidelity != Fidelity::Classic {
         standard_controls(ui, state);
     } else {
         classic_controls(ui, state);

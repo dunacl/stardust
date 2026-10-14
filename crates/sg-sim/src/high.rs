@@ -1,29 +1,26 @@
-//! The High tier's late stage: the planets left when the gas clears are
-//! integrated as an N-body system (PLAN.md §5.7), in place of the Standard
-//! tier's stability rule.
+//! The High tier's late stage: the massive planets left when the gas
+//! clears are integrated as an N-body system (PLAN.md §5.7, D52), in place
+//! of the Standard tier's stability rule for them.
 //!
-//! What this does and does not represent:
+//! Why only the massive ones. Giant planets have long orbits and strong
+//! mutual pulls: packed too closely they scatter one another within
+//! thousands to millions of years, which a few seconds of integration can
+//! follow, and the outcome (one thrown out, the other left on an eccentric
+//! orbit) is something no merging rule gives. Small planets close to the
+//! star are the opposite case: orbits of days, and spacings so wide in
+//! their own Hill radii that nothing happens in any span that could be
+//! integrated (PLAN.md D50). They are left out of the integration, and
+//! their fate is decided as in the Standard tier, except that those lying
+//! in the path of a giant are removed.
 //!
-//! - The integration starts from the growth model's planets on nearly
-//!   circular, nearly coplanar orbits with random phases. The growth
-//!   model holds neighbours in resonant chains by rule, not by dynamics,
-//!   so the chains are **not** in true resonance here: their fate is that
-//!   of closely packed planets without resonant protection. Simulations
-//!   that do follow the resonances find that most chains break after the
-//!   gas goes anyway (Izidoro et al. 2017, MNRAS 470, 1750: about nine in
-//!   ten), so the outcome is in the observed direction, for a cruder
-//!   reason.
-//! - The span integrated is limited by a step budget. Close-in planets
-//!   complete an orbit in days, so a million years of them is far beyond
-//!   an interactive run; what is integrated is the first part of the late
-//!   stage, where closely packed systems go unstable (the time to
-//!   instability grows exponentially with spacing: Chambers, Wetherill &
-//!   Boss 1996, Icarus 119, 261). Systems still intact at the end are
-//!   reported as such, not as stable for ever.
-//! - Only the central mass's gravity and the planets' own: no companion
-//!   star, no tides, no relativity, no leftover planetesimals.
+//! What this does not represent: resonances between the giants (the growth
+//! model's chains are held by rule, and the integration starts from random
+//! phases); the effect of the small planets and leftover planetesimals on
+//! the giants; a companion star; tides; relativity. A system still intact
+//! at the end of the span is reported as that, not as stable for ever.
 
-use sg_core::math::{ln, sqrt};
+use sg_core::constants::SOLAR_MASS_IN_EARTH_MASSES;
+use sg_core::math::{cbrt, ln, sqrt};
 use sg_core::rng::RngStream;
 use sg_core::units::Au;
 use sg_dynamics::kepler::Elements;
@@ -45,6 +42,8 @@ pub(crate) struct Start {
 pub(crate) enum Lost {
     IntoStar,
     Ejected,
+    /// Swallowed by a giant whose path it lay in (small planets only).
+    IntoGiant,
 }
 
 /// The state of the bodies at one moment: id, semi-major axis (AU),
@@ -54,8 +53,13 @@ pub(crate) type Frame = Vec<(u32, f64, f64, f64)>;
 /// What the integration found.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct LateStage {
-    /// The survivors' orbits.
-    pub orbits: Vec<(u32, Elements)>,
+    /// The planets that were integrated.
+    pub active: Vec<u32>,
+    /// The orbits and masses (M☉) of those that survived.
+    pub orbits: Vec<(u32, Elements, f64)>,
+    /// The planets left out of the integration and not removed by it: id,
+    /// semi-major axis (AU), mass (M☉).
+    pub passive: Vec<(u32, f64, f64)>,
     /// Mergers in order, with the time since the start, years.
     pub mergers: Vec<(f64, u32, u32)>,
     pub lost: Vec<(f64, u32, Lost)>,
@@ -87,16 +91,45 @@ fn frame_of(integration: &Integration) -> Frame {
     frame
 }
 
-/// Integrates the planets of one disk for the span and step budget of
-/// `params`. `frame_count` states are recorded on the way.
+/// A small planet within this many of a giant's Hill radii of the range of
+/// distances the giant covers is removed: `2√3`, the width of the zone a
+/// planet clears on a circular orbit (Gladman 1993, Icarus 106, 247).
+const SWEPT_HILL: f64 = 3.464;
+
+/// What becomes of a small planet in a giant's path: thrown out if the
+/// giant's escape speed exceeds the orbital speed there, swallowed
+/// otherwise (the Safronov number, as for leftover planetesimals in
+/// `sg_dynamics::late::ring_fate`).
+fn swept_fate(giant_mass: f64, giant_radius_au: f64, a_au: f64, star_mass: f64) -> Lost {
+    let escape_over_orbital_sq = 2.0 * (giant_mass / star_mass) * (a_au / giant_radius_au);
+    if escape_over_orbital_sq > 1.0 {
+        Lost::Ejected
+    } else {
+        Lost::IntoGiant
+    }
+}
+
+/// Integrates the massive planets of one disk for the span and step
+/// budget of `params`, and removes the small planets left in their path.
+/// `None` if fewer than two planets are massive enough: there is then
+/// nothing to integrate. `frame_count` states are recorded on the way.
 pub(crate) fn integrate(
-    starts: &[Start],
+    all: &[Start],
     star_mass_msun: f64,
     star_radius_au: f64,
     rng: &mut RngStream,
     params: &HighParams,
     frame_count: u32,
-) -> LateStage {
+) -> Option<LateStage> {
+    let threshold = params.active_mass_mearth / SOLAR_MASS_IN_EARTH_MASSES;
+    let starts: Vec<Start> = all
+        .iter()
+        .copied()
+        .filter(|s| s.mass_msun >= threshold)
+        .collect();
+    if starts.len() < 2 {
+        return None;
+    }
     // Orbits as the gas leaves them: damped, so nearly circular and flat.
     // Eccentricities and inclinations are Rayleigh distributed, as for a
     // relaxed swarm (Ida & Makino 1992, Icarus 96, 107).
@@ -156,16 +189,45 @@ pub(crate) fn integrate(
             Event::Ejected { t_yr, id } => lost.push((t_yr, id, Lost::Ejected)),
         }
     }
-    let mut orbits: Vec<(u32, Elements)> = integration
+    let mut orbits: Vec<(u32, Elements, f64)> = integration
         .bodies
         .iter()
         .filter_map(|b| {
             let mu = G * (star_mass_msun + b.mass_msun);
-            nbody::elements_from_state(b.pos, b.vel, mu).map(|el| (b.id, el))
+            nbody::elements_from_state(b.pos, b.vel, mu).map(|el| (b.id, el, b.mass_msun))
         })
         .collect();
     orbits.sort_by(|x, y| x.1.a.0.total_cmp(&y.1.a.0));
-    LateStage {
+
+    // The small planets: gone if a giant's orbit now passes their way.
+    let mut passive = Vec::new();
+    for small in all.iter().filter(|s| s.mass_msun < threshold) {
+        let sweeper = orbits.iter().find(|(_, el, mass)| {
+            // The Hill radius scales with distance from the star: it is
+            // taken at the giant's nearest and farthest points.
+            let hill = SWEPT_HILL * cbrt(mass / (3.0 * star_mass_msun));
+            let nearest = el.a.0 * (1.0 - el.e);
+            let farthest = el.a.0 * (1.0 + el.e);
+            small.a_au > nearest * (1.0 - hill) && small.a_au < farthest * (1.0 + hill)
+        });
+        match sweeper {
+            Some((giant, _, mass)) => {
+                let radius = integration
+                    .bodies
+                    .iter()
+                    .find(|b| b.id == *giant)
+                    .map_or(small.radius_au, |b| b.radius_au);
+                match swept_fate(*mass, radius, small.a_au, star_mass_msun) {
+                    Lost::IntoGiant => mergers.push((span_yr, *giant, small.id)),
+                    fate => lost.push((span_yr, small.id, fate)),
+                }
+            }
+            None => passive.push((small.id, small.a_au, small.mass_msun)),
+        }
+    }
+    Some(LateStage {
+        active: starts.iter().map(|s| s.id).collect(),
+        passive,
         orbits,
         mergers,
         lost,
@@ -174,7 +236,7 @@ pub(crate) fn integrate(
         span_yr,
         steps: integration.work.map_steps + integration.work.hermite_steps,
         energy_error,
-    }
+    })
 }
 
 #[cfg(test)]
@@ -190,7 +252,13 @@ mod tests {
             id,
             a_au,
             mass_msun: mass_mearth * MSUN_PER_MEARTH,
-            radius_au: EARTH_RADIUS_AU * mass_mearth.cbrt(),
+            // Giants are far less dense than rock: Jupiter is 11 Earth radii.
+            radius_au: EARTH_RADIUS_AU
+                * if mass_mearth > 50.0 {
+                    11.0
+                } else {
+                    mass_mearth.cbrt()
+                },
         }
     }
 
@@ -202,66 +270,110 @@ mod tests {
         }
     }
 
-    #[test]
-    fn well_spaced_planets_survive_unchanged() {
-        // Venus, Earth and Mars: tens of Hill radii apart.
-        let starts = [
-            start(1, 0.723, 0.815),
-            start(2, 1.0, 1.0),
-            start(3, 1.524, 0.107),
-        ];
-        let mut rng = RngStream::new(7, ModuleId::DYNAMICS);
-        let out = integrate(&starts, 1.0, 0.00465, &mut rng, &params(0.002, u64::MAX), 4);
-        assert_eq!(out.orbits.len(), 3);
-        assert!(out.mergers.is_empty() && out.lost.is_empty());
-        assert_eq!(out.integrated_yr, 2000.0);
-        assert_eq!(out.frames.len(), 4);
-        for ((id, el), s) in out.orbits.iter().zip(&starts) {
-            assert_eq!(*id, s.id);
-            assert!((el.a.0 / s.a_au - 1.0).abs() < 0.01 && el.e < 0.1);
-        }
-        assert!(out.energy_error < 1e-6, "{}", out.energy_error);
+    fn run(starts: &[Start], seed: u64, p: &HighParams, frames: u32) -> Option<LateStage> {
+        let mut rng = RngStream::new(seed, ModuleId::DYNAMICS);
+        integrate(starts, 1.0, 0.00465, &mut rng, p, frames)
     }
 
     #[test]
-    fn a_packed_chain_of_small_planets_merges_into_fewer() {
-        // Eight half-Earths five mutual Hill radii apart near 0.1 AU:
-        // unstable within thousands of orbits (Chambers et al. 1996).
-        let hill = (2.0 * 0.5 * MSUN_PER_MEARTH / 3.0f64).cbrt();
-        let ratio = (1.0 + 2.5 * hill) / (1.0 - 2.5 * hill);
-        let starts: Vec<Start> = (0..8)
-            .map(|k| start(k, 0.1 * ratio.powi(k as i32), 0.5))
-            .collect();
-        let mass_before: f64 = starts.iter().map(|s| s.mass_msun).sum();
-        let mut rng = RngStream::new(11, ModuleId::DYNAMICS);
-        let out = integrate(
-            &starts,
-            1.0,
-            0.00465,
-            &mut rng,
-            &params(0.02, 60_000_000),
-            8,
+    fn nothing_is_integrated_without_two_massive_planets() {
+        // Small planets only, and a lone giant among them.
+        let small = [start(1, 0.1, 0.5), start(2, 0.2, 1.0), start(3, 1.0, 3.0)];
+        assert!(run(&small, 1, &params(0.01, u64::MAX), 4).is_none());
+        let one_giant = [start(1, 0.1, 0.5), start(2, 5.0, 300.0)];
+        assert!(run(&one_giant, 1, &params(0.01, u64::MAX), 4).is_none());
+    }
+
+    #[test]
+    fn jupiter_and_saturn_stay_and_the_terrestrial_planets_are_left_alone() {
+        let starts = [
+            start(1, 0.387, 0.055),
+            start(2, 0.723, 0.815),
+            start(3, 1.0, 1.0),
+            start(4, 1.524, 0.107),
+            start(5, 5.203, 317.8),
+            start(6, 9.537, 95.2),
+        ];
+        let out = run(&starts, 7, &params(0.02, u64::MAX), 4).expect("two giants");
+        assert_eq!(out.active, vec![5, 6]);
+        assert_eq!(out.orbits.len(), 2);
+        assert!(out.mergers.is_empty() && out.lost.is_empty());
+        assert_eq!(out.integrated_yr, 20_000.0);
+        for ((id, el, _), s) in out.orbits.iter().zip(&starts[4..]) {
+            assert_eq!(*id, s.id);
+            assert!((el.a.0 / s.a_au - 1.0).abs() < 0.02 && el.e < 0.12);
+        }
+        // The four small planets are passed through untouched.
+        let ids: Vec<u32> = out.passive.iter().map(|p| p.0).collect();
+        assert_eq!(ids, vec![1, 2, 3, 4]);
+        assert!(out.energy_error < 1e-5, "{}", out.energy_error);
+        assert_eq!(out.frames.len(), 4);
+    }
+
+    #[test]
+    fn giants_packed_too_closely_scatter() {
+        // Three Jupiters four mutual Hill radii apart: unstable within a
+        // few thousand years (Chambers et al. 1996; Chatterjee et al.
+        // 2008, ApJ 686, 580 for the outcome).
+        let hill = (2.0 * 318.0 * MSUN_PER_MEARTH / 3.0f64).cbrt();
+        let ratio = (1.0 + 2.0 * hill) / (1.0 - 2.0 * hill);
+        let starts = [
+            start(1, 5.0, 318.0),
+            start(2, 5.0 * ratio, 318.0),
+            start(3, 5.0 * ratio * ratio, 318.0),
+            // An Earth between where the giants roam, and one far inside.
+            start(4, 4.0, 1.0),
+            start(5, 0.3, 1.0),
+        ];
+        let out = run(&starts, 3, &params(1.0, 30_000_000), 6).expect("giants");
+        // Something gave: a giant lost or merged, or orbits made eccentric.
+        let eccentric = out.orbits.iter().any(|(_, el, _)| el.e > 0.1);
+        assert!(
+            out.orbits.len() < 3 || eccentric,
+            "nothing happened: {:?}",
+            out.orbits
         );
-        assert!(!out.mergers.is_empty(), "nothing merged: {out:?}");
-        assert!(out.orbits.len() < 8);
-        // Mass is conserved among survivors and what was lost.
-        let survivors: f64 = out.frames.last().unwrap().iter().map(|b| b.3).sum();
-        assert!(survivors <= mass_before * (1.0 + 1e-12));
-        if out.lost.is_empty() {
-            assert!((survivors / mass_before - 1.0).abs() < 1e-12);
+        // The Earth among the giants is gone; the one at 0.3 AU is not
+        // (unless a giant was thrown that far in).
+        assert!(!out.passive.iter().any(|p| p.0 == 4));
+        let innermost_reach = out
+            .orbits
+            .iter()
+            .map(|(_, el, _)| el.a.0 * (1.0 - el.e))
+            .fold(f64::INFINITY, f64::min);
+        if innermost_reach > 0.5 {
+            assert!(out.passive.iter().any(|p| p.0 == 5));
         }
-        // Merger times are in order and within the span.
-        for pair in out.mergers.windows(2) {
-            assert!(pair[0].0 <= pair[1].0);
-        }
-        assert!(out.energy_error < 1e-3, "{}", out.energy_error);
+        // A million years of three Jupiters throwing one another about,
+        // through to an ejection: the energy error measured here is
+        // 1.4–3.5 thousandths whatever the integrator's settings (tried:
+        // encounter radius 3 and 4 Hill radii, Hermite accuracy 0.005 and
+        // 0.01, 20 and 30 steps per orbit). That is the level at which
+        // scattering experiments are usually accepted, not a high-accuracy
+        // result.
+        assert!(out.energy_error < 5e-3, "{}", out.energy_error);
+    }
+
+    #[test]
+    fn a_small_planet_in_a_giants_path_is_thrown_out_or_swallowed() {
+        // Jupiter at 5 AU throws things out; the same planet at 0.05 AU,
+        // where orbits are fast, swallows them.
+        let jupiter_radius = 11.0 * EARTH_RADIUS_AU;
+        let jupiter_mass = 318.0 * MSUN_PER_MEARTH;
+        assert_eq!(
+            swept_fate(jupiter_mass, jupiter_radius, 5.0, 1.0),
+            Lost::Ejected
+        );
+        assert_eq!(
+            swept_fate(jupiter_mass, jupiter_radius, 0.05, 1.0),
+            Lost::IntoGiant
+        );
     }
 
     #[test]
     fn the_step_budget_stops_the_run_and_is_reported() {
-        let starts = [start(1, 0.05, 1.0), start(2, 0.3, 1.0)];
-        let mut rng = RngStream::new(3, ModuleId::DYNAMICS);
-        let out = integrate(&starts, 1.0, 0.00465, &mut rng, &params(1.0, 10_000), 5);
+        let starts = [start(1, 0.05, 300.0), start(2, 0.3, 300.0)];
+        let out = run(&starts, 3, &params(1.0, 10_000), 5).expect("giants");
         assert!(out.steps <= 10_000 + 5);
         assert!(out.integrated_yr < 0.01 * out.span_yr);
         // Frames are still recorded, repeating the last state reached.
@@ -271,11 +383,12 @@ mod tests {
 
     #[test]
     fn the_same_seed_gives_the_same_late_stage() {
-        let starts = [start(1, 0.2, 2.0), start(2, 0.26, 3.0), start(3, 0.33, 1.0)];
-        let run = || {
-            let mut rng = RngStream::new(5, ModuleId::DYNAMICS);
-            integrate(&starts, 0.8, 0.004, &mut rng, &params(0.001, 2_000_000), 3)
-        };
-        assert_eq!(run(), run());
+        let starts = [
+            start(1, 2.0, 200.0),
+            start(2, 2.6, 300.0),
+            start(3, 3.3, 100.0),
+        ];
+        let p = params(0.001, 2_000_000);
+        assert_eq!(run(&starts, 5, &p, 3), run(&starts, 5, &p, 3));
     }
 }

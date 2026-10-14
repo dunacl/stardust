@@ -82,6 +82,7 @@ enum PresetArg {
 enum TierArg {
     Standard,
     Classic,
+    High,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -255,6 +256,7 @@ pub fn launch() -> Launch {
         fidelity: match args.tier {
             TierArg::Standard => Fidelity::Standard,
             TierArg::Classic => Fidelity::Classic,
+            TierArg::High => Fidelity::High,
         },
         scale: match args.scale {
             ScaleArg::True => ScaleMode::True,

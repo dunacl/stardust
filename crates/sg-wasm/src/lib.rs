@@ -33,7 +33,8 @@ pub extern "C" fn sg_classic_result_hash(seed: u64, mass_msun: f64) -> u64 {
 }
 
 /// Fingerprint of a preset's run: `preset` is an index into
-/// [`sg_sim::ALL_PRESETS`], `tier` is 0 for Classic and 1 for Standard.
+/// [`sg_sim::ALL_PRESETS`], `tier` is 0 for Classic, 1 for Standard and 2
+/// for High.
 /// Returns 0 if either is out of range or the run fails. This is how the
 /// multiple-star path and the Standard tier are compared across targets.
 pub fn preset_result_hash(seed: u64, preset: u32, tier: u32) -> u64 {
@@ -43,6 +44,7 @@ pub fn preset_result_hash(seed: u64, preset: u32, tier: u32) -> u64 {
     let fidelity = match tier {
         0 => Fidelity::Classic,
         1 => Fidelity::Standard,
+        2 => Fidelity::High,
         _ => return 0,
     };
     match sg_sim::simulate(&sg_sim::preset_params(*id, seed, fidelity)) {
@@ -66,10 +68,10 @@ mod tests {
         // Index 5 is the circumbinary preset.
         assert_eq!(sg_sim::ALL_PRESETS[5], sg_schema::PresetId::Circumbinary);
         let h = preset_result_hash(42, 5, 0);
-        assert_eq!(format!("{h:016x}"), "7557d91e9b3f64f4");
+        assert_eq!(format!("{h:016x}"), "018963be08950c49");
         // The same preset in the Standard tier.
         let h = preset_result_hash(42, 5, 1);
-        assert_eq!(format!("{h:016x}"), "e87d481c36e2e823");
+        assert_eq!(format!("{h:016x}"), "4a28b378fc8fc3d5");
         assert_eq!(preset_result_hash(42, 99, 0), 0);
         assert_eq!(preset_result_hash(42, 5, 7), 0);
     }

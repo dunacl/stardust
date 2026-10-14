@@ -169,14 +169,16 @@ pub struct FormationParams {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct HighParams {
+    /// Planets at least this massive, in Earth masses, are integrated;
+    /// lighter ones are treated as in the Standard tier.
+    pub active_mass_mearth: f64,
     /// Time to integrate after the gas clears, Myr.
     pub integration_myr: f64,
     /// Most integrator steps to spend per disk; the run stops early, and
     /// says so, when they are used up. This, not the clock, bounds the
-    /// run, so results do not depend on the machine. Two million steps
-    /// take about twenty seconds for two dozen planets on a 2025 desktop,
-    /// and cover a few thousand years when the innermost orbit is a few
-    /// days long.
+    /// run, so results do not depend on the machine. For a handful of
+    /// giants five million steps take a second or two, and cover a
+    /// quarter of a million years when the innermost orbits at 1 AU.
     pub max_steps: u64,
     /// Scale of the planets' eccentricities when the gas clears.
     pub initial_eccentricity: f64,
@@ -187,8 +189,9 @@ pub struct HighParams {
 impl Default for HighParams {
     fn default() -> Self {
         Self {
-            integration_myr: 0.1,
-            max_steps: 2_000_000,
+            active_mass_mearth: 10.0,
+            integration_myr: 1.0,
+            max_steps: 5_000_000,
             initial_eccentricity: 0.01,
             initial_inclination_deg: 0.3,
         }

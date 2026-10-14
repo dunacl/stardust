@@ -5,7 +5,7 @@ A simulator of how planetary systems form: pick a kind of star, press
 finished system. It runs as a desktop app and in a browser.
 
 Stardust succeeds the C program [StarGen](https://github.com/dunacl/stargen)
-and keeps a faithful port of it as one of two formation models:
+and keeps a faithful port of it as one of three formation models:
 
 - **Standard**: a modern model. A gas disk drains and clears; planet cores
   grow by sweeping up planetesimals and pebbles; the heaviest pull in gas
@@ -15,7 +15,11 @@ and keeps a faithful port of it as one of two formation models:
 - **Classic**: the Dole/StarGen accretion model of 1970–2000, reproduced
   seed for seed against the original C code.
 
-Both work around one, two or three stars.
+- **High**: the Standard model, with the giant planets' orbits followed
+  directly for up to a million years after the gas clears, so that giants
+  packed too closely scatter one another. A few seconds where it applies.
+
+All work around one, two or three stars.
 
 | | |
 |---|---|
@@ -42,6 +46,7 @@ Some things to try:
 make run PRESET=hot-jupiter SEED=2          # a giant on a four-day orbit
 make run PRESET=circumbinary SCALE=schematic  # planets around two suns
 make run TIER=classic                       # the StarGen model
+make run TIER=high SEED=345                 # giants that scatter one another
 make sim SEED=7                             # one system as text
 make validate                               # 3000 systems vs exoplanet surveys
 make shots OFFSCREEN=1                      # reference pictures into target/shots

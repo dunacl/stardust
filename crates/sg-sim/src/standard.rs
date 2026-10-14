@@ -82,8 +82,10 @@ const KM_PER_AU: f64 = 1.495_978_707e8;
 const SOLAR_RADIUS_AU: f64 = 0.004_650_47;
 /// States of the N-body stage recorded for playback.
 const NBODY_FRAMES: u32 = 12;
-/// An integration whose energy error exceeds this is reported.
-const NBODY_ENERGY_TOLERANCE: f64 = 1.0e-3;
+/// An integration whose energy error exceeds this is reported. Violent
+/// scattering of giants over a million years measures 1.4–3.5 thousandths
+/// here (`high.rs` tests); beyond five the result should not be trusted.
+const NBODY_ENERGY_TOLERANCE: f64 = 5.0e-3;
 
 /// Distance within which a planet is lost to what it orbits: the star's
 /// radius, or around a pair of stars the inner limit of stable orbits.
@@ -438,58 +440,87 @@ pub(crate) fn simulate(
         steps += outcome.steps;
         // After the gas: the High tier integrates the orbits; the Standard
         // tier applies its stability rule.
-        let nbody = high_tier.then(|| {
-            let starts: Vec<high::Start> = outcome
-                .planets
-                .iter()
-                .map(|p| {
-                    let makeup = Makeup {
-                        core_mearth: earths(p.core_msun),
-                        envelope_mearth: earths(p.envelope_msun),
-                        water_fraction: (p.water_msun / p.core_msun).clamp(0.0, 1.0),
-                    };
-                    let flux = sg_planet::flux_earth(plan.luminosity_lsun, p.a_au);
-                    // Sizes when the gas clears, a few million years in.
-                    let radius = sg_planet::radius(&makeup, flux, YOUNG_AGE_GYR);
-                    high::Start {
-                        id: p.id,
-                        a_au: p.a_au,
-                        mass_msun: p.mass_msun(),
-                        radius_au: radius * EARTH_RADIUS_KM / KM_PER_AU,
-                    }
-                })
-                .collect();
-            high::integrate(
-                &starts,
-                plan.central_mass_msun,
-                central_radius_au(&plan, &system),
-                &mut dynamics_rng,
-                &params.formation.high,
-                NBODY_FRAMES,
-            )
-        });
-        let (settled, late): (Vec<Orbiter>, Vec<late::Merger>) = match &nbody {
-            Some(stage) => (
-                stage
+        let mut nbody = high_tier
+            .then(|| {
+                let starts: Vec<high::Start> = outcome
+                    .planets
+                    .iter()
+                    .map(|p| {
+                        let makeup = Makeup {
+                            core_mearth: earths(p.core_msun),
+                            envelope_mearth: earths(p.envelope_msun),
+                            water_fraction: (p.water_msun / p.core_msun).clamp(0.0, 1.0),
+                        };
+                        let flux = sg_planet::flux_earth(plan.luminosity_lsun, p.a_au);
+                        // Sizes when the gas clears, a few million years in.
+                        let radius = sg_planet::radius(&makeup, flux, YOUNG_AGE_GYR);
+                        high::Start {
+                            id: p.id,
+                            a_au: p.a_au,
+                            mass_msun: p.mass_msun(),
+                            radius_au: radius * EARTH_RADIUS_KM / KM_PER_AU,
+                        }
+                    })
+                    .collect();
+                high::integrate(
+                    &starts,
+                    plan.central_mass_msun,
+                    central_radius_au(&plan, &system),
+                    &mut dynamics_rng,
+                    &params.formation.high,
+                    NBODY_FRAMES,
+                )
+            })
+            .flatten();
+        let (settled, late): (Vec<Orbiter>, Vec<late::Merger>) = match &mut nbody {
+            Some(stage) => {
+                // The integrated planets as they ended, the small ones as
+                // they were; the stability rule then applies to every pair
+                // but those the integration has already settled.
+                let mut orbiters: Vec<Orbiter> = stage
                     .orbits
                     .iter()
-                    .map(|(id, el)| Orbiter {
+                    .map(|(id, el, mass)| Orbiter {
                         id: *id,
                         a_au: el.a.0,
-                        // Not used below: masses come from the embryos.
-                        mass_msun: 0.0,
+                        mass_msun: *mass,
                     })
-                    .collect(),
+                    .collect();
+                orbiters.extend(stage.passive.iter().map(|(id, a_au, mass)| Orbiter {
+                    id: *id,
+                    a_au: *a_au,
+                    mass_msun: *mass,
+                }));
+                let active = stage.active.clone();
+                let (settled, by_rule) =
+                    late::settle_except(orbiters, plan.central_mass_msun, |x, y| {
+                        active.contains(&x.id) && active.contains(&y.id)
+                    });
+                // Mergers by rule have no time of their own: they are put
+                // at the end of the span.
+                let span = stage.span_yr;
                 stage
+                    .mergers
+                    .extend(by_rule.iter().map(|m| (span, m.survivor, m.absorbed)));
+                let all = stage
                     .mergers
                     .iter()
                     .map(|(_, survivor, absorbed)| late::Merger {
                         survivor: *survivor,
                         absorbed: *absorbed,
                     })
-                    .collect(),
-            ),
+                    .collect();
+                (settled, all)
+            }
             None => {
+                if high_tier {
+                    warnings.push(format!(
+                        "{}: fewer than two planets of {} Earth masses or more, so no orbits \
+                         were integrated; the late stage is the Standard tier's",
+                        host_label(&system_name, &plan.designation),
+                        params.formation.high.active_mass_mearth
+                    ));
+                }
                 let orbiters: Vec<Orbiter> = outcome
                     .planets
                     .iter()
@@ -551,8 +582,8 @@ pub(crate) fn simulate(
                         stage
                             .orbits
                             .iter()
-                            .find(|(id, _)| *id == orbiter.id)
-                            .map(|(_, el)| *el)
+                            .find(|(id, _, _)| *id == orbiter.id)
+                            .map(|(_, el, _)| *el)
                     }),
                 })
             })
@@ -874,7 +905,11 @@ fn timeline(
                     for (t_yr, id, how) in &stage.lost {
                         let kind = match how {
                             high::Lost::IntoStar => EventKind::FellIntoStar { body: body(*id) },
-                            high::Lost::Ejected => EventKind::Ejected { body: body(*id) },
+                            // (Planets swallowed by a giant are among the
+                            // mergers, not here.)
+                            high::Lost::Ejected | high::Lost::IntoGiant => {
+                                EventKind::Ejected { body: body(*id) }
+                            }
                         };
                         events.push((myr(end_yr + t_yr), index, kind));
                     }
@@ -939,7 +974,21 @@ fn timeline(
     for k in 0..frame_count.saturating_sub(1) {
         let mut all: Vec<KeyframeBody> = Vec::new();
         for result in results {
-            let Some(frame) = result.nbody.as_ref().and_then(|stage| stage.frames.get(k)) else {
+            let Some(stage) = result.nbody.as_ref() else {
+                // A disk whose planets were not integrated: they wait as
+                // the growth model left them.
+                if let Some(frame) = result.outcome.frames.last() {
+                    all.extend(frame.bodies.iter().map(|(id, a_au, mass)| KeyframeBody {
+                        id: BodyId(id + result.id_offset),
+                        host: result.plan.host,
+                        a_au: *a_au,
+                        e: 0.0,
+                        mass_mearth: earths(*mass),
+                    }));
+                }
+                continue;
+            };
+            let Some(frame) = stage.frames.get(k) else {
                 continue;
             };
             all.extend(frame.iter().map(|(id, a_au, e, mass)| KeyframeBody {
@@ -947,6 +996,14 @@ fn timeline(
                 host: result.plan.host,
                 a_au: *a_au,
                 e: e.clamp(0.0, 0.999),
+                mass_mearth: earths(*mass),
+            }));
+            // The small planets, which were not integrated.
+            all.extend(stage.passive.iter().map(|(id, a_au, mass)| KeyframeBody {
+                id: BodyId(id + result.id_offset),
+                host: result.plan.host,
+                a_au: *a_au,
+                e: 0.0,
                 mass_mearth: earths(*mass),
             }));
         }
