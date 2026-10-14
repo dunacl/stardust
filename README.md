@@ -21,7 +21,7 @@ Both work around one, two or three stars.
 |---|---|
 | Where things stand | [`docs/PROGRESS.md`](docs/PROGRESS.md) |
 | Plan, science model, decisions | [`PLAN.md`](PLAN.md) |
-| How the model compares with real planets | [`validation/report-0.5.0.md`](validation/report-0.5.0.md) |
+| How the model compares with real planets | [`validation/report-0.6.0.md`](validation/report-0.6.0.md) |
 | Rules for working in this repository | [`CLAUDE.md`](CLAUDE.md) |
 
 ## Quick start
