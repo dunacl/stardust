@@ -23,10 +23,13 @@ All work around one, two or three stars.
 
 | | |
 |---|---|
-| Where things stand | [`docs/PROGRESS.md`](docs/PROGRESS.md) |
-| Plan, science model, decisions | [`PLAN.md`](PLAN.md) |
+| Design decisions behind the architecture and the science | [`docs/adr/`](docs/adr/) |
 | How the model compares with real planets | [`validation/report-0.9.0.md`](validation/report-0.9.0.md) |
-| Rules for working in this repository | [`CLAUDE.md`](CLAUDE.md) |
+| Reporting a vulnerability | [`SECURITY.md`](SECURITY.md) |
+
+The project plan and working notes are not published. References in the code
+to `PLAN.md`, its decisions (`D18`) or sections (`§6.2`), and to `CLAUDE.md`,
+point at those private documents; the code and the ADRs stand without them.
 
 ## Quick start
 
@@ -129,7 +132,7 @@ docs/              progress, decision records, the Classic model's constants
 
 ## Licence
 
-Not yet chosen (see `PLAN.md` §14). The original StarGen is "free for your
+Not yet chosen, so for now no licence is granted. The original StarGen is "free for your
 use as long as you don't sell it"; its sources are not in this repository
 (they are a submodule), and the port of it, `sg-classic`, is kept separable
 so that the rest of the project can be built and licensed without it.

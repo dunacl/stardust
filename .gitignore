@@ -1,3 +1,14 @@
 /target
 .DS_Store
 /dist
+
+# Planning documents stay on this machine (see private/, never commit it).
+/private/
+/CLAUDE.md
+
+# Credentials must never enter the repository.
+.env
+.env.*
+*.pem
+*.key
+*.p12
