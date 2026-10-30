@@ -33,7 +33,7 @@ proptest = "1"
 # App shell and renderer only. Simulation crates must never depend on these
 # (PLAN.md §6.2, enforced by scripts/check-deps.sh). Pinned: Bevy breaks its
 # API every release, so upgrades happen in dedicated changes (PLAN.md §12).
-bevy = { version = "=0.20.0", default-features = false, features = [
+bevy = { version = "=0.20.1", default-features = false, features = [
     "default_app",
     "default_platform",
     "3d_bevy_render",
