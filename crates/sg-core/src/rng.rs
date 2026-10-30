@@ -29,6 +29,8 @@ impl ModuleId {
     pub const NAMES: ModuleId = ModuleId(8);
     /// Moons and rings.
     pub const MOONS: ModuleId = ModuleId(9);
+    /// Nuclei of the accretion model (the Classic tier).
+    pub const ACCRETION: ModuleId = ModuleId(10);
 }
 
 /// One SplitMix64 step (Steele, Lea & Flood 2014). Used only to spread the

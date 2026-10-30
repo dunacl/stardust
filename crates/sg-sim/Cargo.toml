@@ -11,7 +11,7 @@ license.workspace = true
 default = ["classic"]
 # The Classic tier derives from non-commercial code and must stay removable
 # (PLAN.md D18). Without this feature Fidelity::Classic returns an error.
-classic = ["dep:sg-classic"]
+classic = ["dep:sg-accrete"]
 
 [dependencies]
 sg-core.workspace = true
@@ -21,7 +21,7 @@ sg-dynamics.workspace = true
 sg-disk.workspace = true
 sg-formation.workspace = true
 sg-planet.workspace = true
-sg-classic = { workspace = true, optional = true }
+sg-accrete = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

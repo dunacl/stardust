@@ -11,7 +11,7 @@ license.workspace = true
 sg-core.workspace = true
 sg-schema.workspace = true
 sg-sim = { workspace = true, features = ["classic"] }
-sg-classic.workspace = true
+sg-accrete.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true

@@ -17,7 +17,7 @@ sg-disk = { path = "crates/sg-disk" }
 sg-formation = { path = "crates/sg-formation" }
 sg-dynamics = { path = "crates/sg-dynamics" }
 sg-planet = { path = "crates/sg-planet" }
-sg-classic = { path = "crates/sg-classic" }
+sg-accrete = { path = "crates/sg-accrete" }
 sg-sim = { path = "crates/sg-sim", default-features = false }
 sg-render = { path = "crates/sg-render" }
 

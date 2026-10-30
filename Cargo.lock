@@ -5220,6 +5220,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "sg-accrete"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "sg-core",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "sg-app"
 version = "0.1.0"
 dependencies = [
@@ -5234,15 +5243,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sg-classic"
-version = "0.1.0"
-dependencies = [
- "proptest",
- "sg-core",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "sg-cli"
 version = "0.1.0"
 dependencies = [
@@ -5250,7 +5250,7 @@ dependencies = [
  "clap",
  "serde",
  "serde_json",
- "sg-classic",
+ "sg-accrete",
  "sg-core",
  "sg-schema",
  "sg-sim",
@@ -5333,7 +5333,7 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
- "sg-classic",
+ "sg-accrete",
  "sg-core",
  "sg-disk",
  "sg-dynamics",
