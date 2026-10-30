@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: If you use Stardust in your work, please cite it as below.
+title: Stardust
+type: software
+abstract: A simulator of planetary-system formation for single, binary and triple stars.
+authors:
+  - family-names: Valencia
+    given-names: Jorge
+version: 0.1.0
+license: GPL-3.0-only

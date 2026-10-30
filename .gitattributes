@@ -1,0 +1,6 @@
+* text=auto eol=lf
+
+# Compared byte for byte.
+reference/golden/** -text
+crates/sg-stellar/tests/data/** -text
+validation/** -text

@@ -25,6 +25,7 @@ All work around one, two or three stars.
 |---|---|
 | Design decisions behind the architecture and the science | [`docs/adr/`](docs/adr/) |
 | How the model compares with real planets | [`validation/report-0.9.0.md`](validation/report-0.9.0.md) |
+| Contributing | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 | Reporting a vulnerability | [`SECURITY.md`](SECURITY.md) |
 
 The project plan and working notes are not published. References in the code
@@ -132,7 +133,8 @@ docs/              progress, decision records, the Classic model's constants
 
 ## Licence
 
-Not yet chosen, so for now no licence is granted. The original StarGen is "free for your
-use as long as you don't sell it"; its sources are not in this repository
-(they are a submodule), and the port of it, `sg-classic`, is kept separable
-so that the rest of the project can be built and licensed without it.
+GPL version 3 ([`LICENSE`](LICENSE)), except the parts derived from StarGen.
+The original is "free for your use as long as you don't sell it"; those terms
+still apply to its port, `sg-classic`, which is kept separable, and to the
+golden outputs. So builds that include the Classic tier must not be sold. See
+[`NOTICE.md`](NOTICE.md) for exactly what is covered.

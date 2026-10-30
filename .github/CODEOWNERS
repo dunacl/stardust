@@ -1,0 +1,3 @@
+# Reviewer for everything. GitHub matches an email only if it is verified on
+# an account with write access; replace it with @username if it does not.
+* @dunacl

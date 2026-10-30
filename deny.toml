@@ -18,8 +18,7 @@ ignore = [
 
 [licenses]
 version = 2
-# Permissive licences only. Copyleft stays out, so that the licence of this
-# project is still an open choice. OFL-1.1 and Ubuntu-font-1.0 cover the fonts
+# Licences compatible with the project's GPL version 3 (see NOTICE.md). OFL-1.1 and Ubuntu-font-1.0 cover the fonts
 # embedded by egui.
 allow = [
     "0BSD",
@@ -40,7 +39,7 @@ allow = [
 ]
 unused-allowed-license = "allow"
 
-# The workspace's own crates are unpublished and have no licence yet.
+# The workspace's own crates are unpublished; their licence is in NOTICE.md.
 [licenses.private]
 ignore = true
 
