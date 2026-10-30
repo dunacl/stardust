@@ -18,7 +18,7 @@ ignore = [
 
 [licenses]
 version = 2
-# Licences compatible with the project's GPL version 3 (see NOTICE.md). OFL-1.1 and Ubuntu-font-1.0 cover the fonts
+# Permissive licences only, as the project's own is (see NOTICE.md). OFL-1.1 and Ubuntu-font-1.0 cover the fonts
 # embedded by egui.
 allow = [
     "0BSD",

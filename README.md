@@ -133,8 +133,8 @@ docs/              progress, decision records, the Classic model's constants
 
 ## Licence
 
-GPL version 3 ([`LICENSE`](LICENSE)), except the parts derived from StarGen.
-The original is "free for your use as long as you don't sell it"; those terms
-still apply to its port, `sg-classic`, which is kept separable, and to the
-golden outputs. So builds that include the Classic tier must not be sold. See
+Apache-2.0 ([`LICENSE`](LICENSE)), except the parts derived from StarGen. The
+original is "free for your use as long as you don't sell it"; those terms still
+apply to its port, `sg-classic`, which is kept separable, and to the golden
+outputs. So builds that include the Classic tier must not be sold. See
 [`NOTICE.md`](NOTICE.md) for exactly what is covered.
