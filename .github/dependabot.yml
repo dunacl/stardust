@@ -1,0 +1,17 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    # Bevy and bevy_egui are pinned and upgraded in dedicated changes.
+    ignore:
+      - dependency-name: bevy
+      - dependency-name: "bevy_*"
+    groups:
+      cargo:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

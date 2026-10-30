@@ -1,7 +1,7 @@
 # Stardust shortcuts. `make` or `make help` lists them.
 #
-# The checks themselves live in scripts/ (scripts/ci.sh is what hosted CI will
-# run); these targets only wrap them, so the two cannot drift apart.
+# The checks themselves live in scripts/ (scripts/ci.sh is what hosted CI
+# runs); these targets only wrap them, so the two cannot drift apart.
 
 # Prefer rustup's toolchain over any other cargo on PATH (see scripts/toolchain.sh).
 # The absolute path matters: GNU Make 3.81 (the one macOS ships) looks up simple
@@ -199,6 +199,10 @@ golden-check: ## Rebuild the C reference; confirm reference/golden is reproduced
 .PHONY: validate
 validate: ## Standard tier: 3000 systems compared with exoplanet surveys (prints the report)
 	$(CARGO) run -q --release -p sg-cli -- validate --count 3000
+
+.PHONY: security
+security: ## Private files, secrets, dependency advisories, licences, sources
+	scripts/check-security.sh
 
 .PHONY: check-math
 check-math: ## No platform-dependent maths in simulation code

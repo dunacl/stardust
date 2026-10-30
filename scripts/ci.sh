@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
-# The full local check suite. Hosted CI is not set up yet; when it is, it
-# should run exactly this script.
+# The full check suite: run it before committing. Hosted CI runs exactly this
+# script (.github/workflows/ci.yml), with the security checks as a job of
+# their own (SKIP_SECURITY=1 here, .github/workflows/security.yml there).
 
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -44,5 +45,10 @@ scripts/check-determinism.sh
 
 step "Classic tier against the golden reference"
 cargo run -q --release -p sg-cli -- compare-golden | tail -n 3
+
+if [ "${SKIP_SECURITY:-0}" != 1 ]; then
+  step "security: leaks, advisories, licences, sources"
+  scripts/check-security.sh
+fi
 
 printf '\nci: all checks passed\n'

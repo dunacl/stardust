@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+#
+# Stops a push that would upload private files or credentials: hosted CI only
+# sees them after they have left this machine. Enable once per clone with
+# `git config core.hooksPath .githooks`.
+
+exec scripts/check-security.sh --leaks
