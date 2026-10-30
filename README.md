@@ -111,7 +111,7 @@ reference/         how the stellar tables were generated
 validation/        reports comparing generated populations with surveys
 scripts/           the checks `make ci` runs
 web/               the page that hosts the browser build
-docs/              decision records, the Classic model's specification, bibliography
+docs/              decision records, the Classic model's specification
 ```
 
 ## Principles
