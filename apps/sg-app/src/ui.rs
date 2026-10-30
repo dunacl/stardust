@@ -9,7 +9,7 @@ use bevy_egui::EguiContexts;
 use sg_render::scene::system_extent;
 use sg_render::{layout, BodyPlacements, PointerCaptured, Quality, ScaleMode, Target};
 use sg_schema::{Fidelity, HostRef, PresetId, StarNode, SystemSpec};
-use sg_sim::{preset_availability, PresetAvailability, StellarModel, ALL_PRESETS, MODEL_VERSION};
+use sg_sim::{preset_availability, PresetAvailability, ALL_PRESETS, MODEL_VERSION};
 
 fn preset_name(preset: PresetId) -> &'static str {
     match preset {
@@ -70,9 +70,9 @@ fn system_controls(ui: &mut egui::Ui, system: &mut SystemSpec) {
             ..
         } => {
             mass_slider(ui, mass, "Star mass (M☉)");
-            if !(0.2..=1.5).contains(mass) {
+            if !(0.6..=1.3).contains(mass) {
                 ui.label(
-                    RichText::new("Outside StarGen's 0.2–1.5 M☉: the star is evolved instead.")
+                    RichText::new("Outside Fogg's 0.6–1.3 M☉: the Classic model is extrapolated.")
                         .small()
                         .color(MUTED),
                 );
@@ -107,9 +107,9 @@ fn controls(ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTar
             );
         ui.radio_value(&mut fidelity, Fidelity::Classic, "Classic")
             .on_hover_text(
-                "The Dole/StarGen accretion model of 1970–2000. A single star of 0.2–1.5 M☉ \
-                 is modelled exactly as StarGen does; other stars, and all multiple systems, \
-                 use modern stars and orbital-stability limits around it.",
+                "Dole's accretion model of 1969 with Fogg's extension of 1985, around modern \
+                 stars and orbital-stability limits. A historical method, not a description \
+                 of how planets form.",
             );
         ui.radio_value(&mut fidelity, Fidelity::High, "High")
             .on_hover_text(
@@ -125,14 +125,10 @@ fn controls(ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTar
         state.set_fidelity(fidelity);
     }
     if let Some(result) = targets.view.result() {
-        let shown = match (
-            result.diagnostics.fidelity,
-            result.diagnostics.stellar_model,
-        ) {
-            (Fidelity::Classic, StellarModel::Fogg1985) => "Shown: Classic, as StarGen",
-            (Fidelity::Classic, _) => "Shown: Classic accretion, evolved stars",
-            (Fidelity::High, _) => "Shown: High",
-            _ => "Shown: Standard",
+        let shown = match result.diagnostics.fidelity {
+            Fidelity::Classic => "Shown: Classic accretion, evolved stars",
+            Fidelity::High => "Shown: High",
+            Fidelity::Standard => "Shown: Standard",
         };
         ui.label(RichText::new(shown).small().color(MUTED));
     }
@@ -303,23 +299,23 @@ fn classic_controls(ui: &mut egui::Ui, state: &mut AppState) {
                 .logarithmic(true)
                 .text("Dust density A"),
         )
-        .on_hover_text("More dust: more and heavier planets. StarGen: 0.002.");
+        .on_hover_text("More dust: more and heavier planets. Dole: 0.0015.");
         ui.add(egui::Slider::new(&mut c.gas_dust_ratio, 10.0..=150.0).text("Gas/dust ratio K"))
-            .on_hover_text("How much gas a giant can capture per unit of dust. StarGen: 50.");
+            .on_hover_text("How much gas a giant can capture per unit of dust. Dole: 50.");
         ui.add(
             egui::Slider::new(&mut c.crit_mass_coeff_msun, 2.0e-6..=6.0e-5)
                 .logarithmic(true)
                 .text("Critical mass B (M☉)"),
         )
-        .on_hover_text("Mass above which a planet captures gas, at 1 AU. StarGen: 1.2e-5.");
+        .on_hover_text("Mass above which a planet captures gas, at 1 AU. Dole: 1.2e-5.");
         ui.add(egui::Slider::new(&mut c.cloud_eccentricity, 0.0..=0.5).text("Cloud eccentricity"))
-            .on_hover_text("Widens each nucleus's reach. StarGen: 0.2.");
+            .on_hover_text("Widens each nucleus's reach. Dole: 0.2–0.25.");
         ui.add(
             egui::Slider::new(&mut c.eccentricity_coeff, 0.02..=0.3).text("Eccentricity exponent"),
         )
-        .on_hover_text("Larger: more eccentric nuclei. StarGen: 0.077.");
+        .on_hover_text("Larger: more eccentric nuclei. Dole: 0.077.");
         ui.checkbox(&mut state.params.toggles.atmospheres, "Compute atmospheres");
-        if ui.button("Reset to StarGen's values").clicked() {
+        if ui.button("Reset to Dole's values").clicked() {
             *c = Default::default();
         }
     });

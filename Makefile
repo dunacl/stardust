@@ -19,7 +19,7 @@ COUNT  ?= 1000
 SHOTS  ?= target/shots
 PORT   ?= 8080
 
-SIM_CRATES := sg-core sg-stellar sg-disk sg-formation sg-dynamics sg-planet sg-classic sg-schema sg-sim
+SIM_CRATES := sg-core sg-stellar sg-disk sg-formation sg-dynamics sg-planet sg-accrete sg-schema sg-sim
 APP        := $(CARGO) run -q -p sg-app --
 # OFFSCREEN=1 draws screenshots into an image: no window needs to be visible.
 APP        += $(if $(OFFSCREEN),--offscreen,)
@@ -188,14 +188,6 @@ deps: ## Dependency rules: no Bevy in sim crates, Classic separable
 determinism: ## Native and wasm32 give identical hashes (needs Node.js)
 	scripts/check-determinism.sh
 
-.PHONY: golden
-golden: ## Classic tier vs the 450 golden systems of the C reference
-	$(CARGO) run -q --release -p sg-cli -- compare-golden
-
-.PHONY: golden-check
-golden-check: ## Rebuild the C reference; confirm reference/golden is reproduced
-	scripts/golden.sh --check
-
 .PHONY: validate
 validate: ## Standard tier: 3000 systems compared with exoplanet surveys (prints the report)
 	$(CARGO) run -q --release -p sg-cli -- validate --count 3000
@@ -207,10 +199,6 @@ security: ## Private files, secrets, dependency advisories, licences, sources
 .PHONY: check-math
 check-math: ## No platform-dependent maths in simulation code
 	scripts/check-math.sh
-
-.PHONY: golden-regen
-golden-regen: ## Rewrite reference/golden from the C reference (changes files)
-	scripts/golden.sh
 
 ##@ Housekeeping
 

@@ -291,7 +291,7 @@ fn params_fill_in_defaults() {
     assert_eq!(params.schema_version, SCHEMA_VERSION);
     assert_eq!(params.fidelity, Fidelity::Classic);
     assert_eq!(params.formation.classic.gas_dust_ratio, 80.0);
-    assert_eq!(params.formation.classic.dust_density_coeff, 2.0e-3);
+    assert_eq!(params.formation.classic.dust_density_coeff, 1.5e-3);
     assert!(params.toggles.atmospheres);
 }
 
@@ -319,9 +319,9 @@ fn wire_names_are_stable() {
     assert_eq!(timeline["events"][3]["t_myr"], 1.5);
 }
 
-/// The Classic defaults are StarGen's (PLAN.md §7.2).
+/// The Classic defaults are Dole's Set 4 (1969, Table 2).
 #[test]
-fn classic_defaults_match_stargen() {
+fn classic_defaults_are_doles_set_4() {
     let c = ClassicParams::default();
     assert_eq!(
         (
@@ -331,7 +331,7 @@ fn classic_defaults_match_stargen() {
             c.alpha,
             c.n
         ),
-        (2.0e-3, 50.0, 1.2e-5, 5.0, 3.0)
+        (1.5e-3, 50.0, 1.2e-5, 5.0, 3.0)
     );
     assert_eq!(
         (
@@ -339,6 +339,6 @@ fn classic_defaults_match_stargen() {
             c.cloud_eccentricity,
             c.protoplanet_mass_msun
         ),
-        (0.077, 0.2, 1.0e-15)
+        (0.077, 0.25, 1.0e-15)
     );
 }

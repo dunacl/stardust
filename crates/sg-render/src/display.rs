@@ -216,7 +216,8 @@ pub fn highlights_at(result: &SimulationResult, t_myr: f64, lookback_myr: f64) -
         return Vec::new();
     }
     let events = &result.timeline.events;
-    let start = events.partition_point(|e| e.t_myr < t_myr - lookback_myr);
+    // Half open, so that an event on the edge of two windows is seen once.
+    let start = events.partition_point(|e| e.t_myr <= t_myr - lookback_myr);
     let end = events.partition_point(|e| e.t_myr <= t_myr);
     let bodies = bodies_at(result, t_myr);
     events[start..end]

@@ -10,7 +10,7 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-SIM_CRATES="sg-core sg-stellar sg-disk sg-formation sg-dynamics sg-planet sg-classic sg-schema sg-sim"
+SIM_CRATES="sg-core sg-stellar sg-disk sg-formation sg-dynamics sg-planet sg-accrete sg-schema sg-sim"
 METHODS='exp|ln|powf|powi|log10|log2|log|sin|cos|tan|cbrt|exp_m1|ln_1p|atan2|asin|acos|atan|sinh|cosh|tanh|hypot|exp2'
 
 found=0

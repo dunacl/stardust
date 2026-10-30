@@ -32,7 +32,7 @@ use sg_schema::{EventTimeline, Fidelity, SimulationParams, SystemSnapshot, SCHEM
 
 /// Version of the physical model. Bump whenever a change alters outputs for
 /// existing parameters (CLAUDE.md hard rule 7).
-pub const MODEL_VERSION: &str = "0.9.0";
+pub const MODEL_VERSION: &str = "0.10.0";
 
 /// Everything a run produces.
 #[derive(Debug, Clone, PartialEq)]
@@ -70,9 +70,6 @@ pub struct Diagnostics {
 /// The stellar relations a run used.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StellarModel {
-    /// StarGen's own: Fogg's (1985) mass–luminosity law, no evolution. Used
-    /// for the single stars StarGen models, so they match it exactly.
-    Fogg1985,
     /// Main-sequence evolution fits of Tout et al. (1996) and Hurley, Pols
     /// & Tout (2000). Used for everything else.
     HurleyPolsTout2000,
@@ -124,7 +121,7 @@ pub enum SimError {
     Cancelled,
     #[cfg(feature = "classic")]
     #[error(transparent)]
-    Classic(#[from] sg_classic::ClassicError),
+    Classic(#[from] sg_accrete::AccretionError),
 }
 
 /// Runs a simulation.

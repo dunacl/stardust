@@ -46,10 +46,8 @@ pub fn preset_availability(preset: PresetId, fidelity: Fidelity) -> PresetAvaila
 
 /// Parameters for `preset` with the given seed and tier.
 ///
-/// - **Sun-like** and **Red dwarf** (0.2 M☉, the smallest star StarGen
-///   models) run exactly as StarGen would.
-/// - **Massive A star**: 2 M☉, beyond StarGen's range, so the star comes
-///   from the stellar-evolution model.
+/// - **Sun-like** and **Red dwarf** (0.2 M☉).
+/// - **Massive A star**: 2 M☉.
 /// - **Circumbinary**: the stars of Kepler-16 (Doyle et al. 2011, Science
 ///   333, 1602): 0.69 and 0.20 M☉, 0.224 AU apart, e = 0.16.
 /// - **S-type binary**: the stars of α Centauri AB (Pourbaix & Boffin 2016,
@@ -183,10 +181,6 @@ mod tests {
         };
         let (n, red_dwarf) = stars(PresetId::RedDwarf);
         assert_eq!(n, 1);
-        assert_eq!(
-            red_dwarf.diagnostics.stellar_model,
-            crate::StellarModel::Fogg1985
-        );
         let HierarchyNode::Star(star) = &red_dwarf.snapshot.hierarchy else {
             panic!("single star expected");
         };

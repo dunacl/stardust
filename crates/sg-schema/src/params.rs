@@ -49,7 +49,7 @@ impl Default for SimulationParams {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Fidelity {
-    /// Port of Accrete/StarGen.
+    /// Dole's accretion model, with Fogg's extension.
     Classic,
     /// Modern semi-analytic pipeline.
     Standard,
@@ -234,7 +234,7 @@ impl Default for StandardParams {
     }
 }
 
-/// Classic-tier parameters (PLAN.md §7.2). Defaults are StarGen's.
+/// Classic-tier parameters. Defaults are Dole's Set 4 (1969, Table 2).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ClassicParams {
@@ -259,13 +259,13 @@ pub struct ClassicParams {
 impl Default for ClassicParams {
     fn default() -> Self {
         Self {
-            dust_density_coeff: 2.0e-3,
+            dust_density_coeff: 1.5e-3,
             gas_dust_ratio: 50.0,
             crit_mass_coeff_msun: 1.2e-5,
             alpha: 5.0,
             n: 3.0,
             eccentricity_coeff: 0.077,
-            cloud_eccentricity: 0.2,
+            cloud_eccentricity: 0.25,
             protoplanet_mass_msun: 1.0e-15,
         }
     }

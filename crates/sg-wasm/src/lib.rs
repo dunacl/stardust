@@ -68,10 +68,10 @@ mod tests {
         // Index 5 is the circumbinary preset.
         assert_eq!(sg_sim::ALL_PRESETS[5], sg_schema::PresetId::Circumbinary);
         let h = preset_result_hash(42, 5, 0);
-        assert_eq!(format!("{h:016x}"), "d18191f537f3790a");
+        assert_eq!(format!("{h:016x}"), "c1b81e868244c516");
         // The same preset in the Standard tier.
         let h = preset_result_hash(42, 5, 1);
-        assert_eq!(format!("{h:016x}"), "ae5b61c45df64f9e");
+        assert_eq!(format!("{h:016x}"), "f2581f18560658ff");
         assert_eq!(preset_result_hash(42, 99, 0), 0);
         assert_eq!(preset_result_hash(42, 5, 7), 0);
     }

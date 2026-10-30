@@ -271,23 +271,19 @@ mod tests {
         }
     }
 
-    /// Seed 2's "Asteroids" body (0.1 Earth masses) is a planet; seed 736
-    /// has one of 3e-4 Earth masses at 0.6 AU.
+    /// A heavy body under the label is a planet; a light one is a belt.
     #[test]
     fn only_light_asteroid_bodies_become_belts() {
-        let heavy = system(2);
-        assert!(heavy
-            .snapshot
-            .bodies
-            .iter()
-            .any(|b| b.class == PlanetClass::Asteroids));
-        assert!(belt_zones(&heavy.snapshot).is_empty());
+        let mut result = system(42);
+        result.snapshot.bodies[0].class = PlanetClass::Asteroids;
+        result.snapshot.bodies[0].mass_mearth = 0.1;
+        assert!(belt_zones(&result.snapshot).is_empty());
 
-        let light = system(736);
-        let zones = belt_zones(&light.snapshot);
+        result.snapshot.bodies[0].mass_mearth = 3e-4;
+        let zones = belt_zones(&result.snapshot);
         assert_eq!(zones.len(), 1);
-        let body = light.snapshot.bodies.iter().find(|b| is_belt(b)).unwrap();
-        assert!(body.mass_mearth < BELT_MASS_LIMIT_MEARTH);
+        let body = &result.snapshot.bodies[0];
+        assert!(is_belt(body) && body.mass_mearth < BELT_MASS_LIMIT_MEARTH);
         let (_, _, inner, outer) = zones[0];
         assert!(inner < body.orbit.a_au && body.orbit.a_au < outer);
         assert!((outer - inner) / body.orbit.a_au < 0.2);

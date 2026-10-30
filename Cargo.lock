@@ -5251,7 +5251,6 @@ dependencies = [
  "clap",
  "serde",
  "serde_json",
- "sg-accrete",
  "sg-core",
  "sg-schema",
  "sg-sim",

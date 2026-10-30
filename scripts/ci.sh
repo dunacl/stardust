@@ -9,7 +9,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # shellcheck source=scripts/toolchain.sh
 . scripts/toolchain.sh
 
-SIM_CRATES="sg-core sg-stellar sg-disk sg-formation sg-dynamics sg-planet sg-classic sg-schema sg-sim"
+SIM_CRATES="sg-core sg-stellar sg-disk sg-formation sg-dynamics sg-planet sg-accrete sg-schema sg-sim"
 
 step() { printf '\n== %s\n' "$*"; }
 
@@ -42,9 +42,6 @@ scripts/check-math.sh
 
 step "native / wasm32 determinism"
 scripts/check-determinism.sh
-
-step "Classic tier against the golden reference"
-cargo run -q --release -p sg-cli -- compare-golden | tail -n 3
 
 if [ "${SKIP_SECURITY:-0}" != 1 ]; then
   step "security: leaks, advisories, licences, sources"

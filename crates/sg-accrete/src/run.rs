@@ -59,6 +59,12 @@ impl RunSpec {
 /// A planet. Mass is kept as dust and gas.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Planet {
+    /// The number of the nucleus it began as, counted from 1.
+    pub id: u32,
+    /// Where that nucleus was injected.
+    pub origin_a_au: f64,
+    /// Planets it has absorbed.
+    pub mergers: u32,
     pub a_au: f64,
     pub e: f64,
     pub dust_msun: f64,
@@ -82,13 +88,25 @@ impl Planet {
 /// What happened during a run, in order.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Event {
-    /// Nucleus number `nucleus` grew into a planet.
-    Grew { nucleus: u32, planet: Planet },
-    /// Two planets became one.
+    /// Nucleus `id` was injected and grew.
+    Grew {
+        id: u32,
+        a_au: f64,
+        e: f64,
+        mass_msun: f64,
+        /// The band it swept.
+        inner_au: f64,
+        outer_au: f64,
+        /// Whether it passed its critical mass.
+        captured_gas: bool,
+    },
+    /// `absorbed` joined `survivor`, the heavier of the two.
     Coalesced {
-        inner: Planet,
-        outer: Planet,
-        result: Planet,
+        survivor: u32,
+        absorbed: u32,
+        a_au: f64,
+        e: f64,
+        mass_msun: f64,
     },
 }
 
@@ -123,7 +141,7 @@ fn draw_orbit(rng: &mut RngStream, p: &AccretionParams, spec: &RunSpec) -> (f64,
 /// `m_{i+1}` is what was there before plus what the mass `m_i` reaches, so a
 /// merged planet keeps its mass while regrowing. In an untouched cloud this is
 /// Dole's closed form with the band width of `Reach` (see the tests).
-fn grow(body: &mut Planet, cloud: &mut Cloud, p: &AccretionParams, spec: &RunSpec) {
+fn grow(body: &mut Planet, cloud: &mut Cloud, p: &AccretionParams, spec: &RunSpec) -> (f64, f64) {
     let (a_au, e, w) = (body.a_au, body.e, p.cloud_eccentricity);
     let star = spec.star_mass_msun;
     let rho1 = dust_density_msun_au3(p, star, a_au);
@@ -153,6 +171,7 @@ fn grow(body: &mut Planet, cloud: &mut Cloud, p: &AccretionParams, spec: &RunSpe
     let original_gas = (p.gas_dust_ratio - 1.0) * rho1;
     let kept = (1.0 - gas_rho / original_gas).clamp(0.0, 1.0);
     cloud.sweep(lo, hi, kept);
+    (lo, hi)
 }
 
 /// Whether two planets are close enough to coalesce: one's `x` limits overlap
@@ -177,7 +196,11 @@ pub fn coalesce(one: &Planet, two: &Planet) -> Planet {
     let ratio = (l(m1, one.a_au, one.e) + l(m2, two.a_au, two.e)) / (total * math::sqrt(a_au));
     // Rounding can put a circular result a hair above 1.
     let e = math::sqrt((1.0 - ratio * ratio).max(0.0));
+    let heavier = if m2 > m1 { two } else { one };
     Planet {
+        id: heavier.id,
+        origin_a_au: heavier.origin_a_au,
+        mergers: one.mergers + two.mergers + 1,
         a_au,
         e,
         dust_msun: one.dust_msun + two.dust_msun,
@@ -207,16 +230,24 @@ pub fn accrete(
             continue; // a dud (D p.23)
         }
         let mut body = Planet {
+            id: nuclei,
+            origin_a_au: a_au,
+            mergers: 0,
             a_au,
             e,
             dust_msun: p.nucleus_mass_msun,
             gas_msun: 0.0,
             critical_mass_msun: 0.0,
         };
-        grow(&mut body, &mut cloud, p, spec);
+        let (inner_au, outer_au) = grow(&mut body, &mut cloud, p, spec);
         events.push(Event::Grew {
-            nucleus: nuclei,
-            planet: body,
+            id: nuclei,
+            a_au,
+            e,
+            mass_msun: body.mass_msun(),
+            inner_au,
+            outer_au,
+            captured_gas: body.is_giant(),
         });
         // Growth completes before coalescence, and a merged body may grow on
         // (D p.22). Oldest planets are tried first (gap 4).
@@ -227,15 +258,16 @@ pub fn accrete(
             let other = planets.remove(i);
             let mut merged = coalesce(&body, &other);
             grow(&mut merged, &mut cloud, p, spec);
-            let (inner, outer) = if body.a_au < other.a_au {
-                (body, other)
-            } else {
-                (other, body)
-            };
             events.push(Event::Coalesced {
-                inner,
-                outer,
-                result: merged,
+                survivor: merged.id,
+                absorbed: if merged.id == body.id {
+                    other.id
+                } else {
+                    body.id
+                },
+                a_au: merged.a_au,
+                e: merged.e,
+                mass_msun: merged.mass_msun(),
             });
             body = merged;
         }
@@ -257,6 +289,9 @@ mod tests {
 
     fn nucleus(a_au: f64, e: f64, p: &AccretionParams) -> Planet {
         Planet {
+            id: 1,
+            origin_a_au: a_au,
+            mergers: 0,
             a_au,
             e,
             dust_msun: p.nucleus_mass_msun,

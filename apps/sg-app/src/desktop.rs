@@ -24,7 +24,7 @@ struct Args {
     /// Starting preset.
     #[arg(long, value_enum, default_value_t = PresetArg::SunLike)]
     preset: PresetArg,
-    /// Formation model: the modern pipeline, or the Classic (StarGen) one.
+    /// Formation model: the modern pipeline, or the Classic (Dole) one.
     #[arg(long, value_enum, default_value_t = TierArg::Standard)]
     tier: TierArg,
     /// Scale mode to start in.

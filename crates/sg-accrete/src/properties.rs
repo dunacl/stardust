@@ -223,6 +223,9 @@ mod tests {
 
     fn body(a_au: f64, e: f64, mearth: f64, gas_mearth: f64) -> Planet {
         Planet {
+            id: 1,
+            origin_a_au: a_au,
+            mergers: 0,
             a_au,
             e,
             dust_msun: mearth / SOLAR_MASS_IN_EARTH_MASSES,

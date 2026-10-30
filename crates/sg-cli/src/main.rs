@@ -4,11 +4,9 @@
 //! sg-cli simulate --seed 42 --fidelity classic
 //! sg-cli simulate --seed 42 --json > system.json
 //! sg-cli batch --first-seed 1 --count 1000 --out systems.jsonl
-//! sg-cli compare-golden
 //! sg-cli hash --seed 42
 //! ```
 
-mod golden;
 mod validate;
 
 use anyhow::{bail, Context, Result};
@@ -69,19 +67,6 @@ enum Command {
         /// Number of consecutive seeds.
         #[arg(long, default_value_t = 100)]
         count: u64,
-    },
-    /// Compare the Classic tier with the golden outputs of the C reference.
-    CompareGolden {
-        /// Directory holding manifest.json and the .jsonl files.
-        #[arg(long, default_value = "reference/golden")]
-        golden: PathBuf,
-        /// Relative tolerance for per-seed agreement.
-        #[arg(long, default_value_t = 1e-9)]
-        tolerance: f64,
-        /// Require only statistical agreement. Use on platforms other than
-        /// the one the goldens were generated on (PLAN.md D17).
-        #[arg(long)]
-        statistical_only: bool,
     },
     /// Generate a population of Sun-like systems with the Standard tier and
     /// compare its statistics with exoplanet surveys.
@@ -536,29 +521,6 @@ fn batch(run: &RunArgs, first_seed: u64, count: u64, out: &Path) -> Result<()> {
     Ok(())
 }
 
-fn compare_golden(golden_dir: &Path, tolerance: f64, statistical_only: bool) -> Result<()> {
-    let reports = golden::compare(golden_dir, tolerance)?;
-    print!("{}", golden::render(&reports, tolerance));
-
-    let statistical = reports.iter().all(golden::SetReport::statistical_pass);
-    let per_seed = reports.iter().all(golden::SetReport::per_seed_pass);
-    println!(
-        "\nstatistical agreement: {}\nper-seed agreement:    {}",
-        if statistical { "PASS" } else { "FAIL" },
-        if per_seed {
-            "PASS"
-        } else if statistical_only {
-            "FAIL (not required: --statistical-only)"
-        } else {
-            "FAIL"
-        }
-    );
-    if !statistical || !(per_seed || statistical_only) {
-        bail!("the Classic tier does not match the golden reference");
-    }
-    Ok(())
-}
-
 fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Simulate {
@@ -588,11 +550,6 @@ fn main() -> Result<()> {
             first_seed,
             count,
         } => bench(&run, first_seed, count),
-        Command::CompareGolden {
-            golden,
-            tolerance,
-            statistical_only,
-        } => compare_golden(&golden, tolerance, statistical_only),
         Command::Validate {
             count,
             first_seed,

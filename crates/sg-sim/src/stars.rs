@@ -295,19 +295,6 @@ pub(crate) struct StellarSystem {
     pub warnings: Vec<String>,
 }
 
-/// True if the parameters ask for a single star of a stated or
-/// StarGen-drawn mass, the only case without companions or sampling.
-#[cfg(feature = "classic")]
-pub(crate) fn is_single(spec: &SystemSpec) -> bool {
-    matches!(
-        spec,
-        SystemSpec::Auto {
-            multiplicity: Some(Multiplicity::Single),
-            ..
-        } | SystemSpec::Explicit(StarNode::Star(_))
-    )
-}
-
 struct Builder<'a> {
     rng: &'a mut RngStream,
     tracks: &'a MainSequence,

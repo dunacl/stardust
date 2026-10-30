@@ -263,7 +263,10 @@ mod tests {
                             ringed += 1;
                             assert!(is_giant(body) && body.equilibrium_temp_k < 150.0);
                             assert!(rings.inner_radius_km > body.radius_km);
-                            assert!(rings.outer_radius_km < 3.5 * body.radius_km);
+                            // The Roche limit for ice, whatever the planet's density.
+                            let density = body.density_g_cm3;
+                            let roche = sg_planet::moons::roche_limit_radii(density, 0.93);
+                            assert!(rings.outer_radius_km <= roche * body.radius_km * 1.01);
                         }
                     }
                 }

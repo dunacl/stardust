@@ -96,3 +96,33 @@ fn mass_bins_have_doles_shape() {
     assert!(middle / b.iter().sum::<f64>() > 0.8, "{b:?}");
     assert!(b[3..7].iter().all(|&n| n > 0.8 && n < 4.0), "{b:?}");
 }
+
+/// Fogg's trend (F pp.504–505): mean planetary mass rises as the star gets
+/// lighter, and the largest is typically under one Jupiter mass at 1.2 M☉.
+/// Luminosities are his Table 1.
+#[test]
+fn giants_follow_foggs_trend_with_stellar_mass() {
+    let largest = |star: f64, luminosity: f64| {
+        let spec = RunSpec::single_star(star, luminosity);
+        let p = AccretionParams::set4();
+        (0..400u64)
+            .map(|seed| {
+                let mut rng = RngStream::new(seed, ModuleId::ACCRETION);
+                let run = accrete(&mut rng, &p, &spec).unwrap();
+                run.planets
+                    .iter()
+                    .map(|b| b.mass_msun())
+                    .fold(0.0, f64::max)
+                    / 3e-6
+            })
+            .sum::<f64>()
+            / 400.0
+    };
+    let (light, sun, heavy) = (largest(0.6, 0.12), largest(1.0, 1.0), largest(1.2, 2.40));
+    assert!(light > sun && sun > heavy, "{light} {sun} {heavy}");
+    // Fig. 3 prints six systems at 0.6 M☉: largest planets 502, 990, 564, 673,
+    // 808 and 384 M⊕. Mean 653, standard deviation 220, so 90 on the mean of six;
+    // allow two of those.
+    assert!((653.0_f64 - light).abs() <= 180.0, "{light}");
+    assert!(heavy < 318.0, "{heavy}");
+}
