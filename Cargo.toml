@@ -57,6 +57,12 @@ opt-level = 2
 [profile.release]
 opt-level = 3
 
+# Release archives (scripts/release.sh): stripped, so the download is small.
+[profile.dist]
+inherits = "release"
+lto = "thin"
+strip = true
+
 # The web app: optimised for download size.
 [profile.web]
 inherits = "release"

@@ -70,6 +70,18 @@ make web      # about six minutes: a WebGPU and a WebGL2 build
 make serve    # then open http://localhost:8080
 ```
 
+### Release archives
+
+```sh
+make release              # macOS and web into dist/, with SHA256SUMS
+make release WHAT=macos   # or web
+```
+
+macOS gives a universal `Stardust.app` (ad-hoc signed, not notarised: open
+it with right-click > Open the first time). The script can also build Linux
+(`WHAT=linux`) and Windows (`WHAT=windows`) in Docker, but neither build has
+been completed or tested yet; they need about 8 GB of memory for Docker.
+
 A link can point at a system: `?seed=7&preset=red-dwarf&tier=classic&scale=schematic`.
 On a phone the same page shows a layout for small screens; `&quality=full`
 or `&quality=reduced` sets how much it draws.

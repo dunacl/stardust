@@ -92,6 +92,12 @@ web-shot: ## Screenshot the served web app in headless Firefox (needs `make serv
 	@mkdir -p $(SHOTS)
 	node scripts/web-shot.mjs 'http://127.0.0.1:$(PORT)/?seed=$(SEED)&preset=$(PRESET)&scale=$(SCALE)&time=1' $(SHOTS)/web.png
 
+##@ Release archives (dist/)
+
+.PHONY: release
+release: ## Archives for macOS and the web (WHAT=macos|web; linux|windows are untested and need Docker)
+	scripts/release.sh $(WHAT)
+
 ##@ Visual checks (PNG files in target/shots)
 
 .PHONY: shot
