@@ -3,8 +3,8 @@
 //! Solar and planetary values are the IAU 2015 Resolution B3 nominal values
 //! (Prša et al. 2016, AJ 152, 41); physical constants are CODATA 2018.
 //!
-//! The Classic tier does **not** use these: it carries StarGen's own 1980s
-//! constants so that it reproduces the reference (`docs/classic-constants.md`).
+//! The accretion model's own constants are in `sg-accrete`, as its sources give
+//! them.
 
 /// Stefan–Boltzmann constant, W m⁻² K⁻⁴ (CODATA 2018).
 pub const STEFAN_BOLTZMANN_W_M2_K4: f64 = 5.670_374_419e-8;

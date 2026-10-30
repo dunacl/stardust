@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Enforces the dependency rules of PLAN.md §6.2 and D18:
+# Enforces the dependency rules of PLAN.md §6.2:
 #
 #   1. Simulation crates never depend (even transitively) on Bevy, UI or
 #      windowing crates. Only sg-dynamics may depend on wgpu.

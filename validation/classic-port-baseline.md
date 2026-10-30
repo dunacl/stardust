@@ -1,6 +1,6 @@
 # Classic port baseline
 
-Summary statistics of the StarGen port (`sg-classic`, model 0.9.0), to compare
+Summary statistics of the StarGen port (`sg-classic`, model 0.9.0, since removed), to compare
 with the rewrite of ADR 0006. 1000 systems per preset, seeds 1–1000, from
 `sg-cli batch --fidelity classic`. Only these statistics are kept. The rewrite
 is not expected to reproduce them, since it follows Dole's published model and

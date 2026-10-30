@@ -37,6 +37,9 @@ pub fn preset_availability(preset: PresetId, fidelity: Fidelity) -> PresetAvaila
         (Fidelity::Classic, PresetId::HotJupiter) => {
             Unavailable("needs migration: use the Standard tier")
         }
+        (Fidelity::Classic, PresetId::RedDwarf) => {
+            Unavailable("Classic's scalings give red dwarfs giants: use the Standard tier")
+        }
         (Fidelity::Classic, PresetId::MetalPoor) => {
             Unavailable("the Classic model ignores metallicity: use the Standard tier")
         }
@@ -46,7 +49,8 @@ pub fn preset_availability(preset: PresetId, fidelity: Fidelity) -> PresetAvaila
 
 /// Parameters for `preset` with the given seed and tier.
 ///
-/// - **Sun-like** and **Red dwarf** (0.2 M☉).
+/// - **Sun-like**, and **Red dwarf** (0.2 M☉), which needs the Standard tier:
+///   Fogg's scalings, extrapolated that far, give such a star several Jupiters.
 /// - **Massive A star**: 2 M☉.
 /// - **Circumbinary**: the stars of Kepler-16 (Doyle et al. 2011, Science
 ///   333, 1602): 0.69 and 0.20 M☉, 0.224 AU apart, e = 0.16.

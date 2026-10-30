@@ -6,9 +6,9 @@
 //!
 //! Tiers available so far:
 //!
-//! - **Classic**, when the `classic` feature is on (the default): single
-//!   stars as StarGen models them, and, with modern stars and stability
-//!   limits, multiple-star systems (`classic.rs`).
+//! - **Classic**, when the `classic` feature is on (the default): Dole's
+//!   accretion model around modern stars, with stability limits for
+//!   multiple-star systems (`classic.rs`).
 //! - **Standard**: the modern pipeline of disk evolution, pebble and gas
 //!   accretion, migration and atmospheric escape (`standard.rs`).
 //!

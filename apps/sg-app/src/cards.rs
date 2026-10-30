@@ -378,13 +378,9 @@ pub fn body_card(body: &Body, number: usize) -> Card {
         );
         class_name(body.class)
     } else if body.class == PlanetClass::Asteroids {
-        // The Classic model applies this label at random to airless bodies
-        // of any mass (docs/classic-constants.md §12).
-        notes.push(
-            "The Classic model labels this body \"Asteroids\", but at this mass it is a \
-             single airless world."
-                .into(),
-        );
+        // The Classic tier gives this label by mass, so this should not occur;
+        // a hand-edited snapshot could still carry it.
+        notes.push("Labelled \"Asteroids\", but at this mass it is a single airless world.".into());
         class_name(PlanetClass::Rock)
     } else {
         class_name(body.class)

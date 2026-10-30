@@ -9,7 +9,7 @@
 //!   a gap at each planet the model says has opened one.
 //! - **Classic tier**: the extent of the dust (the zone open to planets),
 //!   the lanes each body has swept clear so far, and the time the dust is
-//!   gone. StarGen's dust density law is not in the snapshot, so the dust
+//!   gone. The dust density law is not in the snapshot, so the dust
 //!   that remains is drawn evenly.
 //!
 //! What is a drawing choice: opacity follows the cube root of the surface

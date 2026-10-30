@@ -1,7 +1,7 @@
 //! Stellar relations (PLAN.md §5.1).
 //!
 //! M1 scope: main-sequence scaling relations, effective temperature, spectral
-//! class, and the Kopparapu habitable zone that replaces StarGen's constant
+//! class, and the Kopparapu habitable zone in place of a constant
 //! ecosphere. The IMF, multiplicity and evolution tracks arrive in M3, when
 //! the scaling relations here are replaced by the Tout et al. (1996) /
 //! Hurley et al. (2000) fits.

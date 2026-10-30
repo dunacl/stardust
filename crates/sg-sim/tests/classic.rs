@@ -210,6 +210,24 @@ fn stellar_model_follows_the_request() {
         .any(|w| w.contains("written for single stars of 0.6–1.3")));
 }
 
+/// Below Fogg's range the model is extrapolating badly, and says so.
+#[test]
+fn red_dwarfs_are_steered_to_the_standard_tier() {
+    use sg_sim::{preset_availability, PresetAvailability};
+    assert!(matches!(
+        preset_availability(PresetId::RedDwarf, Fidelity::Classic),
+        PresetAvailability::Unavailable(_)
+    ));
+    assert_eq!(
+        preset_availability(PresetId::RedDwarf, Fidelity::Standard),
+        PresetAvailability::Available
+    );
+    let warnings = simulate(&params(5, 0.3)).unwrap().diagnostics.warnings;
+    assert!(warnings.iter().any(|w| w.contains("real red dwarfs")));
+    let warnings = simulate(&params(5, 1.0)).unwrap().diagnostics.warnings;
+    assert!(warnings.is_empty());
+}
+
 #[test]
 fn hot_stars_have_no_habitable_zone() {
     // A 3 M☉ star is far above Kopparapu's 7200 K.

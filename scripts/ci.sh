@@ -23,7 +23,7 @@ cargo clippy -p sg-sim --no-default-features --all-targets -- -D warnings
 step "tests"
 cargo test --workspace -q
 
-step "build and test without the Classic tier (PLAN.md D18)"
+step "build and test without the Classic tier"
 cargo test -q -p sg-sim --no-default-features
 
 step "simulation crates build for wasm32-unknown-unknown"

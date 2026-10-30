@@ -1,14 +1,13 @@
 # Contributing
 
 Issues and pull requests are welcome. By contributing you agree that your work
-is licensed under the terms in [`NOTICE.md`](NOTICE.md).
+is licensed under Apache-2.0.
 
 ## Before you open a pull request
 
 Install Rust through [rustup](https://rustup.rs), then:
 
 ```sh
-git submodule update --init            # only for scripts/golden.sh
 git config core.hooksPath .githooks    # stops secrets before a push
 cargo install --locked cargo-deny      # gitleaks is also needed
 make ci                                # every check; run it before committing
@@ -17,7 +16,7 @@ make ci                                # every check; run it before committing
 ## Rules of the code
 
 1. Simulation crates (`sg-core`, `sg-stellar`, `sg-disk`, `sg-formation`,
-   `sg-dynamics`, `sg-planet`, `sg-classic`, `sg-schema`, `sg-sim`) never depend
+   `sg-dynamics`, `sg-planet`, `sg-accrete`, `sg-schema`, `sg-sim`) never depend
    on Bevy or UI crates, and must build for `wasm32-unknown-unknown`.
 2. Same parameters, seed and model version give identical output on every
    platform: use `sg_core` RNG streams and `sg_core::math`, never `thread_rng`,
@@ -31,7 +30,7 @@ make ci                                # every check; run it before committing
    `validation/report-<model>.md`; never edit an old report, and never widen a
    tolerance to make a metric pass.
 6. A schema change bumps `schema_version`.
-7. Never copy StarGen's sources into this repository, and keep `sg-classic`
-   separable: see [`NOTICE.md`](NOTICE.md).
+7. Classic-tier physics comes from the published papers. Do not port it from
+   StarGen or any other code: see `docs/adr/0006-rewrite-classic-from-the-papers.md`.
 
 Keep commits focused, with `cargo fmt` and `cargo clippy -- -D warnings` clean.

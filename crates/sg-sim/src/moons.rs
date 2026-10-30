@@ -6,9 +6,8 @@
 //! perhaps bright rings; rocky planets that have been through a collision
 //! may get one large moon.
 //!
-//! In the Classic tier this is an addition to StarGen's planets, which are
-//! left exactly as that model made them (StarGen's own optional moons are
-//! not ported).
+//! In the Classic tier this is an addition: Dole's and Fogg's model has no
+//! moons, and its planets are left as it made them.
 
 use sg_core::constants::EARTH_RADIUS_KM;
 use sg_core::hash::fnv1a64;

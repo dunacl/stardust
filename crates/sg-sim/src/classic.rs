@@ -516,6 +516,16 @@ pub(crate) fn simulate(
              ran around {} M☉",
             list.join(", ")
         ));
+        if out_of_range
+            .iter()
+            .any(|m| *m < FOGG_RANGE_MSUN.start() * 0.99)
+        {
+            warnings.push(
+                "around stars below 0.6 M☉ these scalings give giants that real red dwarfs \
+                 rarely have; use the Standard tier for such stars"
+                    .to_string(),
+            );
+        }
     }
     check(observer, Stage::Assembly, 0.95)?;
 

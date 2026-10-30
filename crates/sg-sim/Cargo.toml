@@ -9,8 +9,7 @@ license.workspace = true
 
 [features]
 default = ["classic"]
-# The Classic tier derives from non-commercial code and must stay removable
-# (PLAN.md D18). Without this feature Fidelity::Classic returns an error.
+# Without this feature Fidelity::Classic returns an error.
 classic = ["dep:sg-accrete"]
 
 [dependencies]

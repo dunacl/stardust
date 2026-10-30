@@ -6,11 +6,8 @@
 //! - a body of class `Asteroids` whose mass is below
 //!   [`BELT_MASS_LIMIT_MEARTH`].
 //!
-//! The mass test matters for the Classic tier. The StarGen fork it ports
-//! labels an airless body "Asteroids" on a 10% random draw whatever its mass
-//! (`docs/classic-constants.md` §12), so the label alone includes bodies as
-//! heavy as Mars, which are single planets. The limit used here is StarGen's
-//! own `ASTEROID_MASS_LIMIT`, the test the fork replaced.
+//! The mass test keeps a heavier body that somehow carries the label a single
+//! world. The Classic tier gives the label by the same limit (`sg-sim`).
 //!
 //! The simulation gives a belt's place and mass, not its members. The rocks
 //! are a drawing: their number, sizes and orbital scatter are chosen here,
@@ -26,8 +23,8 @@ use sg_dynamics::kepler::{self, Elements};
 use sg_schema::{Body, HostRef, PlanetClass, SystemSnapshot};
 use std::f64::consts::TAU;
 
-/// StarGen's `ASTEROID_MASS_LIMIT` (`docs/classic-constants.md`), Earth
-/// masses. For scale, the Solar System's main belt is about 4e-4.
+/// Above this a body is a world, not a belt, in Earth masses. A drawing choice;
+/// for scale, the Solar System's main belt is about 4e-4.
 pub const BELT_MASS_LIMIT_MEARTH: f64 = 1.0e-3;
 
 /// Half-width of the belt drawn around an asteroid-class body, as a fraction

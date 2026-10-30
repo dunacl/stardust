@@ -9,7 +9,7 @@
 export PATH := $(HOME)/.cargo/bin:$(PATH)
 CARGO := $(shell . scripts/toolchain.sh; command -v cargo)
 
-# Overridable on the command line, e.g. `make run SEED=7 PRESET=red-dwarf`.
+# Overridable on the command line, e.g. `make run SEED=7 PRESET=circumbinary`.
 SEED   ?= 42
 PRESET ?= sun-like
 TIER   ?= standard
@@ -124,7 +124,7 @@ shots: ## The reference set: scales, formation, close-ups, red dwarf, binaries, 
 	$(APP) --seed $(SEED) --select 0 --screenshot $(SHOTS)/star.png
 	$(APP) --seed $(SEED) --select 3 --screenshot $(SHOTS)/planet-3.png
 	$(APP) --seed $(SEED) --select 7 --screenshot $(SHOTS)/planet-7.png
-	$(APP) --seed $(SEED) --preset red-dwarf --scale schematic --screenshot $(SHOTS)/red-dwarf.png
+	$(APP) --seed $(SEED) --tier standard --preset red-dwarf --scale schematic --screenshot $(SHOTS)/red-dwarf.png
 	$(APP) --seed $(SEED) --preset s-type-binary --screenshot $(SHOTS)/binary-s-type.png
 	$(APP) --seed $(SEED) --preset circumbinary --scale schematic --screenshot $(SHOTS)/binary-circumbinary.png
 	$(APP) --seed $(SEED) --preset hierarchical-triple --scale schematic --screenshot $(SHOTS)/triple.png
@@ -158,7 +158,7 @@ test-sim: ## Tests of the simulation crates only (no Bevy; fast)
 	$(CARGO) test -q $(addprefix -p ,$(SIM_CRATES))
 
 .PHONY: test-no-classic
-test-no-classic: ## sg-sim builds and passes without the Classic tier (PLAN.md D18)
+test-no-classic: ## sg-sim builds and passes without the Classic tier 
 	$(CARGO) test -q -p sg-sim --no-default-features
 
 .PHONY: fmt

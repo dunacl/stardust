@@ -44,8 +44,7 @@ Planetary-system formation simulator.
   sg-app    the desktop app (sg-app --help for options)
   sg-cli    the command line: sg-cli simulate --seed 42
 
-Licence: see LICENSE and NOTICE.md. Do not sell this build: it includes the
-Classic tier, which derives from StarGen. Sources: the project repository.
+Licence: see LICENSE and NOTICE.md. Sources: the project repository.
 EOF
   cp LICENSE NOTICE.md "$1/"
 }
