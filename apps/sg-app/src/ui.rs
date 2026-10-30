@@ -63,14 +63,14 @@ fn hierarchy_controls(ui: &mut egui::Ui, node: &mut StarNode, next: &mut u32) {
     }
 }
 
-fn system_controls(ui: &mut egui::Ui, system: &mut SystemSpec) {
+fn system_controls(ui: &mut egui::Ui, system: &mut SystemSpec, fidelity: Fidelity) {
     match system {
         SystemSpec::Auto {
             primary_mass_msun: Some(mass),
             ..
         } => {
             mass_slider(ui, mass, "Star mass (M☉)");
-            if !(0.6..=1.3).contains(mass) {
+            if fidelity == Fidelity::Classic && !(0.6..=1.3).contains(mass) {
                 ui.label(
                     RichText::new("Outside Fogg's 0.6–1.3 M☉: the Classic model is extrapolated.")
                         .small()
@@ -163,7 +163,7 @@ fn controls(ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTar
         }
     });
 
-    system_controls(ui, &mut state.params.system);
+    system_controls(ui, &mut state.params.system, state.fidelity);
 
     let mut fixed_age = state.params.age_gyr.is_some();
     ui.horizontal(|ui| {

@@ -129,21 +129,21 @@ shots: ## The reference set: scales, formation, close-ups, red dwarf, binaries, 
 	$(APP) --seed $(SEED) --preset circumbinary --scale schematic --screenshot $(SHOTS)/binary-circumbinary.png
 	$(APP) --seed $(SEED) --preset hierarchical-triple --scale schematic --screenshot $(SHOTS)/triple.png
 	$(APP) --seed $(SEED) --preset s-type-binary --select 0 --screenshot $(SHOTS)/binary-star-card.png
-	$(APP) --seed 736 --tier classic --select 3 --screenshot $(SHOTS)/asteroid-belt.png
+	$(APP) --seed 83 --tier classic --select 2 --screenshot $(SHOTS)/asteroid-belt.png
 	$(APP) --seed 2 --preset hot-jupiter --select 1 --screenshot $(SHOTS)/hot-jupiter.png
-	$(APP) --seed 42 --tier classic --select 7 --screenshot $(SHOTS)/terrestrial.png
-	$(APP) --seed 42 --tier classic --select 11 --screenshot $(SHOTS)/jovian.png
-	$(APP) --seed 42 --tier classic --select 12 --screenshot $(SHOTS)/martian.png
-	$(APP) --seed 42 --tier classic --scale true --select 16 --screenshot $(SHOTS)/far-planet-true-scale.png
+	$(APP) --seed 1 --tier classic --select 3 --screenshot $(SHOTS)/terrestrial.png
+	$(APP) --seed 1 --tier classic --select 5 --screenshot $(SHOTS)/jovian.png
+	$(APP) --seed 1 --tier classic --select 8 --screenshot $(SHOTS)/martian.png
+	$(APP) --seed 42 --tier classic --scale true --select 9 --screenshot $(SHOTS)/far-planet-true-scale.png
 	$(APP) --seed 2 --preset hot-jupiter --scale schematic --time 0.25 --screenshot $(SHOTS)/disk-standard.png
 	$(APP) --seed 42 --tier classic --scale schematic --time 0.4 --screenshot $(SHOTS)/disk-classic.png
 	$(APP) --seed 42 --tier classic --size 390x844 --screenshot $(SHOTS)/phone.png
-	$(APP) --seed 42 --tier classic --size 390x844 --select 7 --screenshot $(SHOTS)/phone-card.png
+	$(APP) --seed 1 --tier classic --size 390x844 --select 3 --screenshot $(SHOTS)/phone-card.png
 	$(APP) --seed 42 --tier classic --size 390x844 --drawer --screenshot $(SHOTS)/phone-drawer.png
-	$(APP) --seed 42 --tier classic --select 7 --quality reduced --screenshot $(SHOTS)/reduced.png
-	$(APP) --seed 1 --tier classic --select 7 --screenshot $(SHOTS)/rings-and-moon.png
-	$(APP) --seed 1 --tier classic --select 11 --screenshot $(SHOTS)/rings-tilted.png
-	$(APP) --seed 42 --tier classic --select 11 --screenshot $(SHOTS)/moons.png
+	$(APP) --seed 1 --tier classic --select 3 --quality reduced --screenshot $(SHOTS)/reduced.png
+	$(APP) --seed 2 --tier classic --select 8 --screenshot $(SHOTS)/rings-and-moon.png
+	$(APP) --seed 42 --tier classic --select 7 --screenshot $(SHOTS)/rings-tilted.png
+	$(APP) --seed 1 --tier classic --select 9 --screenshot $(SHOTS)/moons.png
 	$(APP) --seed 345 --tier high --scale schematic --screenshot $(SHOTS)/high-scattered-giants.png
 	@printf 'screenshots written to %s\n' '$(SHOTS)'
 
