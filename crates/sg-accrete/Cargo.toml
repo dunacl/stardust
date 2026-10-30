@@ -9,6 +9,7 @@ license.workspace = true
 
 [dependencies]
 sg-core.workspace = true
+sg-planet.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

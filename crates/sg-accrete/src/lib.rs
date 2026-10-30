@@ -13,10 +13,13 @@
 //! stars of 0.6–1.3 M☉; beyond it the scaling is an extrapolation (gap 5).
 
 pub mod bands;
+pub mod environment;
 pub mod model;
+pub mod properties;
 pub mod run;
 
 pub use model::{critical_mass_msun, dust_density_msun_au3, AccretionParams, Reach};
+pub use properties::{describe, Climate, Properties, Star};
 pub use run::{accrete, Accretion, Event, Planet, RunSpec};
 
 /// Why a run could not be made.
