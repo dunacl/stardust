@@ -298,6 +298,17 @@ fn params_fill_in_defaults() {
 /// Field and variant names are part of the contract: units in names,
 /// snake_case enums.
 #[test]
+fn params_reject_unknown_fields() {
+    // A misplaced field must not silently leave the default in force.
+    let misplaced = r#"{"formation":{"bump_trap_fraction":0.3}}"#;
+    assert!(serde_json::from_str::<SimulationParams>(misplaced).is_err());
+    let misspelt = r#"{"disk":{"mass_fraction_medain":0.01}}"#;
+    assert!(serde_json::from_str::<SimulationParams>(misspelt).is_err());
+    let placed = r#"{"formation":{"standard":{"bump_trap_fraction":0.3}}}"#;
+    assert!(serde_json::from_str::<SimulationParams>(placed).is_ok());
+}
+
+#[test]
 fn wire_names_are_stable() {
     let json = serde_json::to_value(sample_snapshot()).unwrap();
     let body = &json["bodies"][0];

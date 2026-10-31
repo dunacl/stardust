@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 /// Everything that defines a run. Together with the model version, equal
 /// parameters give equal output on every platform.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct SimulationParams {
     pub schema_version: String,
     pub seed: u64,
@@ -75,7 +75,7 @@ pub enum PresetId {
 
 /// Which stars the system has.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum SystemSpec {
     /// Sampled by the model, optionally constrained.
     Auto {
@@ -130,7 +130,7 @@ pub struct OrbitSpec {
 /// Protoplanetary disk parameters (Standard tier). `None` means "drawn by
 /// the model from its distribution".
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct DiskParams {
     /// Initial gas mass as a fraction of the stellar mass.
     pub mass_fraction: Option<f64>,
@@ -155,7 +155,7 @@ impl Default for DiskParams {
 
 /// Formation parameters, per tier.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct FormationParams {
     pub classic: ClassicParams,
     pub standard: StandardParams,
@@ -167,7 +167,7 @@ pub struct FormationParams {
 /// High-tier parameters: the N-body integration after the gas clears
 /// (PLAN.md §5.7).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct HighParams {
     /// Planets at least this massive, in Earth masses, are integrated;
     /// lighter ones are treated as in the Standard tier.
@@ -200,7 +200,7 @@ impl Default for HighParams {
 
 /// Standard-tier formation parameters (PLAN.md §5.3–5.6).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct StandardParams {
     /// Turbulent α at the disk midplane: pebble layer thickness and
     /// isolation mass.
@@ -243,7 +243,7 @@ impl Default for StandardParams {
 
 /// Classic-tier parameters. Defaults are Dole's Set 4 (1969, Table 2).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct ClassicParams {
     /// Dole's *A*: dust density scale, M☉ AU⁻³ (multiplied by √M★).
     pub dust_density_coeff: f64,
@@ -280,12 +280,12 @@ impl Default for ClassicParams {
 
 /// Late-dynamics parameters. Empty until M4/M7.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct DynamicsParams {}
 
 /// Optional model components.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Toggles {
     /// Compute atmospheric composition.
     pub atmospheres: bool,
@@ -309,7 +309,7 @@ impl Default for Toggles {
 
 /// How much formation history to record.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct TimelineParams {
     /// Record individual events. Keyframes are recorded either way.
     pub record_events: bool,
