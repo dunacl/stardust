@@ -336,6 +336,7 @@ fn sweep_leftovers(
                     }
                     None => {
                         open = Some(Belt {
+                            name: String::new(),
                             host: plan.host,
                             inner_au: ring.inner_au,
                             outer_au: ring.outer_au,
@@ -878,6 +879,7 @@ pub(crate) fn simulate(
             bodies.push(Body {
                 id,
                 name: names::planet_name(&prefix, order),
+                designation: String::new(),
                 kind: BodyKind::Planet,
                 host: plan.host,
                 orbit,

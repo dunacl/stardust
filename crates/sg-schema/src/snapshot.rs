@@ -125,9 +125,11 @@ pub enum HostRef {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Body {
     pub id: BodyId,
+    /// Proper name, invented. A label only.
+    pub name: String,
     /// Designation, e.g. `Velora b`: the host's name and a letter running
     /// outward from `b`. A label only.
-    pub name: String,
+    pub designation: String,
     pub kind: BodyKind,
     pub host: HostRef,
     pub orbit: Orbit,
@@ -313,6 +315,8 @@ pub struct FormationSummary {
 /// A belt of small bodies. Not produced before M4.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Belt {
+    /// e.g. `Velora Outer Belt`. A label only.
+    pub name: String,
     pub host: HostRef,
     pub inner_au: f64,
     pub outer_au: f64,

@@ -245,7 +245,7 @@ pub fn au(distance_au: f64) -> String {
 /// What a planet orbits, read off its designation: `Vorus AB d` orbits
 /// `Vorus AB`.
 fn host_label(body: &Body) -> &str {
-    body.name
+    body.designation
         .rsplit_once(' ')
         .map_or("its star", |(host, _)| host)
 }
@@ -460,9 +460,10 @@ pub fn body_card(body: &Body, number: usize) -> Card {
     Card {
         title: body.name.clone(),
         subtitle: format!(
-            "{kind} · {} planet of {}",
+            "{kind} · {} planet of {} · {}",
             ordinal(number),
-            host_label(body)
+            host_label(body),
+            body.designation
         ),
         sections,
         notes,
@@ -541,7 +542,12 @@ pub fn moon_card(moon: &Body, planet: &Body, number: usize, origin: Option<MoonO
     );
     Card {
         title: moon.name.clone(),
-        subtitle: format!("{} moon of {}", ordinal(number), planet.name),
+        subtitle: format!(
+            "{} moon of {} · {}",
+            ordinal(number),
+            planet.name,
+            moon.designation
+        ),
         sections: vec![
             Section {
                 heading: "Orbit",
@@ -690,9 +696,9 @@ mod tests {
             .nth(2)
             .unwrap();
         let card = body_card(third_of_b, 3);
-        assert_eq!(card.title, "Vorus B d");
+        assert!(card.subtitle.ends_with("Vorus B d"), "{}", card.subtitle);
         assert!(
-            card.subtitle.ends_with("· 3rd planet of Vorus B"),
+            card.subtitle.contains("· 3rd planet of Vorus B ·"),
             "{}",
             card.subtitle
         );
@@ -849,7 +855,9 @@ mod tests {
         assert_eq!(with_moons(card.clone(), 0).notes, card.notes);
 
         let moon = moon_card(moons[0], ringed, 1, Some(MoonOrigin::CircumplanetaryDisk));
-        assert_eq!(moon.subtitle, format!("1st moon of {}", ringed.name));
+        assert!(moon
+            .subtitle
+            .starts_with(&format!("1st moon of {}", ringed.name)));
         assert!(moon.sections[0].rows[0].1.contains("planetary radii"));
         assert!(moon.notes[0].contains("Grew in the disk"));
         assert!(moon.notes.iter().any(|n| n.contains("not simulated")));

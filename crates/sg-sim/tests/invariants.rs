@@ -188,3 +188,27 @@ fn a_damaged_system_is_refused() {
     result.snapshot.bodies[0].mass_mearth = f64::NAN;
     check("damaged", &result);
 }
+
+/// Names are given last, are unique in a system and leave designations and
+/// everything physical as they were.
+#[test]
+fn every_body_has_a_unique_name_and_keeps_its_designation() {
+    for seed in 1..=30 {
+        for fidelity in tiers() {
+            let mut params = SimulationParams {
+                seed,
+                ..SimulationParams::default()
+            };
+            params.fidelity = fidelity;
+            let snap = simulate(&params).unwrap().snapshot;
+            let names: std::collections::BTreeSet<_> =
+                snap.bodies.iter().map(|b| b.name.as_str()).collect();
+            assert_eq!(names.len(), snap.bodies.len(), "seed {seed}");
+            for body in &snap.bodies {
+                assert!(!body.designation.is_empty(), "{}", body.name);
+                assert!(!body.name.contains(' '), "{}", body.name);
+            }
+            assert!(snap.belts.iter().all(|b| b.name.contains("Belt")));
+        }
+    }
+}
