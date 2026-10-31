@@ -55,6 +55,9 @@ struct Args {
     /// On a narrow window, start with the controls drawer open.
     #[arg(long)]
     drawer: bool,
+    /// Start the spaceship from the body given by --select.
+    #[arg(long)]
+    tour: bool,
     /// Effects level: full, or the reduced set meant for phones.
     #[arg(long, value_enum)]
     quality: Option<QualityArg>,
@@ -278,6 +281,7 @@ pub fn launch() -> Launch {
         }),
         size: args.size,
         drawer: args.drawer,
+        tour: args.tour,
         fps: args.fps,
     }
 }

@@ -61,7 +61,10 @@ make bench                                  # frame rate
 make ci                                     # every automated check
 ```
 
-Tick *Frame rate* in the panel (or start with `--fps`, or `?fps=1` in a
+*Playback > Spaceship tour* sends a small ship to each planet and moon, for fun;
+it is not simulated.
+
+Tick *Frame rate* in *Settings* (or start with `--fps`, or `?fps=1` in a
 link) to see frames per second in the corner.
 
 In the app: drag to rotate, scroll or pinch to zoom, click or tap a star or
@@ -140,7 +143,7 @@ docs/              ADR 0006, the Classic model's specification
   produced: a planet's oceans, ice and cloud cover the fractions the model
   gives, a giant's colours follow its temperature, the disk thins and
   clears as the model says. Where it shows something the model does not
-  give (the sky, the rocks of a belt, the shape of a coastline), the code
+  give (the sky, the rocks of a belt, the shape of a coastline, the spaceship), the code
   and the interface say so.
 
 ## Licence

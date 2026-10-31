@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use sg_core::hash::fnv1a64;
 use sg_render::scene::system_extent;
 use sg_render::{
-    OrbitCamera, Playback, ScaleBlend, ScaleMode, Selection, SystemView, ViewSettings,
+    OrbitCamera, Playback, ScaleBlend, ScaleMode, Selection, SystemView, ViewSettings, Voyage,
 };
 use sg_schema::{Fidelity, PresetId, SimulationParams};
 use sg_sim::{preset_params, SimulationResult};
@@ -21,6 +21,8 @@ pub struct StartOptions {
     /// Freeze the clocks (screenshot mode), so captures are repeatable.
     pub frozen: bool,
     pub quality: sg_render::Quality,
+    /// Start the spaceship from the selected body.
+    pub tour: bool,
 }
 
 #[derive(Resource)]
@@ -139,6 +141,7 @@ pub struct SimulationTargets<'w> {
     pub settings: ResMut<'w, ViewSettings>,
     pub camera: ResMut<'w, OrbitCamera>,
     pub selection: ResMut<'w, Selection>,
+    pub voyage: ResMut<'w, Voyage>,
 }
 
 /// Runs the simulation for the current parameters and shows the result.
@@ -168,6 +171,7 @@ pub fn run_simulation(state: &mut AppState, targets: &mut SimulationTargets) {
         .camera
         .frame(system_extent(&result, &targets.settings.scale));
     targets.selection.0 = None;
+    targets.voyage.stop();
     targets.view.set(result);
 }
 
@@ -193,6 +197,9 @@ pub fn simulate_on_startup(mut state: ResMut<AppState>, mut targets: SimulationT
     if let (Some(n), Some(result)) = (start.select, targets.view.result()) {
         if let Some(target) = crate::nth_target(result, n) {
             targets.selection.0 = Some(target);
+            if start.tour {
+                targets.voyage.start(&result.snapshot, Some(target));
+            }
         }
     }
 }

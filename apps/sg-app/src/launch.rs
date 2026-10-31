@@ -32,6 +32,8 @@ pub struct Launch {
     pub size: Option<(u32, u32)>,
     /// Start with the controls drawer open on a narrow screen.
     pub drawer: bool,
+    /// Start the spaceship from the selected body.
+    pub tour: bool,
     /// Show the frame rate.
     pub fps: bool,
 }
@@ -52,6 +54,7 @@ impl Default for Launch {
             quality: None,
             size: None,
             drawer: false,
+            tour: false,
             fps: false,
         }
     }
@@ -100,6 +103,7 @@ impl Launch {
                 "select" => launch.select = value.parse().ok(),
                 "ui" => launch.show_ui = value != "0",
                 "fps" => launch.fps = value != "0",
+                "tour" => launch.tour = value != "0",
                 "quality" => match value {
                     "full" => launch.quality = Some(Quality::Full),
                     "reduced" => launch.quality = Some(Quality::Reduced),
@@ -144,6 +148,7 @@ mod tests {
                 quality: Some(Quality::Reduced),
                 size: None,
                 drawer: false,
+                tour: false,
                 fps: true,
             }
         );

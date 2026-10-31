@@ -72,6 +72,7 @@ pub fn run() {
         select: launch.select,
         frozen: launch.screenshot.is_some(),
         quality: launch.quality.unwrap_or_else(default_quality),
+        tour: launch.tour,
     };
     let (width, height) = launch.size.unwrap_or((1440, 900));
 

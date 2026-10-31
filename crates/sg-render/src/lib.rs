@@ -11,7 +11,8 @@
 //! The renderer draws what the simulation produced (PLAN.md D12). Where it
 //! has to choose something the simulation does not provide, the choice is
 //! documented at the point it is made ([`display`], [`palette`], [`belt`]).
-//! The sky is the one thing drawn that is not from the simulation at all.
+//! The sky and the spaceship of [`voyage`] are the things drawn that are not
+//! from the simulation at all.
 //!
 //! The app owns the UI. It talks to the renderer through resources:
 //! [`SystemView`] (what to show), [`Playback`], [`ViewSettings`],
@@ -32,6 +33,7 @@ pub mod scene;
 pub mod sky;
 pub mod star;
 pub mod surface;
+pub mod voyage;
 
 pub use camera::{OrbitCamera, PointerCaptured};
 pub use scale::{ScaleBlend, ScaleMode};
@@ -39,3 +41,4 @@ pub use scene::{
     BodyPlacements, Placement, Playback, Quality, Selection, StardustRenderPlugin, SystemView,
     Target, ViewSettings,
 };
+pub use voyage::Voyage;
