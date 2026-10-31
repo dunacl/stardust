@@ -245,7 +245,7 @@ pub const NOMINAL_COOLING_TIME_YR: f64 = 1.0e9;
 /// Rate at which a planet's envelope cools, contracts and draws in gas,
 /// M☉/yr.
 ///
-/// Ida & Lin (2004, ApJ 604, 388), eqs. 9–10: `dM/dt = M/τ_KH` with the
+/// Ida & Lin (2004, ApJ 604, 388), eqs. 29 and 34: `dM/dt = M/τ_KH` with the
 /// Kelvin–Helmholtz time `τ_KH = τ₁ (M/M⊕)⁻³`, a fit to the envelope
 /// calculations of Ikoma, Nakazawa & Emori (2000). Slow for a few Earth
 /// masses, a runaway above about ten: the classical critical core mass.

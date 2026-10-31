@@ -37,9 +37,9 @@ pub fn preset_availability(preset: PresetId, fidelity: Fidelity) -> PresetAvaila
         (Fidelity::Classic, PresetId::HotJupiter) => {
             Unavailable("needs migration: use the Standard tier")
         }
-        (Fidelity::Classic, PresetId::RedDwarf) => {
-            Unavailable("Classic's scalings give red dwarfs giants: use the Standard tier")
-        }
+        (Fidelity::Classic, PresetId::RedDwarf) => Unavailable(
+            "Classic's scalings overproduce giants at red dwarfs: use the Standard tier",
+        ),
         (Fidelity::Classic, PresetId::MetalPoor) => {
             Unavailable("the Classic model ignores metallicity: use the Standard tier")
         }
