@@ -171,8 +171,8 @@ mod tests {
 
     #[test]
     fn scattered_giants_are_reported_as_not_settled() {
-        // High tier, seed 345: giants left on crossing, elongated orbits.
-        let snapshot = run(Fidelity::High, 345);
+        // High tier, seed 412: giants left on crossing, elongated orbits.
+        let snapshot = run(Fidelity::High, 412);
         let host = &long_term_stability(&snapshot)[0];
         assert_eq!(host.amd_stable(), Some(false));
         assert!(host.describe().contains("not AMD-stable"));

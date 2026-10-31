@@ -10,6 +10,12 @@ Simulation changes are tracked by model version; each has a report in
 - Bevy 0.20.1, which fixes RUSTSEC-2026-0344 in `ruzstd`.
 - Release archives for macOS and the web.
 
+## Model 0.12.0
+
+- Standard and High: the median disk mass rises from 0.8% to 1.2% of the star's mass,
+  and bumps trap 40% of the pebbles instead of 20% (ADR 0008). All seven validation
+  statistics pass, on seeds 1–3000 and 3001–6000.
+
 ## Model 0.11.0
 
 - Standard and High: pressure bumps. A bump keeps part of the pebbles as a ring of
