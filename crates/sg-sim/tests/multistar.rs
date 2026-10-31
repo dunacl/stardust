@@ -107,7 +107,7 @@ fn circumbinary_preset_forms_planets_around_the_pair() {
             .name
             .trim_end_matches(" A")
             .to_string();
-        assert_eq!(snap.bodies[0].name, format!("{system} AB b"));
+        assert_eq!(snap.bodies[0].designation, format!("{system} AB b"));
         // One zone: around the pair. The stars are too close to keep
         // planets of their own.
         assert_eq!(snap.planet_zones.len(), 1);
@@ -128,7 +128,11 @@ fn s_type_preset_forms_planets_around_each_star() {
         assert!(snap.planets().all(|b| b.orbit.a_au < 3.0));
         assert_eq!(snap.habitable_zones.len(), 2);
         let first_of_b = around(HostRef::Star(StarId(1))).next().unwrap();
-        assert!(first_of_b.name.ends_with(" B b"), "{}", first_of_b.name);
+        assert!(
+            first_of_b.designation.ends_with(" B b"),
+            "{}",
+            first_of_b.designation
+        );
     }
 }
 
@@ -210,8 +214,8 @@ fn multi_star_hashes_are_pinned() {
 }
 
 const PINNED: [&str; 4] = [
-    "7d6a9162d85a801b",
-    "d973dfafdfd12620",
-    "1aae9d5465460fde",
-    "3ad230e64688510f",
+    "72413873c63c974a",
+    "20027c7369e5679a",
+    "046136e29ce54e10",
+    "517e01031915d578",
 ];

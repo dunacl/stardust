@@ -11,8 +11,13 @@
 //!   by a lower-case letter starting at `b` (the star itself is `a`). The IAU
 //!   convention letters planets in order of discovery; a generated system
 //!   has no discovery order, so letters run outward from the star.
+//! - Planets and moons also get a proper name from the same tables, and belts
+//!   a name from their place. These are given last, by [`assign`], from their
+//!   own stream, so no tier's draws depend on them.
 
 use sg_core::rng::{ModuleId, RngStream};
+use sg_schema::{HostRef, SystemSnapshot};
+use std::collections::BTreeSet;
 
 const OPENINGS: &[&str] = &[
     "Al", "Am", "Ar", "Bel", "Bry", "Cal", "Cor", "Dar", "Del", "Dra", "El", "Er", "Fen", "Gal",
@@ -103,10 +108,58 @@ pub fn moon_name(planet_name: &str, index: usize) -> String {
     }
 }
 
+/// Gives every planet and moon a proper name, unique in its system, keeping
+/// the name it was built with as its designation, and names the belts.
+pub fn assign(snapshot: &mut SystemSnapshot, seed: u64) {
+    let mut rng = RngStream::new(seed, ModuleId::BODY_NAMES);
+    let star = star_name(seed);
+    let mut taken = BTreeSet::from([star.clone()]);
+    for body in &mut snapshot.bodies {
+        let name = loop {
+            let name = candidate(&mut rng);
+            let real = REAL_STAR_NAMES.contains(&name.to_ascii_lowercase().as_str());
+            if reads_well(&name) && !real && taken.insert(name.clone()) {
+                break name;
+            }
+        };
+        body.designation = core::mem::replace(&mut body.name, name);
+    }
+    name_belts(snapshot, &star);
+}
+
+/// Names belts by host, innermost first: `Velora Belt`, or `Inner` and
+/// `Outer` when there are two, or by number. A host with no planet to take
+/// its label from goes by the system's name.
+fn name_belts(snapshot: &mut SystemSnapshot, star: &str) {
+    let hosts: BTreeSet<HostRef> = snapshot.belts.iter().map(|b| b.host).collect();
+    for host in hosts {
+        let label = snapshot
+            .planets()
+            .find(|p| p.host == host)
+            .and_then(|p| p.designation.rsplit_once(' '))
+            .map_or(star, |(label, _)| label)
+            .to_string();
+        let mut own: Vec<_> = snapshot
+            .belts
+            .iter_mut()
+            .filter(|b| b.host == host)
+            .collect();
+        own.sort_by(|a, b| a.inner_au.total_cmp(&b.inner_au));
+        let count = own.len();
+        for (index, belt) in own.into_iter().enumerate() {
+            belt.name = match (count, index) {
+                (1, _) => format!("{label} Belt"),
+                (2, 0) => format!("{label} Inner Belt"),
+                (2, _) => format!("{label} Outer Belt"),
+                _ => format!("{label} Belt {}", index + 1),
+            };
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeSet;
 
     #[test]
     fn names_repeat_for_a_seed_and_differ_between_seeds() {

@@ -290,6 +290,7 @@ mod tests {
     fn snapshot_belts_are_drawn_between_their_edges() {
         let mut result = system(42);
         result.snapshot.belts.push(Belt {
+            name: String::new(),
             host: HostRef::Star(StarId(0)),
             inner_au: 2.1,
             outer_au: 3.3,

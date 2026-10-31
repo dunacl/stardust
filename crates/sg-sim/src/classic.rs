@@ -199,6 +199,7 @@ fn body(
     Body {
         id,
         name,
+        designation: String::new(),
         kind: BodyKind::Planet,
         host,
         orbit: Orbit {

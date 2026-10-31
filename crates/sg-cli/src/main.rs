@@ -406,7 +406,8 @@ fn summary(result: &SimulationResult) -> String {
     for belt in &snap.belts {
         let _ = writeln!(
             out,
-            "\nBelt around {}: {:.2}-{:.2} AU, {:.4} Earth masses",
+            "\n{} around {}: {:.2}-{:.2} AU, {:.4} Earth masses",
+            belt.name,
             host_name(snap, belt.host),
             belt.inner_au,
             belt.outer_au,

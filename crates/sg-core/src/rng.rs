@@ -27,6 +27,8 @@ impl ModuleId {
     pub const VISUAL: ModuleId = ModuleId(7);
     /// Names of stars and planets.
     pub const NAMES: ModuleId = ModuleId(8);
+    /// Proper names of planets and moons.
+    pub const BODY_NAMES: ModuleId = ModuleId(11);
     /// Moons and rings.
     pub const MOONS: ModuleId = ModuleId(9);
     /// Nuclei of the accretion model (the Classic tier).

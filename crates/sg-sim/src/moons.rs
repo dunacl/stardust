@@ -107,6 +107,7 @@ pub(crate) fn attach(
             made.push(Body {
                 id,
                 name: crate::names::moon_name(&planet.name, k),
+                designation: String::new(),
                 kind: BodyKind::Moon,
                 host: HostRef::Body(planet.id),
                 orbit: Orbit {
@@ -235,7 +236,7 @@ mod tests {
                 );
                 assert!(a_km > 2.0 * planet.radius_km && a_km < 0.49 * hill);
                 assert!(moon.mass_mearth < 0.05 * planet.mass_mearth);
-                assert!(moon.name.starts_with(&planet.name));
+                assert!(moon.designation.starts_with(&planet.designation));
                 assert!(moon.radius_km > 0.0 && moon.orbit.period_days > 0.0);
             }
         }

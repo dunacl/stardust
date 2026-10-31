@@ -18,15 +18,16 @@ Stardust was inspired by the C program
   description of how planets form.
 
 - **High**: the Standard model, with the giant planets' orbits followed
-  directly for up to a million years after the gas clears, so that giants
-  packed too closely scatter one another. A few seconds where it applies.
+  directly after the gas clears, so that giants packed too closely scatter
+  one another. A few seconds where it applies. The run aims at a million
+  years but its step budget usually ends it near 30,000.
 
 All work around one, two or three stars.
 
 | | |
 |---|---|
 | Why the Classic tier was written from the papers | [`docs/adr/0006-rewrite-classic-from-the-papers.md`](docs/adr/0006-rewrite-classic-from-the-papers.md) |
-| How the model compares with real planets | [`validation/report-0.13.0.md`](validation/report-0.13.0.md) |
+| How the model compares with real planets | [`validation/report-0.14.0.md`](validation/report-0.14.0.md) |
 | Contributing | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 | Reporting a vulnerability | [`SECURITY.md`](SECURITY.md) |
 
@@ -127,9 +128,12 @@ docs/              ADR 0006, the Classic model's specification
   and the report keeps its failures in. Passing is a calibration, not a
   prediction: the disk masses and the pressure bumps of models 0.11.0 and 0.12.0
   (where the bumps sit, how many pebbles they trap) were set to fit those
-  statistics, and no source predicts them. Rocky planets of 1.25–1.75 Earth
-  radii and giant eccentricities still do not match. Belts grind down by a
-  published law with published values, not fitted ones.
+  statistics, and no source predicts them. Known limits: too few rocky planets of
+  1.25–1.75 Earth radii, probably too many close-in planets smaller than
+  the Earth, and giant eccentricities too low (median 0.03 in the High tier
+  against about 0.2). Fixing them needs a different account of how solids
+  move through the disk, not a calibration. Belts grind down by a published
+  law with published values, not fitted ones.
 - **Honest about what is drawn.** The renderer draws what the simulation
   produced: a planet's oceans, ice and cloud cover the fractions the model
   gives, a giant's colours follow its temperature, the disk thins and

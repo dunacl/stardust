@@ -12,6 +12,14 @@ Simulation changes are tracked by model version; each has a report in
 - Parameter files with an unknown or misplaced field are refused.
 - Enlarged bodies, their rings and their moons no longer reach a neighbour's orbit:
   they are drawn smaller where there is no room. No change to the model.
+- The growth-model milestone is closed at model 0.13.0, with its known limits stated
+  in the README. No change to the model.
+
+## Model 0.14.0
+
+- Planets and moons have proper names, unique in their system, and keep their
+  designation (`Calira b`) as a new field; belts are named. Schema 0.11.0. Nothing
+  physical changes: the names are given last, from their own random stream.
 
 ## Model 0.13.0
 

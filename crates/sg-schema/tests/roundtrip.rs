@@ -6,6 +6,7 @@ fn sample_body() -> Body {
     Body {
         id: BodyId(3),
         name: "Velora d".into(),
+        designation: "Velora b".into(),
         kind: BodyKind::Planet,
         host: HostRef::Star(StarId(0)),
         orbit: Orbit {
@@ -129,6 +130,7 @@ fn sample_snapshot() -> SystemSnapshot {
         },
         bodies: vec![sample_body()],
         belts: vec![Belt {
+            name: "Velora Belt".into(),
             host: HostRef::Star(StarId(0)),
             inner_au: 2.1,
             outer_au: 3.3,

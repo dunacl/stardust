@@ -32,7 +32,7 @@ use sg_schema::{EventTimeline, Fidelity, SimulationParams, SystemSnapshot, SCHEM
 
 /// Version of the physical model. Bump whenever a change alters outputs for
 /// existing parameters (CLAUDE.md hard rule 7).
-pub const MODEL_VERSION: &str = "0.13.0";
+pub const MODEL_VERSION: &str = "0.14.0";
 
 /// Everything a run produces.
 #[derive(Debug, Clone, PartialEq)]
@@ -140,7 +140,7 @@ pub fn simulate_with(
             expected: SCHEMA_VERSION.to_string(),
         });
     }
-    match params.fidelity {
+    let mut result = match params.fidelity {
         #[cfg(feature = "classic")]
         Fidelity::Classic => classic::simulate(params, observer),
         #[cfg(not(feature = "classic"))]
@@ -152,7 +152,9 @@ pub fn simulate_with(
         // The High tier is the Standard tier with its late stage
         // integrated (`high.rs`).
         Fidelity::High => standard::simulate(params, observer),
-    }
+    }?;
+    names::assign(&mut result.snapshot, params.seed);
+    Ok(result)
 }
 
 /// Fingerprint of a parameter set: FNV-1a of its canonical JSON.
