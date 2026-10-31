@@ -13,7 +13,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # seed:mass for a single star, seed:preset for a preset, and
 # seed:preset@standard or @high for a preset in the Standard or High tier.
 # Together they cover stellar evolution, sampling, the multiple-star path, the
-# modern formation model and the N-body integration (seeds 45, 274 and 345
+# modern formation model and the N-body integration (seeds 45, 274 and 412
 # have giants that scatter).
 CASES="1:1.0 42:1.0 7:0.3 1000:0.6 31337:0.8 99:1.2 12345:1.5 2026:1.0
   42:massive-a-star 42:circumbinary 42:s-type-binary 42:hierarchical-triple
@@ -22,7 +22,7 @@ CASES="1:1.0 42:1.0 7:0.3 1000:0.6 31337:0.8 99:1.2 12345:1.5 2026:1.0
   42:metal-poor@standard 42:massive-a-star@standard 42:circumbinary@standard
   42:s-type-binary@standard 42:hierarchical-triple@standard
   1:random@standard 2:random@standard 3:random@standard 42:random@standard
-  45:sun-like@high 274:sun-like@high 345:sun-like@high 42:hot-jupiter@high"
+  45:sun-like@high 274:sun-like@high 412:sun-like@high 42:hot-jupiter@high"
 
 command -v node >/dev/null || { echo "check-determinism: node is required" >&2; exit 1; }
 

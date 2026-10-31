@@ -25,14 +25,15 @@ All work around one, two or three stars.
 
 | | |
 |---|---|
-| Design decisions behind the architecture and the science | [`docs/adr/`](docs/adr/) |
+| Why the Classic tier was written from the papers | [`docs/adr/0006-rewrite-classic-from-the-papers.md`](docs/adr/0006-rewrite-classic-from-the-papers.md) |
 | How the model compares with real planets | [`validation/report-0.12.0.md`](validation/report-0.12.0.md) |
 | Contributing | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 | Reporting a vulnerability | [`SECURITY.md`](SECURITY.md) |
 
 The project plan and working notes are not published. References in the code
 to `PLAN.md`, its decisions (`D18`) or sections (`§6.2`), and to `CLAUDE.md`,
-point at those private documents; the code and the ADRs stand without them.
+point at those private documents, and so do most decision records (ADRs), of
+which only ADR 0006 is published. The code stands without them.
 
 ## Quick start
 
@@ -48,10 +49,10 @@ make help                       # everything else
 Some things to try:
 
 ```sh
-make run PRESET=hot-jupiter SEED=2          # a giant on a four-day orbit
+make run PRESET=hot-jupiter SEED=112      # a giant on a 14-day orbit
 make run PRESET=circumbinary SCALE=schematic  # planets around two suns
 make run TIER=classic                       # Dole's model of 1969
-make run TIER=high SEED=345                 # giants that scatter one another
+make run TIER=high SEED=412                 # giants that scatter one another
 make sim SEED=7                             # one system as text
 make validate                               # 3000 systems vs exoplanet surveys
 make shots OFFSCREEN=1                      # reference pictures into target/shots
@@ -111,7 +112,7 @@ reference/         how the stellar tables were generated
 validation/        reports comparing generated populations with surveys
 scripts/           the checks `make ci` runs
 web/               the page that hosts the browser build
-docs/              decision records, the Classic model's specification
+docs/              ADR 0006, the Classic model's specification
 ```
 
 ## Principles
@@ -123,7 +124,11 @@ docs/              decision records, the Classic model's specification
   range it is valid over, and is tested against a published or analytic
   value.
 - **Measured.** The modern model is compared with real exoplanet statistics,
-  and the report keeps its failures in.
+  and the report keeps its failures in. Passing is a calibration, not a
+  prediction: the disk masses and the pressure bumps of models 0.11.0 and 0.12.0
+  (where the bumps sit, how many pebbles they trap) were set to fit those
+  statistics, and no source predicts them. Rocky planets of 1.25–1.75 Earth
+  radii, giant eccentricities and the place of outer belts still do not match.
 - **Honest about what is drawn.** The renderer draws what the simulation
   produced: a planet's oceans, ice and cloud cover the fractions the model
   gives, a giant's colours follow its temperature, the disk thins and

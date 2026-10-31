@@ -16,13 +16,13 @@ Simulation changes are tracked by model version; each has a report in
 ## Model 0.12.0
 
 - Standard and High: the median disk mass rises from 0.8% to 1.2% of the star's mass,
-  and bumps trap 40% of the pebbles instead of 20% (ADR 0008). All seven validation
-  statistics pass, on seeds 1–3000 and 3001–6000.
+  and bumps trap 40% of the pebbles instead of 20%. All seven validation statistics
+  pass, on seeds 1–3000 and 3001–6000. Both values are calibrated, not predicted.
 
 ## Model 0.11.0
 
 - Standard and High: pressure bumps. A bump keeps part of the pebbles as a ring of
-  dust and stops cores that have not opened a gap (Morbidelli 2020, ADR 0007).
+  dust and stops cores that have not opened a gap (Morbidelli 2020).
 - Cores can gather gas below the pebble isolation mass once few solids reach them
   (Ikoma et al. 2000). The envelope cooling time is now 3×10⁸ years.
 - Jupiter analogues rise from 0.07% to 1.43%, still under the 2% floor. Planets of

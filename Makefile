@@ -130,7 +130,7 @@ shots: ## The reference set: scales, formation, close-ups, red dwarf, binaries, 
 	$(APP) --seed $(SEED) --preset hierarchical-triple --scale schematic --screenshot $(SHOTS)/triple.png
 	$(APP) --seed $(SEED) --preset s-type-binary --select 0 --screenshot $(SHOTS)/binary-star-card.png
 	$(APP) --seed 83 --tier classic --select 2 --screenshot $(SHOTS)/asteroid-belt.png
-	$(APP) --seed 2 --preset hot-jupiter --select 1 --screenshot $(SHOTS)/hot-jupiter.png
+	$(APP) --seed 112 --preset hot-jupiter --select 1 --screenshot $(SHOTS)/hot-jupiter.png
 	$(APP) --seed 1 --tier classic --select 3 --screenshot $(SHOTS)/terrestrial.png
 	$(APP) --seed 1 --tier classic --select 5 --screenshot $(SHOTS)/jovian.png
 	$(APP) --seed 1 --tier classic --select 8 --screenshot $(SHOTS)/martian.png
@@ -144,7 +144,7 @@ shots: ## The reference set: scales, formation, close-ups, red dwarf, binaries, 
 	$(APP) --seed 2 --tier classic --select 8 --screenshot $(SHOTS)/rings-and-moon.png
 	$(APP) --seed 42 --tier classic --select 7 --screenshot $(SHOTS)/rings-tilted.png
 	$(APP) --seed 1 --tier classic --select 9 --screenshot $(SHOTS)/moons.png
-	$(APP) --seed 345 --tier high --scale schematic --screenshot $(SHOTS)/high-scattered-giants.png
+	$(APP) --seed 412 --tier high --scale schematic --screenshot $(SHOTS)/high-scattered-giants.png
 	@printf 'screenshots written to %s\n' '$(SHOTS)'
 
 ##@ Individual checks

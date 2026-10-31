@@ -26,7 +26,7 @@ need() {
   }
 }
 
-PRIVATE='^(private/|PLAN\.md$|CLAUDE\.md$|docs/PROGRESS\.md$|docs/m6-preparation\.md$)'
+PRIVATE='^(private/|PLAN\.md$|CLAUDE\.md$|docs/PROGRESS\.md$|docs/m6-preparation\.md$|docs/adr/000[1-578]-)'
 
 found="$( {
   git ls-files
