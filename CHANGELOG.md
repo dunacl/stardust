@@ -13,6 +13,12 @@ Simulation changes are tracked by model version; each has a report in
 - Enlarged bodies, their rings and their moons no longer reach a neighbour's orbit:
   they are drawn smaller where there is no room. No change to the model.
 
+## Model 0.12.1
+
+- The Hot Jupiter preset gives a giant inside 10 days in about one seed in six, and
+  inside 100 days in two in three. It gave none in 400 seeds at 0.12.0. Other presets
+  are unchanged.
+
 ## Model 0.12.0
 
 - Standard and High: the median disk mass rises from 0.8% to 1.2% of the star's mass,

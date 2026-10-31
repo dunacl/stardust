@@ -94,9 +94,14 @@ pub fn preset_params(preset: PresetId, seed: u64, fidelity: Fidelity) -> Simulat
             // metal-rich star with a massive, long-lived disk. Not every
             // seed produces a hot Jupiter.
             params.system = single(1.0);
+            // Calibrated: giants move this far only through a long-lived
+            // disk whose gas flows fast. About one seed in six gives a
+            // giant inside 10 days and two in three one inside 100.
             params.metallicity_feh = Some(0.3);
-            params.disk.mass_fraction = Some(0.12);
-            params.disk.lifetime_myr = Some(5.0);
+            params.disk.mass_fraction = Some(0.03);
+            params.disk.lifetime_myr = Some(8.0);
+            params.disk.alpha_viscous = 1.0e-2;
+            params.formation.standard.alpha_gap = 1.0e-3;
         }
         PresetId::RedDwarf => params.system = single(0.2),
         PresetId::MassiveAStar => params.system = single(2.0),

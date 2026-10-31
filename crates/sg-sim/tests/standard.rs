@@ -270,8 +270,25 @@ fn standard_hashes_are_pinned() {
 }
 
 const PINNED: [&str; 4] = [
-    "9d682f20e1786130",
-    "a1d16f5e42687ad9",
-    "f4b4e5fe3b36cc5d",
-    "5593f2007433e85e",
+    "5fd205000371b037",
+    "b9831e6516e573d9",
+    "77ee60e391761dfc",
+    "a2b98ae4ac942895",
 ];
+
+#[test]
+fn the_hot_jupiter_preset_makes_hot_jupiters() {
+    let hot = |seed| {
+        simulate(&preset_params(
+            PresetId::HotJupiter,
+            seed,
+            Fidelity::Standard,
+        ))
+        .unwrap()
+        .snapshot
+        .planets()
+        .any(|b| b.mass_mearth >= 95.0 && b.orbit.period_days < 10.0)
+    };
+    assert!(hot(80));
+    assert!((1..=20).filter(|seed| hot(*seed)).count() >= 2);
+}
