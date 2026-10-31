@@ -26,7 +26,7 @@ All work around one, two or three stars.
 | | |
 |---|---|
 | Design decisions behind the architecture and the science | [`docs/adr/`](docs/adr/) |
-| How the model compares with real planets | [`validation/report-0.9.0.md`](validation/report-0.9.0.md) |
+| How the model compares with real planets | [`validation/report-0.11.0.md`](validation/report-0.11.0.md) |
 | Contributing | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 | Reporting a vulnerability | [`SECURITY.md`](SECURITY.md) |
 

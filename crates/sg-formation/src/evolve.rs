@@ -18,13 +18,21 @@
 //!    ([`physics::pebble_accretion_efficiency`]). So
 //!    how soon embryos appear, and how fast they grow, follows from how much
 //!    solid material the disk has.
-//! 3. **Gas.** A body past isolation contracts its envelope and, once the
+//! 3. **Gas.** A body past isolation, or one whose core has passed the
+//!    critical mass for the solids reaching it
+//!    ([`physics::critical_core_mass`]), contracts its envelope and, once the
 //!    envelope outweighs the core, accretes gas in a runaway.
 //! 4. **Migration.** Bodies move by the disk's torque. Neighbours that
 //!    converge are caught in a mean-motion resonance and from then on move
 //!    as a chain, at the rate their summed torques give; a chain stops when
 //!    its innermost member reaches the disk's inner edge. Neighbours too
 //!    close for anything to keep apart merge.
+//! 5. **Pressure bumps**, when there are any. A bump keeps part of the
+//!    pebbles reaching it as a ring of dust, a share of which becomes
+//!    planetesimals; bodies take the rest
+//!    ([`physics::ring_accretion_rate`]). A body with no gap stops at a bump
+//!    (Morbidelli 2020, A&A 638, A1). Dust left when the gas goes is
+//!    returned with the planetesimals.
 //!
 //! When the gas has gone, bodies that never entered runaway are left with
 //! the part of their envelope that survives the disk's dispersal (Ginzburg,
@@ -76,6 +84,10 @@ pub struct GrowthParams {
     /// region, so the factor rises to 1 as the gap deepens: gap-opening
     /// planets migrate at the full type II rate.
     pub migration_efficiency: f64,
+    /// Pressure bumps, AU, ascending. Empty for a smooth disk.
+    pub bump_radii_au: Vec<f64>,
+    /// Fraction of the pebbles reaching a bump that stay in it.
+    pub bump_trap_fraction: f64,
 }
 
 impl Default for GrowthParams {
@@ -88,6 +100,8 @@ impl Default for GrowthParams {
             cooling_time_1mearth_yr: physics::NOMINAL_COOLING_TIME_YR,
             migration: true,
             migration_efficiency: 1.0,
+            bump_radii_au: Vec::new(),
+            bump_trap_fraction: 0.0,
         }
     }
 }
@@ -220,6 +234,9 @@ pub struct SolidsBudget {
     pub to_embryos: f64,
     /// Drifted through the inner edge and onto the star.
     pub onto_star: f64,
+    /// Stopped outside a planet at the isolation mass. The model does not
+    /// follow these pebbles further.
+    pub blocked: f64,
 }
 
 /// Longest step, years.
@@ -431,6 +448,7 @@ pub fn evolve(
     let mut steps = 0u64;
     let mut budget = SolidsBudget::default();
     let mut t = 0.0f64;
+    let mut ring_dust = vec![0.0f64; params.bump_radii_au.len()];
 
     let frame = |t_yr: f64, bodies: &[Embryo]| {
         let mut list: Vec<(u32, f64, f64)> = bodies
@@ -495,6 +513,7 @@ pub fn evolve(
         let mut flux = physics::pebble_flux(disk, t);
         let supplied_rate = flux;
         let mut sublimated_rate = 0.0;
+        let mut blocked_rate = 0.0;
         let mut past_ice_line = false;
         let n = bodies.len();
         let mut solid_rate = vec![0.0f64; n];
@@ -504,12 +523,25 @@ pub fn evolve(
         // Planetesimal formation per ring, M☉/yr, and whether it is icy.
         let mut ring_rate = [0.0f64; RING_COUNT];
         let mut ring_icy = [false; RING_COUNT];
+        let mut ring_dust_rate = vec![0.0f64; ring_dust.len()];
+        let mut ring_take_rate = vec![0.0f64; n];
 
         let mut next_body = n;
         // One pass per ring from the outside, plus a last pass (`None`) for
         // any body inside the innermost ring's inner edge.
         for ring in (0..RING_COUNT).rev().map(Some).chain(std::iter::once(None)) {
             let lower = ring.map_or(0.0, |c| rings[c].inner_au);
+            if let Some(c) = ring {
+                for (k, r0) in params.bump_radii_au.iter().enumerate().rev() {
+                    if *r0 >= lower && *r0 < rings[c].outer_au && *r0 < front {
+                        let held = params.bump_trap_fraction * flux;
+                        flux -= held;
+                        ring_rate[c] += efficiency * held;
+                        ring_icy[c] = !past_ice_line;
+                        ring_dust_rate[k] += (1.0 - efficiency) * held;
+                    }
+                }
+            }
             while next_body > 0 && bodies[next_body - 1].a_au >= lower {
                 next_body -= 1;
                 let i = next_body;
@@ -523,31 +555,10 @@ pub fn evolve(
                     // Its pressure bump holds back all pebbles from outside.
                     // (Letting 10–50% leak through was tried and changes
                     // the population very little: PLAN.md D51.)
+                    blocked_rate += flux;
                     flux = 0.0;
                 }
-                // A body halted at the disk's inner edge sits where the gas
-                // ends, and draws none in.
-                if b.isolated && b.a_au > inner_edge {
-                    // Contraction first, a runaway once the envelope
-                    // outweighs the core; either way no faster than the gap
-                    // lets gas in.
-                    let supply = physics::runaway_accretion_rate(
-                        disk,
-                        b.a_au,
-                        t,
-                        b.mass_msun(),
-                        params.alpha_gap,
-                    );
-                    gas_rate[i] = if b.envelope_msun < b.core_msun {
-                        physics::envelope_contraction_rate(
-                            b.mass_msun(),
-                            params.cooling_time_1mearth_yr,
-                        )
-                        .min(supply)
-                    } else {
-                        supply
-                    };
-                } else if b.a_au <= front {
+                if !b.isolated && b.a_au <= front {
                     let stokes = physics::stokes_number(
                         disk,
                         b.a_au,
@@ -578,6 +589,58 @@ pub fn evolve(
                         star,
                     );
                     sweep_rate[i] = b.mass_msun() / time;
+                }
+                // Dust held in the bumps.
+                if !b.isolated {
+                    for (k, r0) in params.bump_radii_au.iter().enumerate() {
+                        let stokes = physics::stokes_number(
+                            disk,
+                            *r0,
+                            t,
+                            params.stokes_drift,
+                            alpha,
+                            ice_line,
+                        );
+                        ring_take_rate[i] += physics::ring_accretion_rate(
+                            disk,
+                            *r0,
+                            b.a_au,
+                            t,
+                            b.mass_msun(),
+                            ring_dust[k],
+                            stokes,
+                            alpha,
+                        );
+                    }
+                }
+                // Gas, once the solids arriving no longer hold the envelope
+                // up. A body halted at the disk's inner edge sits where the
+                // gas ends, and draws none in.
+                let opacity = params.cooling_time_1mearth_yr / physics::NOMINAL_COOLING_TIME_YR;
+                let critical = physics::critical_core_mass(
+                    solid_rate[i] + sweep_rate[i] + ring_take_rate[i],
+                    opacity,
+                );
+                if (b.isolated || b.runaway || b.core_msun >= critical) && b.a_au > inner_edge {
+                    // Contraction first, a runaway once the envelope
+                    // outweighs the core; either way no faster than the gap
+                    // lets gas in.
+                    let supply = physics::runaway_accretion_rate(
+                        disk,
+                        b.a_au,
+                        t,
+                        b.mass_msun(),
+                        params.alpha_gap,
+                    );
+                    gas_rate[i] = if b.envelope_msun < b.core_msun {
+                        physics::envelope_contraction_rate(
+                            b.mass_msun(),
+                            params.cooling_time_1mearth_yr,
+                        )
+                        .min(supply)
+                    } else {
+                        supply
+                    };
                 }
                 if params.migration && b.a_au > inner_edge {
                     // The efficiency stands in for the corotation torque,
@@ -612,9 +675,9 @@ pub fn evolve(
                     rings[c].outer_au - rings[c].inner_au,
                     disk.aspect_ratio(mid, t) * mid,
                 );
-                ring_rate[c] = fraction * flux;
+                ring_rate[c] += fraction * flux;
                 ring_icy[c] = !past_ice_line;
-                flux -= ring_rate[c];
+                flux -= fraction * flux;
             }
         }
 
@@ -657,7 +720,8 @@ pub fn evolve(
         // on the next seed, frame and the end.
         let mut dt = MAX_STEP_YR;
         for i in 0..n {
-            let growth = (solid_rate[i] + sweep_rate[i] + gas_rate[i]) / bodies[i].mass_msun();
+            let growth = (solid_rate[i] + sweep_rate[i] + gas_rate[i] + ring_take_rate[i])
+                / bodies[i].mass_msun();
             let motion = chain_rate[chain_of[i]].abs();
             let fastest = growth.max(motion);
             if fastest > 0.0 {
@@ -673,6 +737,7 @@ pub fn evolve(
         budget.supplied += supplied_rate * dt;
         budget.sublimated += sublimated_rate * dt;
         budget.onto_star += onto_star_rate * dt;
+        budget.blocked += blocked_rate * dt;
         budget.to_embryos += solid_rate.iter().sum::<f64>() * dt;
         // New planetesimals.
         for c in 0..RING_COUNT {
@@ -684,10 +749,27 @@ pub fn evolve(
             }
         }
 
+        for (dust, rate) in ring_dust.iter_mut().zip(&ring_dust_rate) {
+            *dust += rate * dt;
+        }
+
         // Apply growth and motion.
         for i in 0..n {
             let b = &mut bodies[i];
-            let solids = solid_rate[i] * dt;
+            let mut solids = solid_rate[i] * dt;
+            if ring_take_rate[i] > 0.0 {
+                let nearest = params
+                    .bump_radii_au
+                    .iter()
+                    .enumerate()
+                    .min_by(|x, y| (x.1 - b.a_au).abs().total_cmp(&(y.1 - b.a_au).abs()));
+                if let Some((k, _)) = nearest {
+                    let taken = (ring_take_rate[i] * dt).min(ring_dust[k]);
+                    ring_dust[k] -= taken;
+                    budget.to_embryos += taken;
+                    solids += taken;
+                }
+            }
             b.core_msun += solids;
             if b.a_au >= ice_line {
                 b.water_msun += ICE_MASS_FRACTION * solids;
@@ -703,14 +785,15 @@ pub fn evolve(
                     b.water_msun += water;
                 }
             }
-            if b.isolated {
-                let was_contracting = b.envelope_msun < b.core_msun;
-                b.envelope_msun += gas_rate[i] * dt;
-                if was_contracting && b.envelope_msun >= b.core_msun && !b.runaway {
-                    b.runaway = true;
-                    events.push((t, GrowthEvent::RunawayGas { id: b.id }));
-                }
-            } else if b.mass_msun() >= physics::pebble_isolation_mass(disk, b.a_au, t, alpha) {
+            let was_contracting = b.envelope_msun < b.core_msun;
+            b.envelope_msun += gas_rate[i] * dt;
+            if was_contracting && b.envelope_msun >= b.core_msun && !b.runaway {
+                b.runaway = true;
+                events.push((t, GrowthEvent::RunawayGas { id: b.id }));
+            }
+            if !b.isolated
+                && b.mass_msun() >= physics::pebble_isolation_mass(disk, b.a_au, t, alpha)
+            {
                 b.isolated = true;
                 events.push((t, GrowthEvent::IsolationReached { id: b.id }));
             }
@@ -722,7 +805,15 @@ pub fn evolve(
                 events.push((t, GrowthEvent::GapOpened { id: b.id }));
             }
             let was_outside = b.a_au > inner_edge;
-            b.a_au = (b.a_au * exp(chain_rate[chain_of[i]] * dt)).max(inner_edge);
+            let mut moved = (b.a_au * exp(chain_rate[chain_of[i]] * dt)).max(inner_edge);
+            if !b.gap {
+                for r0 in &params.bump_radii_au {
+                    if b.a_au >= *r0 && moved < *r0 {
+                        moved = *r0;
+                    }
+                }
+            }
+            b.a_au = moved;
             if was_outside && b.a_au <= inner_edge {
                 events.push((t, GrowthEvent::ReachedInnerEdge { id: b.id }));
             }
@@ -813,6 +904,17 @@ pub fn evolve(
         next_frame += 1;
     }
 
+    // What the bumps still hold stays behind with the planetesimals.
+    for (r0, dust) in params.bump_radii_au.iter().zip(&ring_dust) {
+        if let Some(c) = ring_of(*r0) {
+            rings[c].mass_msun += dust;
+            budget.to_planetesimals += dust;
+            if *r0 >= disk.water_ice_line(end) {
+                rings[c].water_msun += ICE_MASS_FRACTION * dust;
+            }
+        }
+    }
+
     // A core that never entered runaway keeps only what survives the
     // disk's dispersal. (Until runaway the envelope tracked above is a
     // clock for its onset, not a prediction of its mass: the contraction
@@ -868,6 +970,30 @@ mod tests {
     /// ignored: embryos appear when their site has enough planetesimals.)
     fn seeds(list: &[(f64, f64)]) -> Vec<Seed> {
         list.iter().map(|(a_au, _)| Seed { a_au: *a_au }).collect()
+    }
+
+    /// A core stops at a pressure bump instead of drifting past it, and the
+    /// bump's dust is all accounted for (Morbidelli 2020).
+    #[test]
+    fn a_bump_holds_cores_and_keeps_the_budget() {
+        let disk = disk_with(0.05, 3.0e6);
+        let params = GrowthParams {
+            migration_efficiency: 1.0,
+            bump_radii_au: vec![5.0],
+            bump_trap_fraction: 0.3,
+            ..GrowthParams::default()
+        };
+        let mut sites = ring_sites(&disk);
+        sites.push(Seed { a_au: 5.0 });
+        let outcome = evolve(&disk, &params, &sites, &[]);
+        for planet in &outcome.planets {
+            if planet.origin_a_au >= 5.0 && !planet.gap && planet.mergers == 0 {
+                assert!(planet.a_au >= 5.0, "{planet:?}");
+            }
+        }
+        let b = &outcome.budget;
+        let spent = b.sublimated + b.to_planetesimals + b.to_embryos + b.onto_star + b.blocked;
+        assert!((spent / b.supplied - 1.0).abs() < 1.0e-6, "{b:?}");
     }
 
     /// Prints where the solids of a typical disk go. Run with

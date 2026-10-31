@@ -10,6 +10,16 @@ Simulation changes are tracked by model version; each has a report in
 - Bevy 0.20.1, which fixes RUSTSEC-2026-0344 in `ruzstd`.
 - Release archives for macOS and the web.
 
+## Model 0.11.0
+
+- Standard and High: pressure bumps. A bump keeps part of the pebbles as a ring of
+  dust and stops cores that have not opened a gap (Morbidelli 2020, ADR 0007).
+- Cores can gather gas below the pebble isolation mass once few solids reach them
+  (Ikoma et al. 2000). The envelope cooling time is now 3×10⁸ years.
+- Jupiter analogues rise from 0.07% to 1.43%, still under the 2% floor. Planets of
+  1–4 Earth radii fall from 30% to 21%. A system takes about twice as long.
+- Classic is unchanged, except for hashes that include the parameters.
+
 ## Model 0.10.0
 
 - The Classic tier is rewritten from Dole (1969) and Fogg (1985) in `sg-accrete`,

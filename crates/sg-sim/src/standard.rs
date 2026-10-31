@@ -160,6 +160,14 @@ fn calm_eccentricities(bodies: &mut [Body], host: HostRef, star_mass_msun: f64, 
 /// mergers.
 const ECCENTRICITY_SCALE: (f64, f64) = (0.02, 0.06);
 
+/// A disk ready to form planets.
+struct DiskSetup {
+    disk: Disk,
+    seeds: Vec<Seed>,
+    /// Pressure bumps, AU, ascending.
+    bumps: Vec<f64>,
+}
+
 fn check(observer: &mut dyn SimObserver, stage: Stage, fraction: f64) -> Result<(), SimError> {
     match observer.progress(stage, fraction) {
         Control::Continue => Ok(()),
@@ -195,6 +203,18 @@ fn validate(params: &SimulationParams) -> Result<(), SimError> {
         ),
         ("formation.standard.alpha_gap", s.alpha_gap),
     ];
+    if !(0.0..1.0).contains(&s.bump_trap_fraction) {
+        return invalid(format!(
+            "formation.standard.bump_trap_fraction must be in [0, 1), got {}",
+            s.bump_trap_fraction
+        ));
+    }
+    if !(s.bump_spacing_ratio.is_finite() && s.bump_spacing_ratio > 1.0) {
+        return invalid(format!(
+            "formation.standard.bump_spacing_ratio must exceed 1, got {}",
+            s.bump_spacing_ratio
+        ));
+    }
     for (name, value) in positive {
         if !(value.is_finite() && value > 0.0) {
             return invalid(format!("{name} must be positive and finite, got {value}"));
@@ -352,7 +372,7 @@ fn form_in_disk(
     plan: &stars::DiskPlan,
     dust_to_gas: f64,
     rng: &mut RngStream,
-) -> Result<Option<(Disk, Vec<Seed>, f64)>, SimError> {
+) -> Result<Option<DiskSetup>, SimError> {
     let star = plan.central_mass_msun;
 
     // Draws are taken in a fixed order whether or not they are used, so a
@@ -414,11 +434,26 @@ fn form_in_disk(
 
     // Embryos can appear in every ring of the disk's planetesimals within
     // the seeded range. When each does is decided by the growth model.
-    let seeds: Vec<Seed> = evolve::ring_sites(&disk)
+    let mut seeds: Vec<Seed> = evolve::ring_sites(&disk)
         .into_iter()
         .filter(|site| site.a_au >= seed_inner && site.a_au <= seed_outer)
         .collect();
-    Ok(Some((disk, seeds, lifetime_myr)))
+    // Pressure bumps, from the ice line outward. No published model says
+    // where they form, so their spacing is a parameter and their phase is
+    // drawn; drawn only when they exist, so smooth disks use no extra draws.
+    let mut bumps = Vec::new();
+    let s = &params.formation.standard;
+    if s.bump_trap_fraction > 0.0 {
+        let mut r = disk.water_ice_line(1.0e6) * pow(s.bump_spacing_ratio, rng.uniform());
+        while r < seed_outer {
+            if r >= seed_inner {
+                bumps.push(r);
+                seeds.push(Seed { a_au: r });
+            }
+            r *= s.bump_spacing_ratio;
+        }
+    }
+    Ok(Some(DiskSetup { disk, seeds, bumps }))
 }
 
 #[allow(clippy::too_many_lines)]
@@ -458,21 +493,21 @@ pub(crate) fn simulate(
         cooling_time_1mearth_yr: params.formation.standard.envelope_cooling_time_yr,
         migration: params.toggles.migration,
         migration_efficiency: params.formation.standard.migration_efficiency,
+        bump_radii_au: Vec::new(),
+        bump_trap_fraction: params.formation.standard.bump_trap_fraction,
     };
     let frame_count = params.timeline.keyframe_count.max(1);
 
     // Set up every disk first, so the timeline can span the longest-lived.
     let mut setups = Vec::new();
     for plan in &system.disks {
-        if let Some((disk, seeds, lifetime_myr)) =
-            form_in_disk(params, plan, dust_to_gas, &mut disk_rng)?
-        {
-            setups.push((plan.clone(), disk, seeds, lifetime_myr));
+        if let Some(setup) = form_in_disk(params, plan, dust_to_gas, &mut disk_rng)? {
+            setups.push((plan.clone(), setup));
         }
     }
     let end_yr = setups
         .iter()
-        .map(|(_, disk, _, _)| disk.gas_gone_yr())
+        .map(|(_, setup)| setup.disk.gas_gone_yr())
         .fold(0.0f64, f64::max)
         * 1.05;
     // A system with no room for any disk still gets a (featureless) timeline.
@@ -486,12 +521,17 @@ pub(crate) fn simulate(
     let mut results: Vec<DiskResult> = Vec::new();
     let mut id_offset = 0u32;
     let mut steps = 0u64;
-    for (index, (plan, disk, seeds, _)) in setups.into_iter().enumerate() {
+    for (index, (plan, setup)) in setups.into_iter().enumerate() {
+        let DiskSetup { disk, seeds, bumps } = setup;
         check(
             observer,
             Stage::Formation,
             0.1 + 0.6 * index as f64 / system.disks.len() as f64,
         )?;
+        let growth = GrowthParams {
+            bump_radii_au: bumps,
+            ..growth.clone()
+        };
         let outcome = evolve::evolve(&disk, &growth, &seeds, &frame_times);
         steps += outcome.steps;
         // After the gas: the High tier integrates the orbits; the Standard

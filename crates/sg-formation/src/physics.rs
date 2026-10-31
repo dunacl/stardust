@@ -179,6 +179,62 @@ pub fn pebble_accretion_rate(
     flux_msun_yr * pebble_accretion_efficiency(q, stokes, disk.eta(r_au, t_yr), h_peb)
 }
 
+/// Width of a pressure bump in scale heights: `w = 17 AU` at 75 AU, where
+/// `H` is about 6 AU, for the median DSHARP ring (Dullemond et al. 2018, as
+/// used by Morbidelli 2020, A&A 638, A1, §3).
+pub const BUMP_WIDTH_SCALE_HEIGHTS: f64 = 2.8;
+
+/// Rate at which a body takes dust from a ring held in a pressure bump,
+/// M☉/yr.
+///
+/// Morbidelli (2020): the dust settles into a Gaussian of width
+/// `w_d = w/√(1 + St/α)` (eqs. 4–5) and peak `Σ₀ = M/((2π)^(3/2) r₀ w_d)`
+/// (eq. 12). A planet accretes about as it would in a smooth disk of the
+/// same dust density (§4), so the rate is the pebble accretion efficiency
+/// times the flux such a disk would carry, `4π r² Ω St η Σ_d`. It cannot
+/// exceed what diffusion and drift bring to the orbit (eq. 11),
+/// `4π r H² Ω St (x/w²) Σ₀ exp(−x²/2w_d²)`, with `x` the larger of the
+/// accretion radius `(St/0.1)^(1/3) r_H` and the half-width of the horseshoe
+/// region, `1.16 r √(q/h)` (and at least `|a − r₀|`). Valid for `α ≪ St ≪ 1`.
+#[allow(clippy::too_many_arguments)]
+pub fn ring_accretion_rate(
+    disk: &Disk,
+    ring_au: f64,
+    a_au: f64,
+    t_yr: f64,
+    mass_msun: f64,
+    ring_mass_msun: f64,
+    stokes: f64,
+    alpha_turbulent: f64,
+) -> f64 {
+    if ring_mass_msun <= 0.0 || stokes <= 0.0 {
+        return 0.0;
+    }
+    let star = disk.spec().star_mass_msun;
+    let h = disk.aspect_ratio(ring_au, t_yr);
+    let height = h * ring_au;
+    let width = BUMP_WIDTH_SCALE_HEIGHTS * height;
+    let dust_width = width / sqrt(1.0 + stokes / alpha_turbulent);
+    let peak = ring_mass_msun / (pow(2.0 * core::f64::consts::PI, 1.5) * ring_au * dust_width);
+    let offset = (a_au - ring_au) / dust_width;
+    let density = peak * exp(-0.5 * offset * offset);
+    let omega = disk.omega(a_au);
+    let eta = disk.eta(a_au, t_yr);
+    let q = mass_msun / star;
+    let h_peb = disk.aspect_ratio(a_au, t_yr) * sqrt(alpha_turbulent / (alpha_turbulent + stokes));
+    let flux = 4.0 * core::f64::consts::PI * a_au * a_au * omega * stokes * eta * density;
+    let rate = flux * pebble_accretion_efficiency(q, stokes, eta, h_peb);
+    let accretion_radius = cbrt(stokes / 0.1) * hill_radius(a_au, mass_msun, star);
+    let horseshoe = 1.16 * a_au * sqrt(q / h);
+    let x = accretion_radius.max(horseshoe).max((a_au - ring_au).abs());
+    let scaled = x / dust_width;
+    let delivered = 4.0 * core::f64::consts::PI * a_au * height * height * omega * stokes * x
+        / (width * width)
+        * peak
+        * exp(-0.5 * scaled * scaled);
+    rate.min(delivered)
+}
+
 /// Mass at which a planet carves a gap deep enough to stop pebbles
 /// reaching it, M☉.
 ///
@@ -258,6 +314,24 @@ pub fn envelope_contraction_rate(mass_msun: f64, cooling_time_1mearth_yr: f64) -
     let mass = mass_msun / EARTH_MASS_MSUN;
     let kelvin_helmholtz_yr = cooling_time_1mearth_yr / (mass * mass * mass);
     mass_msun / kelvin_helmholtz_yr
+}
+
+/// Core mass above which an envelope can no longer stay in hydrostatic
+/// balance and must contract, M☉, given the rate solids reach the core and
+/// the envelope's opacity.
+///
+/// Ikoma, Nakazawa & Emori (2000), as fitted by Armitage (2020, *Astrophysics
+/// of Planet Formation*, eq. 6.46):
+/// `M_crit ~ 7 M⊕ (Ṁ_core / 10⁻⁷ M⊕/yr)^q (κ / 1 cm²/g)^s`, with `q` and `s`
+/// both between 0.2 and 0.3; the middle of the range is used. Falling solids
+/// heat the envelope and hold it up, so a core that stops receiving them
+/// can start to draw in gas below the pebble isolation mass. The fit is for
+/// planetesimals and for `κ ≥ 10⁻²`; applying it to pebbles assumes that
+/// only the energy delivered matters.
+pub fn critical_core_mass(solid_rate_msun_yr: f64, opacity_cm2_g: f64) -> f64 {
+    const EXPONENT: f64 = 0.25;
+    let solids = solid_rate_msun_yr.max(0.0) / EARTH_MASS_MSUN / 1.0e-7;
+    7.0 * EARTH_MASS_MSUN * pow(solids, EXPONENT) * pow(opacity_cm2_g, EXPONENT)
 }
 
 /// Rate of runaway gas accretion, M☉/yr: the smallest of three limits.
@@ -545,6 +619,33 @@ mod tests {
         let slow = a / -migration_rate(&disk, a, t, jupiter, ALPHA_T);
         assert!(slow > 10.0 * timescale, "{slow}");
         assert_eq!(migration_rate(&disk, a, 5.0e6, core, ALPHA_T), 0.0);
+    }
+
+    /// Morbidelli (2020): no dust, no accretion; dust far outside the ring's
+    /// width is out of reach; more dust gives more accretion.
+    #[test]
+    fn ring_accretion_follows_the_dust() {
+        let d = disk();
+        let (t, r0, m) = (5.0e5, 5.0, 0.1 * EARTH_MASS_MSUN);
+        let rate = |a: f64, ring: f64| ring_accretion_rate(&d, r0, a, t, m, ring, 0.05, ALPHA_T);
+        let ring = 10.0 * EARTH_MASS_MSUN;
+        assert_eq!(rate(r0, 0.0), 0.0);
+        assert!(rate(r0, ring) > 0.0);
+        assert!(rate(r0 + 2.0, ring) < 1.0e-6 * rate(r0, ring));
+        assert!((rate(r0, 2.0 * ring) / rate(r0, ring) - 2.0).abs() < 1e-9);
+    }
+
+    /// Armitage (2020), eq. 6.46: 7 M⊕ at the reference rate and opacity,
+    /// falling as solids stop arriving or the opacity drops.
+    #[test]
+    fn critical_core_mass_follows_the_ikoma_fit() {
+        let reference = 1.0e-7 * EARTH_MASS_MSUN;
+        assert!((earths(critical_core_mass(reference, 1.0)) - 7.0).abs() < 1e-9);
+        let starved = earths(critical_core_mass(reference / 100.0, 1.0));
+        assert!((1.5..3.5).contains(&starved), "{starved}");
+        let clear = earths(critical_core_mass(reference, 0.01));
+        assert!((1.5..3.5).contains(&clear), "{clear}");
+        assert_eq!(critical_core_mass(0.0, 1.0), 0.0);
     }
 
     /// Ida & Lin (2004): a 10 M⊕ planet doubles in 10⁶ years, a 1 M⊕ one

@@ -219,6 +219,11 @@ pub struct StandardParams {
     /// Factor applied to the disk migration rate; below 1 it stands in for
     /// torques the model leaves out.
     pub migration_efficiency: f64,
+    /// Fraction of the pebbles reaching a pressure bump that stay in it;
+    /// 0 for a smooth disk (Morbidelli 2020).
+    pub bump_trap_fraction: f64,
+    /// Ratio of the radii of neighbouring pressure bumps.
+    pub bump_spacing_ratio: f64,
 }
 
 impl Default for StandardParams {
@@ -228,8 +233,10 @@ impl Default for StandardParams {
             alpha_gap: 1.0e-4,
             stokes_drift: 0.05,
             planetesimal_efficiency: 0.05,
-            envelope_cooling_time_yr: 1.0e9,
+            envelope_cooling_time_yr: 3.0e8,
             migration_efficiency: 0.1,
+            bump_trap_fraction: 0.2,
+            bump_spacing_ratio: 6.0,
         }
     }
 }
