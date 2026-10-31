@@ -19,6 +19,7 @@
 
 pub mod belt;
 pub mod camera;
+pub mod clearance;
 pub mod disk;
 pub mod display;
 pub mod gesture;

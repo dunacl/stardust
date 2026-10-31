@@ -2,6 +2,7 @@
 //! are in [`crate::belt`] and the sky in [`crate::sky`].
 
 use crate::camera::{self, OrbitCamera, PointerCaptured};
+use crate::clearance;
 use crate::display::{self, DisplayBody, Highlight};
 use crate::layout::{self, Layout};
 use crate::palette;
@@ -537,20 +538,26 @@ fn sync_scene(
     );
     let spin = (TAU * playback.orbit_days / DRAWN_ROTATION_DAYS).rem_euclid(TAU) as f32;
     let shown = display::bodies_at(result, playback.t_myr);
+    let ring_outer: BTreeMap<BodyId, f32> = snapshot
+        .bodies
+        .iter()
+        .filter_map(|b| Some((b.id, crate::ring::extent_in_radii(b)?.1)))
+        .collect();
+    let sizes = clearance::drawn_sizes(&shown, &ring_outer, scale);
     let mut stale: Vec<BodyId> = entities.bodies.keys().copied().collect();
     // Where each planet is this frame, for its moons, which follow it in
     // the list.
     let mut planets_now: BTreeMap<BodyId, PlanetNow> = BTreeMap::new();
     for body in &shown {
         let presence = body.presence.clamp(0.0, 1.0);
-        let body_radius = scale.planet_radius(body.radius_km as f32);
+        let body_radius = sizes[&body.id].radius;
         let is_moon = matches!(body.host, HostRef::Body(_));
         let (world, true_position, offset_length) = if let HostRef::Body(planet) = body.host {
             let Some(host) = planets_now.get(&planet) else {
                 continue;
             };
-            let offset = moon_offset(body, host, playback.orbit_days);
-            let semi_major = (body.a_au * KM_PER_AU / host.radius_km) as f32 * host.body_radius;
+            let semi_major = sizes[&body.id].semi_major;
+            let offset = moon_offset(body, host, semi_major, playback.orbit_days);
             placements.1.push(MoonOrbit {
                 planet,
                 moon: body.id,
@@ -755,8 +762,6 @@ fn sync_scene(
                 PlanetNow {
                     world,
                     true_position,
-                    body_radius,
-                    radius_km: body.radius_km,
                     mass_mearth: body.mass_mearth,
                     tilt,
                 },
@@ -840,9 +845,6 @@ pub(crate) struct PlanetNow {
     pub world: DVec3,
     /// Its position at true scale, AU: what its moons are lit by.
     pub true_position: DVec3,
-    /// Radius the scale mode draws it at.
-    pub body_radius: f32,
-    pub radius_km: f64,
     pub mass_mearth: f64,
     /// Orbit normal to spin axis.
     pub tilt: Quat,
@@ -857,13 +859,18 @@ pub const MOON_CLOCK_SLOWDOWN: f64 = 20.0;
 /// the smallest a planet is.
 const MOON_APPARENT_FLOOR: f32 = 0.6;
 const EARTHS_PER_SUN: f64 = 332_946.0;
-const KM_PER_AU: f64 = 1.495_978_707e8;
+pub(crate) const KM_PER_AU: f64 = 1.495_978_707e8;
 
 /// Where a moon is relative to its planet, in scene units. Its distance
 /// keeps its true proportion to the planet's radius as drawn, so that in
 /// every scale mode it sits as many planetary radii out as it really
 /// does; its orbit lies in the planet's equatorial plane.
-pub(crate) fn moon_offset(moon: &DisplayBody, planet: &PlanetNow, orbit_days: f64) -> DVec3 {
+pub(crate) fn moon_offset(
+    moon: &DisplayBody,
+    planet: &PlanetNow,
+    semi_major: f32,
+    orbit_days: f64,
+) -> DVec3 {
     let period = kepler::orbital_period(
         Au(moon.a_au),
         SolarMass(planet.mass_mearth / EARTHS_PER_SUN),
@@ -878,9 +885,8 @@ pub(crate) fn moon_offset(moon: &DisplayBody, planet: &PlanetNow, orbit_days: f6
         mean_anomaly: moon.mean_anomaly_deg.to_radians()
             + TAU * orbit_days / (period * MOON_CLOCK_SLOWDOWN),
     });
-    let radii = moon.a_au * KM_PER_AU / planet.radius_km;
     let flat = layout::to_scene(unit).as_vec3();
-    (planet.tilt * flat).as_dvec3() * radii * f64::from(planet.body_radius)
+    (planet.tilt * flat).as_dvec3() * f64::from(semi_major)
 }
 
 fn star_position_of(layout: &Layout, star: &Star) -> DVec3 {
