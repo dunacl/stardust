@@ -26,7 +26,7 @@ All work around one, two or three stars.
 | | |
 |---|---|
 | Why the Classic tier was written from the papers | [`docs/adr/0006-rewrite-classic-from-the-papers.md`](docs/adr/0006-rewrite-classic-from-the-papers.md) |
-| How the model compares with real planets | [`validation/report-0.12.1.md`](validation/report-0.12.1.md) |
+| How the model compares with real planets | [`validation/report-0.13.0.md`](validation/report-0.13.0.md) |
 | Contributing | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 | Reporting a vulnerability | [`SECURITY.md`](SECURITY.md) |
 
@@ -128,7 +128,8 @@ docs/              ADR 0006, the Classic model's specification
   prediction: the disk masses and the pressure bumps of models 0.11.0 and 0.12.0
   (where the bumps sit, how many pebbles they trap) were set to fit those
   statistics, and no source predicts them. Rocky planets of 1.25–1.75 Earth
-  radii, giant eccentricities and the place of outer belts still do not match.
+  radii and giant eccentricities still do not match. Belts grind down by a
+  published law with published values, not fitted ones.
 - **Honest about what is drawn.** The renderer draws what the simulation
   produced: a planet's oceans, ice and cloud cover the fractions the model
   gives, a giant's colours follow its temperature, the disk thins and

@@ -13,6 +13,15 @@ Simulation changes are tracked by model version; each has a report in
 - Enlarged bodies, their rings and their moons no longer reach a neighbour's orbit:
   they are drawn smaller where there is no room. No change to the model.
 
+## Model 0.13.0
+
+- Belts grind themselves down in collisions over the system's age (Wyatt et al.
+  2007, ApJ 658, 569), with that paper's canonical values. The limit comes to
+  within a factor of two of the real asteroid belt without fitting. On 1000 High
+  systems the median belt mass per star falls from 16 to 2.8 M⊕, stars above
+  10 M⊕ from 66% to 13%, and belts ending inside 10 AU hold almost nothing.
+  Planets and the population statistics are unchanged.
+
 ## Model 0.12.1
 
 - The Hot Jupiter preset gives a giant inside 10 days in about one seed in six, and

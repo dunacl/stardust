@@ -265,7 +265,8 @@ const MIN_BELT_RING_MASS_MEARTH: f64 = 1.0e-6;
 
 /// The stage after the gas for the planetesimals no body swept up while it
 /// lasted: each ring is accreted by a planet, ejected by one, or left as
-/// part of a belt (`sg_dynamics::late::ring_fate`). Planets grow by what
+/// part of a belt (`sg_dynamics::late::ring_fate`). What remains grinds
+/// itself down in collisions over the system's age. Planets grow by what
 /// they accrete; the belts are returned.
 fn sweep_leftovers(
     planets: &mut [Formed],
@@ -316,20 +317,33 @@ fn sweep_leftovers(
             ))
         };
         match fate {
-            Some(late::RingFate::Remains) => match open.as_mut() {
-                Some(belt) => {
-                    belt.outer_au = ring.outer_au;
-                    belt.mass_mearth += earths(ring.mass_msun);
+            Some(late::RingFate::Remains) => {
+                let left = late::ground_belt_mass_mearth(
+                    earths(ring.mass_msun),
+                    mid,
+                    (ring.outer_au - ring.inner_au) / mid,
+                    plan.central_mass_msun,
+                    age_yr,
+                );
+                if left < MIN_BELT_RING_MASS_MEARTH {
+                    close(&mut open, &mut belts);
+                    continue;
                 }
-                None => {
-                    open = Some(Belt {
-                        host: plan.host,
-                        inner_au: ring.inner_au,
-                        outer_au: ring.outer_au,
-                        mass_mearth: earths(ring.mass_msun),
-                    });
+                match open.as_mut() {
+                    Some(belt) => {
+                        belt.outer_au = ring.outer_au;
+                        belt.mass_mearth += left;
+                    }
+                    None => {
+                        open = Some(Belt {
+                            host: plan.host,
+                            inner_au: ring.inner_au,
+                            outer_au: ring.outer_au,
+                            mass_mearth: left,
+                        });
+                    }
                 }
-            },
+            }
             Some(late::RingFate::Accreted(index)) => {
                 let embryo = &mut planets[index].embryo;
                 embryo.core_msun += ring.mass_msun;

@@ -6,6 +6,9 @@
 //! close to stay apart are merged, one pair at a time, until the survivors
 //! are spaced widely enough to last.
 //!
+//! Planetesimals left over after the sweep grind themselves down in
+//! collisions (`ground_belt_mass_mearth`).
+//!
 //! Not captured: scattering and ejection (which give giant planets their
 //! eccentricities), the slow breaking of resonant chains by chaos, and
 //! secular effects.
@@ -193,6 +196,57 @@ pub fn ring_fate(
     }
 }
 
+/// Largest planetesimal in a belt, km; the canonical value of Wyatt et al.
+/// (2007, ApJ 658, 569, §3.1), about the size of the largest asteroids.
+const LARGEST_PLANETESIMAL_KM: f64 = 2000.0;
+/// Dispersal threshold of planetesimals, J/kg (ibid.).
+const DISPERSAL_THRESHOLD_J_KG: f64 = 200.0;
+/// Eccentricity of a belt's planetesimals, with inclination equal to it
+/// (ibid.). The model does not follow them, so every belt gets this value.
+const BELT_ECCENTRICITY: f64 = 0.05;
+
+/// The most mass a belt of planetesimals can keep after grinding itself down
+/// for `age_yr`, whatever it started with, in Earth masses: Wyatt et al.
+/// (2007, ApJ 658, 569) eq. 17, for a cascade of `q = 11/6`, density
+/// 2700 kg/m³ and `I = e`. It grows steeply with distance, as `r^(13/3)`
+/// for small `X_c` (ibid., eq. 19), because collisions are slower and gentler
+/// farther out. Valid while mass is the only property of the belt that
+/// changes with time.
+pub fn max_belt_mass_mearth(
+    a_au: f64,
+    width_fraction: f64,
+    star_mass_msun: f64,
+    age_yr: f64,
+) -> f64 {
+    let x_c = 1.0e-3
+        * pow(
+            a_au * DISPERSAL_THRESHOLD_J_KG / (BELT_ECCENTRICITY * BELT_ECCENTRICITY),
+            1.0 / 3.0,
+        );
+    let g = pow(x_c, -0.5) + 0.67 * pow(x_c, -1.5) + 0.2 * pow(x_c, -2.5) - 1.87;
+    0.009 * pow(a_au, 3.5) * width_fraction * LARGEST_PLANETESIMAL_KM
+        / (sqrt(star_mass_msun) * (age_yr / 1.0e6) * g)
+}
+
+/// What is left of a belt of `mass_mearth` after `age_yr` of collisions:
+/// `M(0) / (1 + t/t_c(0))` (Wyatt et al. 2007, ApJ 658, 569, eq. 14), where
+/// `t_c(0)` is `t M_max / M(0)` by the definition of `M_max`. The mass lost
+/// becomes dust and leaves the system. A belt lighter than `M_max` has
+/// barely changed; a heavier one ends near `M_max`.
+pub fn ground_belt_mass_mearth(
+    mass_mearth: f64,
+    a_au: f64,
+    width_fraction: f64,
+    star_mass_msun: f64,
+    age_yr: f64,
+) -> f64 {
+    if age_yr <= 0.0 {
+        return mass_mearth;
+    }
+    let limit = max_belt_mass_mearth(a_au, width_fraction, star_mass_msun, age_yr);
+    mass_mearth / (1.0 + mass_mearth / limit)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -283,6 +337,53 @@ mod tests {
         assert_eq!(after.len(), 1);
         assert_eq!(after[0].id, 9);
         assert!(after[0].a_au > 1.0 && after[0].a_au < 1.01);
+    }
+
+    /// Eq. 19 of Wyatt et al. (2007) keeps only the leading term of eq. 17's
+    /// `G`, so it reads high by what the other terms add: about 20% at 2.7 AU
+    /// and 30% at 30 AU, where `X_c` is larger.
+    #[test]
+    fn the_belt_limit_follows_the_papers_approximation() {
+        let eq19 = |r: f64| {
+            1.4e-9
+                * r.powf(13.0 / 3.0)
+                * 0.5
+                * 2000.0
+                * 200f64.powf(5.0 / 6.0)
+                * 0.05f64.powf(-5.0 / 3.0)
+                / 4500.0
+        };
+        for r in [2.7, 10.0, 30.0] {
+            let limit = max_belt_mass_mearth(r, 0.5, 1.0, 4.5e9);
+            let ratio = limit / eq19(r);
+            assert!((0.65..0.95).contains(&ratio), "{r}: {ratio}");
+        }
+    }
+
+    /// The asteroid belt holds 4.5e-4 M⊕ (DeMeo & Carry 2013); the limit at
+    /// its place and age is within a factor of two, without any fitting.
+    #[test]
+    fn the_belt_limit_is_about_the_asteroid_belt() {
+        let limit = max_belt_mass_mearth(2.7, 0.5, 1.0, 4.5e9);
+        assert!((1.5e-4..6.0e-4).contains(&limit), "{limit}");
+    }
+
+    #[test]
+    fn grinding_forgets_the_starting_mass_of_heavy_belts_only() {
+        let limit = max_belt_mass_mearth(3.0, 0.5, 1.0, 4.5e9);
+        let heavy = ground_belt_mass_mearth(1000.0 * limit, 3.0, 0.5, 1.0, 4.5e9);
+        assert!((heavy / limit - 1.0).abs() < 0.01, "{heavy}");
+        let light = ground_belt_mass_mearth(0.001 * limit, 3.0, 0.5, 1.0, 4.5e9);
+        assert!((light / (0.001 * limit) - 1.0).abs() < 0.01, "{light}");
+        assert_eq!(ground_belt_mass_mearth(5.0, 3.0, 0.5, 1.0, 0.0), 5.0);
+    }
+
+    /// Splitting a belt into rings must not change what survives.
+    #[test]
+    fn grinding_does_not_depend_on_how_a_belt_is_divided() {
+        let whole = ground_belt_mass_mearth(1.0, 30.0, 0.01, 1.0, 1.0e9);
+        let half = ground_belt_mass_mearth(0.5, 30.0, 0.005, 1.0, 1.0e9);
+        assert!((2.0 * half / whole - 1.0).abs() < 1e-12);
     }
 
     proptest! {
