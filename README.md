@@ -26,7 +26,7 @@ All work around one, two or three stars.
 | | |
 |---|---|
 | Why the Classic tier was written from the papers | [`docs/adr/0006-rewrite-classic-from-the-papers.md`](docs/adr/0006-rewrite-classic-from-the-papers.md) |
-| How the model compares with real planets | [`validation/report-0.12.0.md`](validation/report-0.12.0.md) |
+| How the model compares with real planets | [`validation/report-0.12.1.md`](validation/report-0.12.1.md) |
 | Contributing | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 | Reporting a vulnerability | [`SECURITY.md`](SECURITY.md) |
 
@@ -49,7 +49,7 @@ make help                       # everything else
 Some things to try:
 
 ```sh
-make run PRESET=hot-jupiter SEED=112      # a giant on a 14-day orbit
+make run PRESET=hot-jupiter SEED=80       # a giant on a 2-day orbit
 make run PRESET=circumbinary SCALE=schematic  # planets around two suns
 make run TIER=classic                       # Dole's model of 1969
 make run TIER=high SEED=412                 # giants that scatter one another

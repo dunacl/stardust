@@ -737,8 +737,8 @@ mod tests {
         let disk = result.snapshot.disks_at_dispersal.first();
         let card = star_card(star, None, None, 3, None, disk);
         let rows: Vec<_> = card.sections.iter().flat_map(|s| s.rows.clone()).collect();
-        assert!(rows.contains(&("Gas mass", "0.120 M☉".to_string())));
-        assert!(rows.contains(&("Lasted", "5.0 Myr".to_string())));
+        assert!(rows.contains(&("Gas mass", "0.030 M☉".to_string())));
+        assert!(rows.contains(&("Lasted", "8.0 Myr".to_string())));
         assert_eq!(share(0.004), "0.40%");
         assert_eq!(share(0.25), "25%");
     }
