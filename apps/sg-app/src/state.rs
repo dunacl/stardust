@@ -41,6 +41,8 @@ pub struct AppState {
     /// Whether the control panel is open where it is a drawer (narrow
     /// screens). Unset until the first frame shows how wide the screen is.
     pub panel_open: Option<bool>,
+    /// Whether the control panel is shown on a wide screen.
+    pub show_panel: bool,
     /// Show the frame rate in a corner.
     pub show_fps: bool,
     pub frame_rate: FrameRate,
@@ -96,6 +98,7 @@ impl AppState {
             start: StartOptions::default(),
             last_simulation_ms: None,
             panel_open: None,
+            show_panel: true,
             show_fps: false,
             frame_rate: FrameRate::default(),
         }
