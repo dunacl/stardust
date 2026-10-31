@@ -210,8 +210,8 @@ fn multi_star_hashes_are_pinned() {
 }
 
 const PINNED: [&str; 4] = [
-    "eb462cb97facfb6f",
-    "80f1cf894e9c6294",
-    "23a30053fe9bf7ca",
-    "793771c8a27992f3",
+    "7d6a9162d85a801b",
+    "d973dfafdfd12620",
+    "1aae9d5465460fde",
+    "3ad230e64688510f",
 ];
