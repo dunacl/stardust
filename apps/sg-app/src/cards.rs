@@ -535,7 +535,8 @@ pub fn moon_card(moon: &Body, planet: &Body, number: usize, origin: Option<MoonO
     notes.push(
         "Its mass and distance were drawn within what such moons are known to have; its \
          formation was not simulated. Shown circling 20 times slower than the orbital clock. \
-         The terrain is illustrative."
+         Outside True scale it is drawn closer in, to stay clear of other planets. The \
+         terrain is illustrative."
             .into(),
     );
     Card {

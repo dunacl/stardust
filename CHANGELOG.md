@@ -9,6 +9,8 @@ Simulation changes are tracked by model version; each has a report in
 - Hosted CI and automated security checks.
 - Bevy 0.20.1, which fixes RUSTSEC-2026-0344 in `ruzstd`.
 - Release archives for macOS and the web.
+- Enlarged bodies, their rings and their moons no longer reach a neighbour's orbit:
+  they are drawn smaller where there is no room. No change to the model.
 
 ## Model 0.12.0
 
