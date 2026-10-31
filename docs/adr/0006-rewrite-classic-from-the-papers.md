@@ -37,8 +37,9 @@ To keep the new code independent of the old:
 - Tuning that exists only in StarGen's code is lost unless a publication
   supports it.
 - One path can serve all stars, which ends the split of D31.
-- The old port stays in git history under StarGen's terms. It is not in any new
-  build.
+- The old port and StarGen's output were removed from the whole git history
+  before the first public push, so they are in no build and not in this
+  repository. Earlier commits no longer compile on their own.
 
 ## Alternatives considered
 

@@ -2,8 +2,8 @@
 
 What the new Classic tier computes, for the crate that replaces `sg-classic`
 (ADR 0006). Everything here comes from the four publications below. Implementers
-work from this document and the papers, and must not read `crates/sg-classic`,
-`reference/stargen-c` or `docs/classic-constants.md`.
+work from this document and the papers, and must not read the old port or the
+StarGen sources.
 
 ## Sources
 

@@ -17,7 +17,6 @@ Pols & Tout; see `reference/sse/README.md`.
 
 ## Earlier versions
 
-The git history before this notice contains `sg-classic`, a port of StarGen, with
-output from that program. StarGen's `Credits.txt` says it is "free for your use as
-long as you don't sell it", and those parts of the history remain under its terms.
-They are in no current build.
+Before the first public release the Classic tier was a port of StarGen. That code
+and the output of that program were removed from this repository and its whole
+git history before publication, and no part of them is in any build.
