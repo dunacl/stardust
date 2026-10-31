@@ -1087,31 +1087,36 @@ impl Plugin for StardustRenderPlugin {
             .init_resource::<OrbitCamera>()
             .init_resource::<PointerCaptured>()
             .init_resource::<belt::BeltEntities>()
+            .init_resource::<crate::voyage::Voyage>()
             .init_resource::<sky::SkyState>();
         planet::build(app);
         crate::star::build(app);
         crate::disk::build(app);
         crate::ring::build(app);
-        app.add_systems(Startup, (setup, camera::spawn_camera))
-            .add_systems(
-                Update,
-                (
-                    camera::control_camera,
-                    camera::touch_camera,
-                    camera::rebase_camera,
-                    camera::apply_quality,
-                    advance,
-                    sync_scene,
-                    belt::sync_belts,
-                    crate::disk::sync_disks,
-                    crate::ring::sync_rings,
-                    camera::apply_camera,
-                    sky::sync_sky,
-                    camera::pick,
-                    draw_overlays,
-                )
-                    .chain(),
-            );
+        app.add_systems(
+            Startup,
+            (setup, camera::spawn_camera, crate::voyage::spawn_ship),
+        )
+        .add_systems(
+            Update,
+            (
+                camera::control_camera,
+                camera::touch_camera,
+                camera::rebase_camera,
+                camera::apply_quality,
+                advance,
+                sync_scene,
+                belt::sync_belts,
+                crate::disk::sync_disks,
+                crate::ring::sync_rings,
+                crate::voyage::sync_ship,
+                camera::apply_camera,
+                sky::sync_sky,
+                camera::pick,
+                draw_overlays,
+            )
+                .chain(),
+        );
     }
 }
 

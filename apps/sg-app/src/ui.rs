@@ -227,6 +227,7 @@ fn controls(
         ui.horizontal_wrapped(|ui| motion_controls(ui, targets));
         ui.horizontal_wrapped(|ui| quality_controls(ui, targets, &mut state.show_fps));
         frame_system_button(ui, targets);
+        tour_button(ui, targets);
     }
     run_notes(ui, targets);
 }
@@ -404,6 +405,31 @@ fn quality_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets, show_fps
          spheres, fewer belt rocks, less surface detail.",
     );
     ui.checkbox(show_fps, "Frame rate");
+}
+
+/// Sends the spaceship round the system, or calls it off.
+fn tour_button(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
+    let label = if targets.voyage.active() {
+        "Stop spaceship"
+    } else {
+        "Spaceship tour"
+    };
+    if ui
+        .button(label)
+        .on_hover_text(
+            "Just for fun: a small ship visits each planet and moon. It is not simulated, \
+             and its speed and size are chosen for the picture.",
+        )
+        .clicked()
+    {
+        if targets.voyage.active() {
+            targets.voyage.stop();
+        } else if let Some(result) = targets.view.result() {
+            let first = targets.selection.0;
+            let snapshot = &result.snapshot;
+            targets.voyage.start(snapshot, first);
+        }
+    }
 }
 
 fn frame_system_button(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
@@ -876,7 +902,11 @@ fn menus(ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTarget
         ui.separator();
         frame_system_button(ui, targets);
     });
-    ui.menu_button("Playback", |ui| motion_controls(ui, targets));
+    ui.menu_button("Playback", |ui| {
+        motion_controls(ui, targets);
+        ui.separator();
+        tour_button(ui, targets);
+    });
     ui.menu_button("Settings", |ui| {
         quality_controls(ui, targets, &mut state.show_fps);
         ui.separator();
