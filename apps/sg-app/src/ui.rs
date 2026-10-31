@@ -96,7 +96,34 @@ fn system_controls(ui: &mut egui::Ui, system: &mut SystemSpec, fidelity: Fidelit
     }
 }
 
-fn controls(ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTargets) {
+/// The presets, as a list; one is greyed out where the tier cannot run it.
+fn preset_items(ui: &mut egui::Ui, state: &mut AppState) {
+    for preset in ALL_PRESETS {
+        match preset_availability(preset, state.fidelity) {
+            PresetAvailability::Available => {
+                if ui
+                    .selectable_label(state.preset == preset, preset_name(preset))
+                    .clicked()
+                {
+                    state.apply_preset(preset);
+                }
+            }
+            PresetAvailability::Unavailable(reason) => {
+                ui.add_enabled(false, egui::Button::new(preset_name(preset)))
+                    .on_disabled_hover_text(reason);
+            }
+        }
+    }
+}
+
+/// The panel of what the next run will be. `with_view` adds the view's
+/// options, for the phone layout, which has no menu bar.
+fn controls(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    targets: &mut SimulationTargets,
+    with_view: bool,
+) {
     let mut fidelity = state.fidelity;
     ui.horizontal(|ui| {
         ui.radio_value(&mut fidelity, Fidelity::Standard, "Standard")
@@ -114,7 +141,8 @@ fn controls(ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTar
         ui.radio_value(&mut fidelity, Fidelity::High, "High")
             .on_hover_text(
                 "The Standard model, with the orbits of the massive planets followed directly \
-                 for up to a million years after the gas clears. Giants packed too closely \
+                 after the gas clears: a run aims at a million years but usually stops near \
+                 30,000. Giants packed too closely \
                  throw one another onto elongated orbits or out of the system, where the \
                  Standard tier would merge them. Takes a few seconds when there are two or \
                  more massive planets; otherwise it is the Standard tier.",
@@ -136,24 +164,7 @@ fn controls(ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTar
 
     egui::ComboBox::from_label("Preset")
         .selected_text(preset_name(state.preset))
-        .show_ui(ui, |ui| {
-            for preset in ALL_PRESETS {
-                match preset_availability(preset, state.fidelity) {
-                    PresetAvailability::Available => {
-                        if ui
-                            .selectable_label(state.preset == preset, preset_name(preset))
-                            .clicked()
-                        {
-                            state.apply_preset(preset);
-                        }
-                    }
-                    PresetAvailability::Unavailable(reason) => {
-                        ui.add_enabled(false, egui::Button::new(preset_name(preset)))
-                            .on_disabled_hover_text(reason);
-                    }
-                }
-            }
-        });
+        .show_ui(ui, |ui| preset_items(ui, state));
 
     ui.horizontal(|ui| {
         ui.label("Seed");
@@ -208,7 +219,16 @@ fn controls(ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTar
         );
     }
 
-    view_controls(ui, targets, &mut state.show_fps);
+    if with_view {
+        ui.separator();
+        ui.label(RichText::new("View").strong());
+        scale_controls(ui, targets);
+        overlay_controls(ui, targets);
+        ui.horizontal_wrapped(|ui| motion_controls(ui, targets));
+        ui.horizontal_wrapped(|ui| quality_controls(ui, targets, &mut state.show_fps));
+        frame_system_button(ui, targets);
+    }
+    run_notes(ui, targets);
 }
 
 /// A simulation's duration for display: milliseconds below a second.
@@ -321,9 +341,7 @@ fn classic_controls(ui: &mut egui::Ui, state: &mut AppState) {
     });
 }
 
-fn view_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets, show_fps: &mut bool) {
-    ui.separator();
-    ui.label(RichText::new("View").strong());
+fn scale_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
     let mut mode = targets.settings.scale.to;
     ui.horizontal_wrapped(|ui| {
         for candidate in ScaleMode::ALL {
@@ -340,6 +358,9 @@ fn view_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets, show_fps: &
             }
         }
     }
+}
+
+fn overlay_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
     ui.horizontal_wrapped(|ui| {
         ui.checkbox(&mut targets.settings.show_orbits, "Orbits");
         ui.checkbox(&mut targets.settings.show_habitable_zone, "Habitable zone");
@@ -348,7 +369,6 @@ fn view_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets, show_fps: &
                 "Red rings: where a companion star's pull ends the zone in which \
                  planets keep stable orbits.",
             );
-        ui.checkbox(&mut targets.playback.orbits_running, "Orbital motion");
     });
     ui.horizontal_wrapped(|ui| {
         ui.checkbox(&mut targets.settings.show_labels, "Names");
@@ -360,23 +380,33 @@ fn view_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets, show_fps: &
         ui.checkbox(&mut targets.settings.show_backdrop, "Sky backdrop")
             .on_hover_text("Scenery: the stars and galaxies behind the system are not simulated.");
     });
+}
+
+fn motion_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
+    ui.checkbox(&mut targets.playback.orbits_running, "Orbital motion");
+    ui.add(
+        egui::Slider::new(&mut targets.playback.days_per_second, 1.0..=3000.0)
+            .logarithmic(true)
+            .text("days / second"),
+    );
+}
+
+fn quality_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets, show_fps: &mut bool) {
     ui.horizontal(|ui| {
         ui.label("Effects");
         for quality in Quality::ALL {
             ui.radio_value(&mut targets.settings.quality, quality, quality.label());
         }
-        ui.checkbox(show_fps, "Frame rate");
     })
     .response
     .on_hover_text(
         "Reduced is for phones and older graphics: no glow around stars, coarser \
          spheres, fewer belt rocks, less surface detail.",
     );
-    ui.add(
-        egui::Slider::new(&mut targets.playback.days_per_second, 1.0..=3000.0)
-            .logarithmic(true)
-            .text("days / second"),
-    );
+    ui.checkbox(show_fps, "Frame rate");
+}
+
+fn frame_system_button(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
     if ui.button("Frame system").clicked() {
         targets.selection.0 = None;
         if let Some(result) = targets.view.result() {
@@ -385,7 +415,10 @@ fn view_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets, show_fps: &
                 .frame(system_extent(result, &targets.settings.scale));
         }
     }
+}
 
+/// The run's warnings and how to move around.
+fn run_notes(ui: &mut egui::Ui, targets: &SimulationTargets) {
     if let Some(result) = targets.view.result() {
         for warning in &result.diagnostics.warnings {
             ui.colored_label(Color32::from_rgb(235, 190, 90), warning);
@@ -758,7 +791,7 @@ fn narrow_layout(
             .collapsible(false)
             .open(&mut keep)
             .vscroll(true)
-            .show(ctx, |ui| controls(ui, state, targets));
+            .show(ctx, |ui| controls(ui, state, targets, true));
         if !keep {
             state.panel_open = Some(false);
         }
@@ -788,6 +821,71 @@ fn narrow_layout(
             targets.selection.0 = None;
         }
     }
+}
+
+/// Height of the menu bar, points.
+const MENU_BAR_POINTS: f32 = 30.0;
+
+/// The menu bar across the top of a wide screen.
+fn menu_bar(
+    ctx: &egui::Context,
+    state: &mut AppState,
+    targets: &mut SimulationTargets,
+    screen: egui::Rect,
+) {
+    egui::Area::new(egui::Id::new("menu-bar"))
+        .anchor(Align2::LEFT_TOP, [0.0, 0.0])
+        .show(ctx, |ui| {
+            let fill = ctx.global_style().visuals.window_fill;
+            egui::Frame::NONE
+                .fill(fill)
+                .inner_margin(egui::Margin::symmetric(8, 4))
+                .show(ui, |ui| {
+                    ui.set_width(screen.width() - 16.0);
+                    egui::MenuBar::new().ui(ui, |ui| menus(ui, state, targets));
+                });
+        });
+}
+
+fn menus(ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTargets) {
+    ui.menu_button("System", |ui| {
+        if ui.button("Simulate").clicked() {
+            run_simulation(state, targets);
+            ui.close();
+        }
+        if ui.button("New seed").clicked() {
+            state.next_seed();
+        }
+        ui.checkbox(&mut state.play_on_simulate, "Play formation");
+        ui.separator();
+        ui.menu_button("Preset", |ui| preset_items(ui, state));
+        ui.separator();
+        let mut fidelity = state.fidelity;
+        ui.radio_value(&mut fidelity, Fidelity::Standard, "Standard");
+        ui.radio_value(&mut fidelity, Fidelity::Classic, "Classic");
+        ui.radio_value(&mut fidelity, Fidelity::High, "High");
+        if fidelity != state.fidelity {
+            state.set_fidelity(fidelity);
+        }
+    });
+    ui.menu_button("View", |ui| {
+        ui.label(RichText::new("Scale").strong());
+        scale_controls(ui, targets);
+        ui.separator();
+        overlay_controls(ui, targets);
+        ui.separator();
+        frame_system_button(ui, targets);
+    });
+    ui.menu_button("Playback", |ui| motion_controls(ui, targets));
+    ui.menu_button("Settings", |ui| {
+        quality_controls(ui, targets, &mut state.show_fps);
+        ui.separator();
+        ui.checkbox(&mut state.show_panel, "Control panel");
+    });
+    ui.menu_button("Help", |ui| {
+        ui.label(format!("Stardust, model {MODEL_VERSION}"));
+        ui.label(RichText::new("Apache-2.0").small().color(MUTED));
+    });
 }
 
 /// The frame rate in the top right corner, under the data card's place on
@@ -838,11 +936,15 @@ pub fn draw(
     if narrow {
         narrow_layout(ctx, &mut state, &mut targets, screen);
     } else {
-        egui::Window::new("Stardust")
-            .anchor(Align2::LEFT_TOP, [12.0, 12.0])
-            .default_width(330.0)
-            .resizable(false)
-            .show(ctx, |ui| controls(ui, &mut state, &mut targets));
+        menu_bar(ctx, &mut state, &mut targets, screen);
+        let below_bar = MENU_BAR_POINTS + 12.0;
+        if state.show_panel {
+            egui::Window::new("Stardust")
+                .anchor(Align2::LEFT_TOP, [12.0, below_bar])
+                .default_width(330.0)
+                .resizable(false)
+                .show(ctx, |ui| controls(ui, &mut state, &mut targets, false));
+        }
 
         egui::Window::new("Formation")
             .anchor(Align2::CENTER_BOTTOM, [0.0, -12.0])
@@ -855,7 +957,7 @@ pub fn draw(
             let mut open = true;
             egui::Window::new(data.title.clone())
                 .id(egui::Id::new("data-card"))
-                .anchor(Align2::RIGHT_TOP, [-12.0, 12.0])
+                .anchor(Align2::RIGHT_TOP, [-12.0, below_bar])
                 .default_width(300.0)
                 .resizable(false)
                 .open(&mut open)

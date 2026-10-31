@@ -12,6 +12,8 @@ Simulation changes are tracked by model version; each has a report in
 - Parameter files with an unknown or misplaced field are refused.
 - Enlarged bodies, their rings and their moons no longer reach a neighbour's orbit:
   they are drawn smaller where there is no room. No change to the model.
+- A menu bar (System, View, Playback, Settings, Help) holds the view and display
+  options, and the control panel can be hidden. Phones keep everything in the drawer.
 - The growth-model milestone is closed at model 0.13.0, with its known limits stated
   in the README. No change to the model.
 

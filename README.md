@@ -66,7 +66,9 @@ link) to see frames per second in the corner.
 
 In the app: drag to rotate, scroll or pinch to zoom, click or tap a star or
 planet for its data card and a close look at it. The panel on the left chooses the model, the preset and its
-parameters; the bar at the bottom plays the formation back.
+parameters; the menu bar holds those and every view and display option; the
+bar at the bottom plays the formation back. On a phone they are all in the
+*Controls* drawer.
 
 ### In a browser
 
