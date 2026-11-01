@@ -587,6 +587,52 @@ mod tests {
     }
 
     #[test]
+    fn every_row_of_every_card_has_help() {
+        for fidelity in [sg_schema::Fidelity::Standard, sg_schema::Fidelity::Classic] {
+            for seed in 1..=8 {
+                let result = sg_sim::simulate(&SimulationParams {
+                    seed,
+                    fidelity,
+                    ..SimulationParams::default()
+                })
+                .unwrap();
+                let snapshot = &result.snapshot;
+                let mut cards = Vec::new();
+                for star in sg_render::layout::stars(&snapshot.hierarchy) {
+                    let companion = Companion {
+                        name: "B".into(),
+                        separation_au: 1.0,
+                        eccentricity: 0.0,
+                        period_days: 1.0,
+                        mass_msun: 1.0,
+                    };
+                    cards.push(star_card(
+                        star,
+                        snapshot.habitable_zones.first(),
+                        None,
+                        0,
+                        Some(&companion),
+                        snapshot.disks_at_dispersal.first(),
+                    ));
+                }
+                for body in snapshot.planets() {
+                    cards.push(body_card(body, 1));
+                    for moon in snapshot.moons_of(body.id) {
+                        cards.push(moon_card(moon, body, 1, None));
+                    }
+                }
+                for card in cards {
+                    for section in card.sections {
+                        for (label, _) in section.rows {
+                            assert!(crate::help::card_row(label).is_some(), "no help: {label}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn durations_pick_a_readable_unit() {
         assert_eq!(duration(15.8), "15.8 h");
         assert_eq!(duration(24.0 * 88.0), "88.0 days");

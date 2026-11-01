@@ -53,6 +53,19 @@ model_version() {
   awk -F'"' '/pub const MODEL_VERSION/ { print $2; exit }' crates/sg-sim/src/lib.rs
 }
 
+# The app icon, from the rounded master (scripts/macos-icon.py).
+macos_icon() {
+  local set="$STAGE/Stardust.iconset" size double
+  rm -rf "$set"
+  mkdir -p "$set"
+  for size in 16 32 128 256 512; do
+    double=$((size * 2))
+    sips -z "$size" "$size" assets/icon/icon-macos.png --out "$set/icon_${size}x${size}.png" >/dev/null
+    sips -z "$double" "$double" assets/icon/icon-macos.png --out "$set/icon_${size}x${size}@2x.png" >/dev/null
+  done
+  iconutil -c icns "$set" -o "$1"
+}
+
 macos() {
   echo "== macos"
   local targets=(aarch64-apple-darwin x86_64-apple-darwin)
@@ -63,7 +76,8 @@ macos() {
   local out="$STAGE/$name"
   local app="$out/Stardust.app"
   rm -rf "$out"
-  mkdir -p "$app/Contents/MacOS"
+  mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+  macos_icon "$app/Contents/Resources/Stardust.icns"
   for bin in sg-app sg-cli; do
     lipo -create -output "$STAGE/$bin" \
       "target/aarch64-apple-darwin/dist/$bin" \
@@ -80,6 +94,7 @@ macos() {
   <key>CFBundleDisplayName</key><string>Stardust</string>
   <key>CFBundleIdentifier</key><string>cl.hint.stardust</string>
   <key>CFBundleExecutable</key><string>sg-app</string>
+  <key>CFBundleIconFile</key><string>Stardust</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$VERSION</string>
@@ -180,9 +195,9 @@ web() {
   rm -f "$DIST/$name.zip"
   rm -rf "${STAGE:?}/$name"
   mkdir -p "$STAGE/$name"
-  # Only the page and its two bundles: target/web is also a cargo profile
-  # directory and can hold build files.
-  cp -R target/web/index.html target/web/webgl2 target/web/webgpu "$STAGE/$name/"
+  # Only what web/ holds and the two bundles: target/web is also a cargo
+  # profile directory and can hold build files.
+  cp -R web/* target/web/webgl2 target/web/webgpu "$STAGE/$name/"
   cp LICENSE NOTICE.md "$STAGE/$name/"
   (cd "$STAGE" && /usr/bin/zip -qr "../../$DIST/$name.zip" "$name")
 }
@@ -204,7 +219,9 @@ for what in "$@"; do
   esac
 done
 
-(cd "$DIST" && shasum -a 256 stardust-"$VERSION"-* | grep -v SHA256SUMS >"SHA256SUMS-$VERSION.txt")
+# Archives only: dist/ can also hold a folder unpacked by hand.
+(cd "$DIST" && find . -maxdepth 1 -type f -name "stardust-$VERSION-*" | sed 's|^\./||' | sort |
+  xargs shasum -a 256 >"SHA256SUMS-$VERSION.txt")
 echo
 ls -lh "$DIST"
 echo "release: wrote $DIST/ (checksums in $DIST/SHA256SUMS-$VERSION.txt)"

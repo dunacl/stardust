@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Stardust</title>
+<link rel="icon" href="favicon.ico" sizes="48x48">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="site.webmanifest">
+<meta name="theme-color" content="#010103">
 <style>
   html, body { margin: 0; height: 100%; background: #010103; overflow: hidden; }
   body { font: 15px/1.5 system-ui, sans-serif; color: #cdd6e6; }
@@ -14,6 +20,7 @@
     align-items: center; justify-content: center; gap: 6px;
     text-align: center; padding: 24px; pointer-events: none;
   }
+  #status img { width: 96px; height: 96px; border-radius: 22px; }
   #status strong { font-size: 22px; font-weight: 600; letter-spacing: 0.04em; }
   #status.error { pointer-events: auto; }
   #status.error #message { color: #f0a090; max-width: 40em; }
@@ -23,6 +30,7 @@
 <body>
 <div id="stage"><canvas id="stardust-canvas"></canvas></div>
 <div id="status">
+  <img src="icon-192.png" alt="">
   <strong>Stardust</strong>
   <span id="message">Loading…</span>
 </div>

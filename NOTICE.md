@@ -15,6 +15,11 @@ The coefficients in `crates/sg-stellar/src/evolution/tables.rs` and the test
 values in `crates/sg-stellar/tests/data/` come from the SSE package of Hurley,
 Pols & Tout; see `reference/sse/README.md`.
 
+## App icon
+
+The app icon (`assets/icon/`, and the icons in `web/`) was made for this project
+and is covered by the same licence.
+
 ## Earlier versions
 
 Before the first public release the Classic tier was a port of StarGen. That code

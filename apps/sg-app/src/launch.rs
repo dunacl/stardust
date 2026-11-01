@@ -36,6 +36,8 @@ pub struct Launch {
     pub tour: bool,
     /// Show the frame rate.
     pub fps: bool,
+    /// Start with the Help window open.
+    pub help: bool,
 }
 
 impl Default for Launch {
@@ -56,6 +58,7 @@ impl Default for Launch {
             drawer: false,
             tour: false,
             fps: false,
+            help: false,
         }
     }
 }
@@ -104,6 +107,7 @@ impl Launch {
                 "ui" => launch.show_ui = value != "0",
                 "fps" => launch.fps = value != "0",
                 "tour" => launch.tour = value != "0",
+                "help" => launch.help = value != "0",
                 "quality" => match value {
                     "full" => launch.quality = Some(Quality::Full),
                     "reduced" => launch.quality = Some(Quality::Reduced),
@@ -130,7 +134,7 @@ mod tests {
     fn query_sets_the_starting_system() {
         let launch = Launch::from_query(
             "?seed=7&preset=red-dwarf&tier=classic&scale=schematic&select=3&time=0.5&ui=0\
-             &quality=reduced&fps=1",
+             &quality=reduced&fps=1&help=1",
         );
         assert_eq!(
             launch,
@@ -150,6 +154,7 @@ mod tests {
                 drawer: false,
                 tour: false,
                 fps: true,
+                help: true,
             }
         );
     }

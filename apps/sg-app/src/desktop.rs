@@ -58,6 +58,9 @@ struct Args {
     /// Start the spaceship from the body given by --select.
     #[arg(long)]
     tour: bool,
+    /// Start with the Help window open.
+    #[arg(long = "help-window")]
+    help_window: bool,
     /// Effects level: full, or the reduced set meant for phones.
     #[arg(long, value_enum)]
     quality: Option<QualityArg>,
@@ -282,6 +285,7 @@ pub fn launch() -> Launch {
         size: args.size,
         drawer: args.drawer,
         tour: args.tour,
+        help: args.help_window,
         fps: args.fps,
     }
 }
