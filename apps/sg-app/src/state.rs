@@ -59,6 +59,9 @@ pub struct AppState {
     pub show_panel: bool,
     /// Show the frame rate in a corner.
     pub show_fps: bool,
+    /// Where a save dialog leaves its result.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub save_note: crate::desktop::SaveNote,
     /// What the last export did, for the panel.
     pub export_note: Option<String>,
     /// Save the view on the next frame.
@@ -126,6 +129,8 @@ impl AppState {
             show_fps: false,
             show_layers: false,
             show_help: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            save_note: Default::default(),
             export_note: None,
             export_wanted: false,
             help_search: String::new(),

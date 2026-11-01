@@ -18,10 +18,12 @@
 //!   population ratio Brasser & Morbidelli (2013, Icarus 225, 40) simulate,
 //!   though observations suggest a far larger ratio. Counts for systems
 //!   unlike ours are orders of magnitude, and cards say so.
-//! - **Known limit**: nothing in the model clears outer belts as Neptune's
-//!   migration cleared the Kuiper belt, so its belts are typically tens to
-//!   hundreds of times heavier and most counts run far above the Solar
-//!   System's.
+//! - **Reach**: only belt mass a planet can reach feeds comets: from the
+//!   outermost planet of [`LEAST_SHEPHERD_MEARTH`] or more out to its 2:1
+//!   resonance ([`reach_au`]). The Kuiper belt ends there with Neptune, at
+//!   47.8 AU, which is what keeps the anchor's mass meaningful. Most of the
+//!   model's belt mass lies farther out and feeds nothing. The reach rests
+//!   on that one system, and the mass floor is a choice.
 
 use sg_core::math;
 
@@ -45,6 +47,30 @@ pub const SOLAR_TRANSMISSION: f64 = 0.3;
 pub const OORT_TO_BELT: f64 = 12.0;
 /// Perihelion inside which a comet around a Sun counts as visible, AU.
 pub const SOLAR_VISIBLE_PERIHELION_AU: f64 = 2.5;
+
+/// Least mass of a planet that shapes a belt beyond it, M⊕. A choice: it
+/// keeps small bodies from setting where the reservoir lies.
+pub const LEAST_SHEPHERD_MEARTH: f64 = 1.0;
+
+/// Farthest a planet at `a_au` reaches into a belt: its 2:1 mean-motion
+/// resonance, at `2^(2/3)` of its distance from Kepler's third law. The
+/// Kuiper belt's outer edge lies at this resonance with Neptune (Trujillo &
+/// Brown 2001, ApJ 554, L95, for the edge near 48 AU).
+pub fn reach_au(a_au: f64) -> f64 {
+    a_au * math::pow(2.0, 2.0 / 3.0)
+}
+
+/// Mass between `from_au` and `to_au` of a belt given as segments of
+/// `(inner_au, outer_au, mass_mearth)`, each taken as even across its width.
+pub fn mass_between(segments: &[(f64, f64, f64)], from_au: f64, to_au: f64) -> f64 {
+    segments
+        .iter()
+        .map(|&(inner, outer, mass)| {
+            let overlap = (outer.min(to_au) - inner.max(from_au)).max(0.0);
+            mass * overlap / (outer - inner).max(1e-12)
+        })
+        .sum()
+}
 
 /// Mass above which a planet ejects comets rather than sending them to an
 /// Oort cloud, M⊕ (Wyatt et al. 2017, eq. 6, with their reference stellar
@@ -127,6 +153,20 @@ pub fn nucleus_diameter_km(u: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Neptune's 2:1 resonance is at 47.8 AU.
+    #[test]
+    fn the_reach_is_the_two_to_one_resonance() {
+        assert!((reach_au(30.1) - 47.8).abs() < 0.05);
+    }
+
+    #[test]
+    fn only_what_lies_in_range_counts() {
+        let belt = [(10.0, 20.0, 1.0), (20.0, 200.0, 18.0)];
+        assert!((mass_between(&belt, 15.0, 30.0) - 1.5).abs() < 1e-12);
+        assert_eq!(mass_between(&belt, 1.0, 5.0), 0.0);
+        assert!((mass_between(&belt, 0.0, 1000.0) - 19.0).abs() < 1e-12);
+    }
 
     #[test]
     fn the_solar_system_divides_as_wyatt_finds() {

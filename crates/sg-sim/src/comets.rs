@@ -18,12 +18,12 @@ use crate::names;
 use sg_core::rng::{ModuleId, RngStream};
 use sg_core::units::{Au, SolarMass};
 use sg_dynamics::comets::{
-    active_comets, feeds_oort_cloud, is_ejector, nucleus_diameter_km, oort_mass_mearth, tisserand,
-    visible_perihelion_au,
+    active_comets, feeds_oort_cloud, is_ejector, mass_between, nucleus_diameter_km,
+    oort_mass_mearth, reach_au, tisserand, visible_perihelion_au, LEAST_SHEPHERD_MEARTH,
 };
 use sg_dynamics::kepler;
 use sg_schema::{
-    Body, Comet, CometFamily, CometId, CometReservoir, HierarchyNode, HostRef, Orbit, Star,
+    Comet, CometFamily, CometId, CometReservoir, HierarchyNode, HostRef, Orbit, Star,
     SystemSnapshot,
 };
 use std::collections::BTreeSet;
@@ -151,31 +151,33 @@ fn reservoir(snapshot: &SystemSnapshot, host: HostRef) -> Option<CometReservoir>
         .iter()
         .find(|disk| disk.host == host)
         .map(|disk| disk.final_ice_line_au)?;
-    let icy: Vec<_> = snapshot
+    // The last planet that matters, and how far it reaches.
+    let shepherd = snapshot
+        .planets()
+        .filter(|p| p.host == host && p.mass_mearth >= LEAST_SHEPHERD_MEARTH)
+        .map(|p| p.orbit.a_au)
+        .fold(f64::NEG_INFINITY, f64::max);
+    if !shepherd.is_finite() {
+        return None;
+    }
+    let segments: Vec<(f64, f64, f64)> = snapshot
         .belts
         .iter()
-        .filter(|belt| belt.host == host && belt.inner_au >= ice_line)
+        .filter(|belt| belt.host == host)
+        .flat_map(|belt| &belt.segments)
+        .filter(|segment| segment.inner_au >= ice_line)
+        .map(|segment| (segment.inner_au, segment.outer_au, segment.mass_mearth))
         .collect();
-    let first = icy.iter().map(|b| b.inner_au).fold(f64::INFINITY, f64::min);
-    let mass: f64 = icy.iter().map(|b| b.mass_mearth).sum();
+    let mass = mass_between(&segments, shepherd, reach_au(shepherd));
     if mass <= 0.0 {
         return None;
     }
-    let inside: Vec<&Body> = snapshot
-        .planets()
-        .filter(|p| p.host == host && p.orbit.a_au < first)
-        .collect();
     let visible = visible_perihelion_au(light);
-    let ejectors = inside
-        .iter()
-        .filter(|p| p.orbit.a_au > visible && is_ejector(p.mass_mearth, p.orbit.a_au, star_mass))
+    let ejectors = snapshot
+        .planets()
+        .filter(|p| p.host == host && p.orbit.a_au > visible && p.orbit.a_au <= shepherd)
+        .filter(|p| is_ejector(p.mass_mearth, p.orbit.a_au, star_mass))
         .count() as u32;
-    // With no planet inside the belt, nothing sends anything inward.
-    let active = if inside.is_empty() {
-        0.0
-    } else {
-        active_comets(mass, ejectors)
-    };
     let feeds = snapshot.planets().any(|p| {
         p.host == host && feeds_oort_cloud(p.mass_mearth, p.orbit.a_au, star_mass, snapshot.age_gyr)
     });
@@ -183,7 +185,7 @@ fn reservoir(snapshot: &SystemSnapshot, host: HostRef) -> Option<CometReservoir>
         host,
         belt_mass_mearth: mass,
         ejectors,
-        active_comets: active,
+        active_comets: active_comets(mass, ejectors),
         oort_mass_mearth: (feeds && is_root(snapshot, host)).then(|| oort_mass_mearth(mass)),
     })
 }
@@ -197,15 +199,14 @@ fn giant_of(snapshot: &SystemSnapshot, host: HostRef) -> Option<f64> {
         .map(|p| p.orbit.a_au)
 }
 
-/// How many of the family to show: a logarithm, one for the Solar System's
+/// How many of the family to show: a logarithm, four for the Solar System's
 /// 300 and two more for each tenfold, because counts span orders of
-/// magnitude and most of them rest on belts heavier than the Kuiper belt.
-/// A choice for the picture.
+/// magnitude. A choice for the picture.
 fn family_shown(active: f64) -> usize {
     if active < 1.0 {
         return 0;
     }
-    ((2.0 * sg_core::math::log10(active) - 4.0).round().max(1.0) as usize).min(MAX_SHOWN)
+    ((2.0 * sg_core::math::log10(active) - 1.0).round().max(1.0) as usize).min(MAX_SHOWN)
 }
 
 /// How many long-period comets to show: one more for each tenfold of Oort
@@ -290,8 +291,8 @@ mod tests {
     #[test]
     fn the_number_shown_follows_the_order_of_magnitude() {
         assert_eq!(family_shown(0.0), 0);
-        assert_eq!(family_shown(300.0), 1);
-        assert_eq!(family_shown(1.0e5), 6);
+        assert_eq!(family_shown(300.0), 4);
+        assert_eq!(family_shown(1.0e5), 9);
         assert_eq!(family_shown(1.0e12), MAX_SHOWN);
         assert_eq!(long_period_shown(0.01), 1);
         assert_eq!(long_period_shown(10.0), 3);

@@ -512,7 +512,7 @@ const CARD_ROWS: &[Item] = &[
         "Active comets",
         "An estimate of comets over 2.3 km that come close enough to show a tail, from a count of about 300 in the Solar System (Brasser & Wang 2015).",
     ),
-    item("Icy belts", "The mass of the belts beyond the ice line, where comets come from."),
+    item("Icy belts", "Belt mass beyond the ice line and within reach of the outermost planet, where comets come from."),
     item(
         "Ejectors",
         "Planets on the way in heavy enough to throw most comets out of the system (Wyatt et al. 2017). Jupiter and Saturn are two.",

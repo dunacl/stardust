@@ -29,4 +29,4 @@ pub use timeline::*;
 
 /// Version of the data contracts, semver. Bump on any change to this crate's
 /// types.
-pub const SCHEMA_VERSION: &str = "0.13.0";
+pub const SCHEMA_VERSION: &str = "0.14.0";

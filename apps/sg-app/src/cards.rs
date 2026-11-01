@@ -626,8 +626,8 @@ pub fn with_comets(mut card: Card, reservoir: &CometReservoir) -> Card {
     });
     card.notes.push(
         tr(
-            "Comet counts are orders of magnitude, scaled from the Solar System. This model's \
-            outer belts are not cleared as the Kuiper belt was, so counts tend to run high.",
+            "Comet counts are orders of magnitude, scaled from the Solar System. Only belt mass \
+            within reach of the outermost planet feeds comets.",
         )
         .into(),
     );

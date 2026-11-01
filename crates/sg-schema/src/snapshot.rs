@@ -356,6 +356,17 @@ pub struct Belt {
     pub inner_au: f64,
     pub outer_au: f64,
     pub mass_mearth: f64,
+    /// Where that mass lies, inward to outward. Most belts are far wider
+    /// than the part of them any planet reaches.
+    pub segments: Vec<BeltSegment>,
+}
+
+/// A stretch of a belt.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct BeltSegment {
+    pub inner_au: f64,
+    pub outer_au: f64,
+    pub mass_mearth: f64,
 }
 
 /// Identifies a comet within one snapshot.
@@ -391,7 +402,8 @@ pub struct Comet {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CometReservoir {
     pub host: HostRef,
-    /// Belts beyond the ice line.
+    /// Icy belt mass within reach of the outermost planet of a few Earth
+    /// masses or more (`sg_dynamics::comets::reach_au`).
     pub belt_mass_mearth: f64,
     /// Planets on the way in that eject most of what reaches them.
     pub ejectors: u32,

@@ -10,8 +10,8 @@ Simulation changes are tracked by model version; each has a report in
   The gas disk shows long trailing arcs, warm near the star, in place of radial
   streaks. The model's density and gaps are unchanged, and the patterns are drawn.
 
-- *Export 3D scene (.glb)* saves the view for Blender and other 3D tools (`--export`
-  from the command line, a download in a browser). Surfaces are baked into vertex
+- *Export 3D scene (.glb)* saves the view for Blender and other 3D tools, through a save
+  dialog (`--export` from the command line, a download in a browser). Surfaces are baked into vertex
   colours. Belts, comet tails and the sky are left out. No change to the model.
 - `--record <folder> --frames N --frame-rate F` plays the view with a fixed time step
   and saves numbered frames, off screen; `scripts/make-video.sh` turns them into a
@@ -29,6 +29,15 @@ Simulation changes are tracked by model version; each has a report in
 - A spaceship tour visits each planet and moon, for fun. It is not simulated.
 - The growth-model milestone is closed at model 0.13.0, with its known limits stated
   in the README. No change to the model.
+
+## Model 0.17.0
+
+- Comets now come only from belt mass a planet can reach: from the outermost planet of
+  an Earth mass or more out to its 2:1 resonance, where the Kuiper belt ends with
+  Neptune. The median system with any has about 190 active comets against the Solar
+  System's 300, down from about 120,000, with nothing tuned; about one system in five
+  has none. Belts record where their mass lies. Schema 0.14.0. Planets, moons and belts
+  do not change, and the validation report differs from 0.16.0 only in its timing.
 
 ## Model 0.16.0
 
