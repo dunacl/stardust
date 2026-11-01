@@ -99,6 +99,10 @@ A link can point at a system: `?seed=7&preset=circumbinary&tier=classic&scale=sc
 data-card row says the same. Start with it open with `--help-window`, or `?help=1`
 in a link.
 
+Drag to rotate. Right-drag or Shift-drag moves the view, or pick the *Move* tool in the
+menu bar (M switches); *Frame system* comes back. Speeds from 0.1× to 8× sit beside the
+timeline.
+
 The timeline covers a system's whole life. Left of its mark the system forms; right of
 it the star ages to the end of its main sequence, and its habitable zone and the light
 on each body follow, while the planets stay as they formed (`--star-age 9`,

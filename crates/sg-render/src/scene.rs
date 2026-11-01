@@ -97,6 +97,8 @@ pub struct Playback {
     pub orbit_days: f64,
     pub orbits_running: bool,
     pub days_per_second: f64,
+    /// Multiple of the usual speed of everything that plays.
+    pub time_scale: f64,
 }
 
 impl Default for Playback {
@@ -108,6 +110,7 @@ impl Default for Playback {
             orbit_days: 0.0,
             orbits_running: true,
             days_per_second: 30.0,
+            time_scale: 1.0,
         }
     }
 }
@@ -333,17 +336,32 @@ struct SceneEntities {
 /// what you see until you are very close.
 const MIN_APPARENT_RADIUS: f32 = 0.0035;
 const ORBIT_SEGMENTS: usize = 128;
+/// Points of a body's orbit line; see [`layout::orbit_samples`].
+const BODY_ORBIT_POINTS: usize = 400;
 /// Illuminance the stars together give the body being followed, and the
 /// reference distance of the overview. Exposure conventions, not physics.
 const FOLLOWED_LUX: f32 = 20_000.0;
 const OVERVIEW_LUX: f32 = 2200.0;
-/// Days of the orbital clock in which a body is drawn turning once. Real
-/// days are far shorter than years: at a playback rate that shows orbits,
-/// true rotation would be a blur, so every unlocked body is drawn turning
-/// at this one slow rate. A drawing convention.
-const DRAWN_ROTATION_DAYS: f64 = 1500.0;
+/// Days of the orbital clock in which a body with a 24-hour day is drawn
+/// turning once. Real days are far shorter than years: at a playback rate
+/// that shows orbits, true rotation would be a blur. A drawing convention.
+const DRAWN_ROTATION_DAYS: f64 = 450.0;
+/// Limits on that, so that nothing blurs or seems to stand still.
+const DRAWN_ROTATION_RANGE_DAYS: (f64, f64) = (150.0, 1800.0);
+/// How much of a real difference in day length is kept: `(day/24 h)^this`.
+const DRAWN_ROTATION_POWER: f64 = 0.4;
+
+/// Days of the orbital clock for one drawn turn of a body with this day
+/// length, in hours; the usual rate where the tier gives none. Faster
+/// rotators turn faster, by much less than they really do.
+pub fn drawn_rotation_days(day_hours: Option<f64>) -> f64 {
+    day_hours.map_or(DRAWN_ROTATION_DAYS, |hours| {
+        (DRAWN_ROTATION_DAYS * (hours.max(0.1) / 24.0).powf(DRAWN_ROTATION_POWER))
+            .clamp(DRAWN_ROTATION_RANGE_DAYS.0, DRAWN_ROTATION_RANGE_DAYS.1)
+    })
+}
 /// Vertical field of view of the camera (Bevy's default), radians.
-const FIELD_OF_VIEW: f32 = std::f32::consts::FRAC_PI_4;
+pub(crate) const FIELD_OF_VIEW: f32 = std::f32::consts::FRAC_PI_4;
 /// How long a formation highlight lingers, as a fraction of the timeline.
 const HIGHLIGHT_LOOKBACK: f64 = 0.02;
 /// A star is never drawn wider than this fraction of the distance to its
@@ -462,7 +480,7 @@ fn advance(
     let dt = time.delta_secs();
     let end = view.timeline_end_myr();
     if playback.playing {
-        playback.t_myr += f64::from(dt) * playback.myr_per_second;
+        playback.t_myr += f64::from(dt) * playback.myr_per_second * playback.time_scale;
         if playback.t_myr >= end {
             playback.t_myr = end;
             playback.playing = false;
@@ -470,7 +488,7 @@ fn advance(
     }
     playback.t_myr = playback.t_myr.clamp(0.0, end);
     if playback.orbits_running {
-        playback.orbit_days += f64::from(dt) * playback.days_per_second;
+        playback.orbit_days += f64::from(dt) * playback.days_per_second * playback.time_scale;
     }
     if !settings.scale.is_settled() {
         settings.scale.advance(dt);
@@ -638,7 +656,15 @@ fn sync_scene(
         &ScaleBlend::settled(ScaleMode::True),
         playback.orbit_days,
     );
-    let spin = (TAU * playback.orbit_days / DRAWN_ROTATION_DAYS).rem_euclid(TAU) as f32;
+    let days: BTreeMap<BodyId, Option<f64>> = snapshot
+        .bodies
+        .iter()
+        .map(|b| (b.id, b.rotation.period_hours))
+        .collect();
+    let spin_of = |id: BodyId| {
+        let turn = drawn_rotation_days(days.get(&id).copied().flatten());
+        (TAU * playback.orbit_days / turn).rem_euclid(TAU) as f32
+    };
     let shown = display::bodies_at(result, playback.t_myr);
     let ring_outer: BTreeMap<BodyId, f32> = snapshot
         .bodies
@@ -752,6 +778,7 @@ fn sync_scene(
 
         match entities.bodies.get(&body.id) {
             Some(&entity) => {
+                let spin = spin_of(body.id);
                 if let Ok((mut current, visual, material)) = bodies.get_mut(entity) {
                     *current = transform;
                     if let Some(mut material) = planet_materials.get_mut(&material.0) {
@@ -785,6 +812,7 @@ fn sync_scene(
                 }
             }
             None => {
+                let spin = spin_of(body.id);
                 let look = snapshot
                     .bodies
                     .iter()
@@ -1098,8 +1126,8 @@ fn draw_overlays(
             } else {
                 palette::ORBIT_COLOR.with_alpha(0.35 * body.presence)
             };
-            let points = (0..=ORBIT_SEGMENTS).map(|k| {
-                let big_e = TAU * k as f64 / ORBIT_SEGMENTS as f64;
+            let around = kepler::eccentric_anomaly(el.mean_anomaly, el.e);
+            let points = layout::orbit_samples(around, BODY_ORBIT_POINTS).map(|big_e| {
                 orbit.local(
                     centre
                         + layout::map_offset(scale, kepler::point_at_eccentric_anomaly(el, big_e)),
@@ -1229,6 +1257,19 @@ impl Plugin for StardustRenderPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shorter_days_turn_faster_within_limits() {
+        assert_eq!(drawn_rotation_days(None), DRAWN_ROTATION_DAYS);
+        assert_eq!(drawn_rotation_days(Some(24.0)), DRAWN_ROTATION_DAYS);
+        assert!(drawn_rotation_days(Some(10.0)) < DRAWN_ROTATION_DAYS);
+        assert!(drawn_rotation_days(Some(1000.0)) > DRAWN_ROTATION_DAYS);
+        assert_eq!(
+            drawn_rotation_days(Some(1.0e7)),
+            DRAWN_ROTATION_RANGE_DAYS.1
+        );
+        assert_eq!(drawn_rotation_days(Some(0.2)), DRAWN_ROTATION_RANGE_DAYS.0);
+    }
 
     #[test]
     fn layers_tell_moons_from_planets() {

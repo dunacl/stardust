@@ -43,7 +43,7 @@ const ORBIT_COLOR: Color = Color::srgba(0.55, 0.75, 0.95, 0.22);
 /// Size of a nucleus on the screen, as a multiple of the smallest drawn.
 const NUCLEUS_APPARENT_SIZE: f32 = 0.5;
 /// Points along an orbit line.
-const ORBIT_POINTS: usize = 96;
+const ORBIT_POINTS: usize = 400;
 
 /// How active a comet is at `r_au`, 0 to 1: nothing beyond twice the
 /// distance at which it counts as visible (`sg_dynamics::comets`), which is
@@ -366,8 +366,9 @@ pub(crate) fn draw_comet_orbits(
             continue;
         };
         let el = elements(comet, 0.0);
-        let points = (0..=ORBIT_POINTS).map(|i| {
-            let big_e = TAU * i as f64 / ORBIT_POINTS as f64;
+        let at_now = elements(comet, playback.orbit_days);
+        let around = kepler::eccentric_anomaly(at_now.mean_anomaly, at_now.e);
+        let points = layout::orbit_samples(around, ORBIT_POINTS).map(|big_e| {
             let at = kepler::point_at_eccentric_anomaly(el, big_e);
             orbit.local(centre + layout::map_offset(&settings.scale, at))
         });
