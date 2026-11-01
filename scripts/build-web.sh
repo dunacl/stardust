@@ -54,7 +54,8 @@ case "${1:-all}" in
     exit 2
     ;;
 esac
-cp web/index.html "$OUT/index.html"
+# The page, its icons and its manifest.
+cp web/* "$OUT/"
 
 echo
 du -h "$OUT"/*/stardust_bg.wasm
