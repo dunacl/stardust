@@ -22,6 +22,8 @@ pub struct Launch {
     pub select: Option<usize>,
     /// Select the Nth moon, from 1.
     pub moon: Option<usize>,
+    /// Select the Nth comet, from 1.
+    pub comet: Option<usize>,
     /// Look at the Nth belt, from 1.
     pub belt: Option<usize>,
     /// Desktop only: save a screenshot here and exit.
@@ -60,6 +62,7 @@ impl Default for Launch {
             time: None,
             select: None,
             moon: None,
+            comet: None,
             belt: None,
             screenshot: None,
             offscreen: false,
@@ -119,6 +122,7 @@ impl Launch {
                 "time" => launch.time = value.parse().ok().filter(|t: &f64| t.is_finite()),
                 "select" => launch.select = value.parse().ok(),
                 "moon" => launch.moon = value.parse().ok(),
+                "comet" => launch.comet = value.parse().ok(),
                 "belt" => launch.belt = value.parse().ok(),
                 "ui" => launch.show_ui = value != "0",
                 "fps" => launch.fps = value != "0",
@@ -176,6 +180,7 @@ mod tests {
                 time: Some(0.5),
                 select: Some(3),
                 moon: Some(2),
+                comet: None,
                 belt: Some(1),
                 screenshot: None,
                 offscreen: false,

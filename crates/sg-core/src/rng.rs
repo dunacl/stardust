@@ -33,6 +33,8 @@ impl ModuleId {
     pub const MOONS: ModuleId = ModuleId(9);
     /// Nuclei of the accretion model (the Classic tier).
     pub const ACCRETION: ModuleId = ModuleId(10);
+    /// Comets.
+    pub const COMETS: ModuleId = ModuleId(12);
 }
 
 /// One SplitMix64 step (Steele, Lea & Flood 2014). Used only to spread the

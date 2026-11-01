@@ -427,6 +427,8 @@ fn overlay_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
             .on_hover_text(help::DISK.tip());
         ui.checkbox(&mut targets.settings.show_backdrop, tr("Sky backdrop"))
             .on_hover_text(help::SKY.tip());
+        ui.checkbox(&mut targets.settings.show_comets, tr("Comets"))
+            .on_hover_text(help::COMETS.tip());
     });
 }
 
@@ -681,14 +683,32 @@ fn selected_card(targets: &SimulationTargets) -> Option<Card> {
                     }
                 },
             );
-            Some(cards::star_card(
+            let card = cards::star_card(
                 star,
                 snapshot.habitable_zones.iter().find(|hz| hz.host == host),
                 snapshot.planet_zones.iter().find(|zone| zone.host == host),
                 snapshot.bodies.iter().filter(|b| b.host == host).count(),
                 companion.as_ref(),
                 snapshot.disks_at_dispersal.iter().find(|d| d.host == host),
-            ))
+            );
+            Some(
+                match snapshot.comet_reservoirs.iter().find(|r| r.host == host) {
+                    Some(reservoir) => cards::with_comets(card, reservoir),
+                    None => card,
+                },
+            )
+        }
+        Target::Comet(id) => {
+            let comet = snapshot.comets.iter().find(|c| c.id == id)?;
+            let orbits = match layout::find_host(&snapshot.hierarchy, comet.host) {
+                Some(node) => layout::stars(node)
+                    .iter()
+                    .map(|star| star.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" + "),
+                None => String::new(),
+            };
+            Some(cards::comet_card(comet, &orbits))
         }
         Target::Body(id) => {
             let body = snapshot.bodies.iter().find(|b| b.id == id)?;
@@ -755,6 +775,10 @@ fn labels(
             },
             Target::Body(id) => match result.snapshot.bodies.iter().find(|b| b.id == id) {
                 Some(body) if finished => (body.name.clone(), body.mass_mearth),
+                _ => continue,
+            },
+            Target::Comet(id) => match result.snapshot.comets.iter().find(|c| c.id == id) {
+                Some(comet) if finished => (comet.name.clone(), 0.0),
                 _ => continue,
             },
         };

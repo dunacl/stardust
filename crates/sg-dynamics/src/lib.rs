@@ -7,6 +7,7 @@
 //! is in [`late`]; [`nbody`] integrates orbits directly (M7). This is the only simulation crate
 //! allowed to use `wgpu`, headless, behind a `gpu` feature.
 
+pub mod comets;
 pub mod kepler;
 pub mod late;
 pub mod nbody;

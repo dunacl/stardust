@@ -18,6 +18,19 @@ Simulation changes are tracked by model version; each has a report in
 - The growth-model milestone is closed at model 0.13.0, with its known limits stated
   in the README. No change to the model.
 
+## Model 0.15.0
+
+- Comets, in the Standard and High tiers. How many a host has follows from its icy
+  belts and planets, scaled from the Solar System: heavy planets on the way in eject
+  most of them (Wyatt et al. 2017, MNRAS 464, 3385), and a planet of the right mass
+  and age can build an Oort cloud. A few are drawn to show, with orbits from the
+  Jupiter family's definition or, for long-period comets, from any direction. Schema
+  0.12.0. Nothing else changes: comets come last, from their own random stream, and
+  the validation report differs from 0.14.0 only in its timing.
+- Comet counts are orders of magnitude. This model's outer belts are not cleared as
+  the Kuiper belt was, so they run far above the Solar System's: the median system
+  has about 120,000 against 300.
+
 ## Model 0.14.0
 
 - Planets and moons have proper names, unique in their system, and keep their

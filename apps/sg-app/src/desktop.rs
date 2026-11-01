@@ -41,6 +41,9 @@ struct Args {
     /// Select the Nth moon of the system, from 1.
     #[arg(long)]
     moon: Option<usize>,
+    /// Select the Nth comet of the system, from 1.
+    #[arg(long)]
+    comet: Option<usize>,
     /// Look at the Nth belt of the system, from 1.
     #[arg(long)]
     belt: Option<usize>,
@@ -289,6 +292,7 @@ pub fn launch() -> Launch {
         time: args.time,
         select: args.select,
         moon: args.moon,
+        comet: args.comet,
         belt: args.belt,
         screenshot: args.screenshot,
         offscreen: args.offscreen || args.bench.is_some(),

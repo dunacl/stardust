@@ -76,6 +76,7 @@ pub fn run() {
         // Resolved to a body once the first system exists.
         select: launch.select,
         moon: launch.moon,
+        comet: launch.comet,
         belt: launch.belt,
         frozen: launch.screenshot.is_some(),
         quality: launch.quality.unwrap_or_else(default_quality),
@@ -137,6 +138,12 @@ pub(crate) fn nth_moon(snapshot: &sg_schema::SystemSnapshot, n: usize) -> Option
         .filter(|body| matches!(body.host, sg_schema::HostRef::Body(_)))
         .nth(n.checked_sub(1)?)?;
     Some(Target::Body(moon.id))
+}
+
+/// Resolves `--comet N`: the Nth comet in the snapshot's order, from 1.
+pub(crate) fn nth_comet(snapshot: &sg_schema::SystemSnapshot, n: usize) -> Option<Target> {
+    let comet = snapshot.comets.get(n.checked_sub(1)?)?;
+    Some(Target::Comet(comet.id))
 }
 
 /// Resolves `--select N` against a finished system: the Nth planet in the

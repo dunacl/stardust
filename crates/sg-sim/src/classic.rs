@@ -547,6 +547,8 @@ pub(crate) fn simulate(
         hierarchy: system.hierarchy.clone(),
         bodies,
         belts: Vec::new(),
+        comets: Vec::new(),
+        comet_reservoirs: Vec::new(),
         disks_at_dispersal: Vec::new(),
         habitable_zones,
         planet_zones,
