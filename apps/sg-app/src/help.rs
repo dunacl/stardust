@@ -166,10 +166,6 @@ pub const ECCENTRICITY_EXPONENT: Item = item(
     "Eccentricity exponent",
     "Larger: more eccentric nuclei. Dole: 0.077.",
 );
-pub const COMPUTE_ATMOSPHERES: Item = item(
-    "Compute atmospheres",
-    "Has no effect in this version: the setting is stored but the model does not read it.",
-);
 pub const RESET_DOLE: Item = item(
     "Reset to Dole's values",
     "Puts the accretion settings back to those of Dole's paper.",
@@ -216,7 +212,7 @@ pub const SKY: Item = item(
 );
 pub const COMETS: Item = item(
     "Comets",
-    "A few comets, each standing for many, with their orbits. Tails grow near the star. How many \
+    "A few comets, each standing for many; selecting one shows its orbit. Tails grow near the star. How many \
      a system has follows from its icy belts and planets; each comet's orbit is drawn.",
 );
 pub const LAYERS: Item = item(
@@ -325,7 +321,6 @@ const ACCRETION: &[Item] = &[
     CRITICAL_MASS,
     CLOUD_ECCENTRICITY,
     ECCENTRICITY_EXPONENT,
-    COMPUTE_ATMOSPHERES,
     RESET_DOLE,
 ];
 const VIEW: &[Item] = &[

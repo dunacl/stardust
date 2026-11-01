@@ -58,7 +58,12 @@ pub fn duration(hours: f64) -> String {
     } else if hours < 24.0 * 365.25 * 2.0 {
         trf("{} days", &[&format!("{:.1}", hours / 24.0)])
     } else {
-        trf("{} years", &[&format!("{:.2}", hours / (24.0 * 365.25))])
+        let years = hours / (24.0 * 365.25);
+        match years {
+            y if y >= 1.0e6 => trf("{} million years", &[&format!("{:.1}", y / 1.0e6)]),
+            y if y >= 1.0e3 => trf("{} years", &[&format!("{y:.0}")]),
+            y => trf("{} years", &[&format!("{y:.2}")]),
+        }
     }
 }
 
@@ -646,8 +651,10 @@ pub fn comet_card(comet: &Comet, orbits: &str) -> Card {
             tr("A short-period comet, held on its orbit by the system's \
             heaviest planet.")
         }
-        CometFamily::LongPeriod => tr("It fell in from an Oort cloud, and is shown near its \
-            closest approach: it will not be back for a very long time."),
+        CometFamily::LongPeriod => tr(
+            "It fell in from an Oort cloud. It will not be back for a very long time, so the \
+            view replays this one passage.",
+        ),
     }
     .to_string()];
     notes.push(
@@ -961,6 +968,8 @@ mod tests {
         assert_eq!(duration(15.8), "15.8 h");
         assert_eq!(duration(24.0 * 88.0), "88.0 days");
         assert_eq!(duration(24.0 * 365.25 * 11.86), "11.86 years");
+        assert_eq!(duration(24.0 * 365.25 * 42_000.4), "42000 years");
+        assert_eq!(duration(24.0 * 365.25 * 1_757_029.7), "1.8 million years");
     }
 
     #[test]
