@@ -85,6 +85,13 @@ struct Args {
     /// Frames per second of the recording.
     #[arg(long, default_value_t = 30)]
     frame_rate: u32,
+    /// Start with the Layers window open.
+    #[arg(long)]
+    layers: bool,
+    /// Layers to start hidden, comma-separated: stars, planets, moons, rings,
+    /// belts, comets, tails, orbits, zone, limits, names, marks, disk, sky.
+    #[arg(long, value_delimiter = ',')]
+    hide: Vec<String>,
     /// Interface language.
     #[arg(long, value_parser = ["en", "es", "fr", "de"])]
     lang: Option<String>,
@@ -441,6 +448,8 @@ pub fn launch() -> Launch {
         drawer: args.drawer,
         tour: args.tour,
         help: args.help_window,
+        layers: args.layers,
+        hide: args.hide,
         record: args.record,
         record_frames: args.frames,
         record_fps: args.frame_rate,

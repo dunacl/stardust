@@ -175,6 +175,13 @@ pub struct ViewSettings {
     pub show_labels: bool,
     /// Comets and their orbits.
     pub show_comets: bool,
+    pub show_stars: bool,
+    pub show_planets: bool,
+    pub show_moons: bool,
+    pub show_rings: bool,
+    pub show_belts: bool,
+    /// Comets' comas and tails, without which a comet is a bare nucleus.
+    pub show_comet_tails: bool,
     /// The disk of gas and dust during formation playback.
     pub show_disk: bool,
     pub quality: Quality,
@@ -191,6 +198,12 @@ impl Default for ViewSettings {
             show_backdrop: true,
             show_labels: true,
             show_comets: true,
+            show_stars: true,
+            show_planets: true,
+            show_moons: true,
+            show_rings: true,
+            show_belts: true,
+            show_comet_tails: true,
             show_disk: true,
             quality: Quality::default(),
         }
@@ -347,6 +360,68 @@ fn elements(body: &DisplayBody, host_mass_msun: f64, orbit_days: f64) -> Element
         long_asc_node: body.long_asc_node_deg.to_radians(),
         arg_periapsis: body.arg_periapsis_deg.to_radians(),
         mean_anomaly: body.mean_anomaly_deg.to_radians() + TAU * (orbit_days / period),
+    }
+}
+
+/// Whether a layer shows what stands at this target.
+fn layer_shows(settings: &ViewSettings, target: Target, moon: bool) -> bool {
+    match target {
+        Target::Star(_) => settings.show_stars,
+        Target::Body(_) if moon => settings.show_moons,
+        Target::Body(_) => settings.show_planets,
+        Target::Comet(_) => settings.show_comets,
+    }
+}
+
+/// Applies the layers to stars, planets and moons. What a layer hides is
+/// taken out of the placements too, so it has no name and cannot be clicked,
+/// and exporting leaves it out. Rings, belts and comets check theirs where
+/// they are drawn.
+fn apply_layers(
+    settings: Res<ViewSettings>,
+    entities: Res<SceneEntities>,
+    mut placements: ResMut<BodyPlacements>,
+    mut selection: ResMut<Selection>,
+    mut visibility: Query<&mut Visibility>,
+) {
+    let mut set = |entity: Entity, shown: bool| {
+        if let Ok(mut current) = visibility.get_mut(entity) {
+            let wanted = if shown {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            };
+            if *current != wanted {
+                *current = wanted;
+            }
+        }
+    };
+    for (id, star) in &entities.stars {
+        let _ = id;
+        set(star.sphere, settings.show_stars);
+    }
+    for (id, entity) in &entities.bodies {
+        let moon = placements.get(Target::Body(*id)).is_some_and(|p| p.moon);
+        let shown = if moon {
+            settings.show_moons
+        } else {
+            settings.show_planets
+        };
+        set(*entity, shown);
+        if let Some(air) = entities.air.get(id) {
+            set(*air, shown);
+        }
+    }
+    placements
+        .0
+        .retain(|target, placement| layer_shows(&settings, *target, placement.moon));
+    if !settings.show_moons {
+        placements.1.clear();
+    }
+    if selection.0.is_some_and(|target| {
+        placements.get(target).is_none() && !matches!(target, Target::Comet(_))
+    }) {
+        selection.0 = None;
     }
 }
 
@@ -1124,6 +1199,7 @@ impl Plugin for StardustRenderPlugin {
                 camera::apply_quality,
                 advance,
                 sync_scene,
+                apply_layers,
                 belt::sync_belts,
                 crate::comet::sync_comets,
                 crate::disk::sync_disks,
@@ -1143,6 +1219,24 @@ impl Plugin for StardustRenderPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn layers_tell_moons_from_planets() {
+        let mut settings = ViewSettings::default();
+        let planet = Target::Body(BodyId(1));
+        settings.show_moons = false;
+        assert!(layer_shows(&settings, planet, false));
+        assert!(!layer_shows(&settings, planet, true));
+        settings.show_planets = false;
+        assert!(!layer_shows(&settings, planet, false));
+        assert!(layer_shows(&settings, Target::Star(StarId(0)), false));
+        settings.show_comets = false;
+        assert!(!layer_shows(
+            &settings,
+            Target::Comet(sg_schema::CometId(0)),
+            false
+        ));
+    }
 
     #[test]
     fn orbital_clock_advances_the_mean_anomaly() {

@@ -237,7 +237,7 @@ fn controls(
         ui.separator();
         ui.label(RichText::new(tr("View")).strong());
         scale_controls(ui, targets);
-        overlay_controls(ui, targets);
+        ui.collapsing(tr("Layers"), |ui| layer_controls(ui, targets));
         ui.horizontal_wrapped(|ui| motion_controls(ui, targets));
         ui.horizontal_wrapped(|ui| quality_controls(ui, targets, &mut state.show_fps));
         frame_system_button(ui, targets);
@@ -408,28 +408,94 @@ fn scale_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
     }
 }
 
-fn overlay_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
-    ui.horizontal_wrapped(|ui| {
-        ui.checkbox(&mut targets.settings.show_orbits, tr("Orbits"))
-            .on_hover_text(help::ORBITS.tip());
-        ui.checkbox(
-            &mut targets.settings.show_habitable_zone,
-            tr("Habitable zone"),
-        )
-        .on_hover_text(help::HABITABLE_ZONE.tip());
-        ui.checkbox(&mut targets.settings.show_stability_limits, tr("Limits"))
-            .on_hover_text(help::LIMITS.tip());
+/// The layers: everything that can be shown or hidden, one switch each.
+/// Rendering, labels, clicking and export all follow them.
+fn layer_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
+    let settings = &mut *targets.settings;
+    ui.horizontal(|ui| {
+        if ui.button(tr("All")).clicked() {
+            set_all_layers(settings, true);
+        }
+        if ui.button(tr("None")).clicked() {
+            set_all_layers(settings, false);
+        }
     });
-    ui.horizontal_wrapped(|ui| {
-        ui.checkbox(&mut targets.settings.show_labels, tr("Names"))
-            .on_hover_text(help::NAMES.tip());
-        ui.checkbox(&mut targets.settings.show_disk, tr("Disk, while forming"))
-            .on_hover_text(help::DISK.tip());
-        ui.checkbox(&mut targets.settings.show_backdrop, tr("Sky backdrop"))
-            .on_hover_text(help::SKY.tip());
-        ui.checkbox(&mut targets.settings.show_comets, tr("Comets"))
-            .on_hover_text(help::COMETS.tip());
-    });
+    ui.label(RichText::new(tr("Objects")).strong());
+    let layers = [
+        (&mut settings.show_stars, help::STARS_LAYER),
+        (&mut settings.show_planets, help::PLANETS_LAYER),
+        (&mut settings.show_moons, help::MOONS_LAYER),
+        (&mut settings.show_rings, help::RINGS_LAYER),
+        (&mut settings.show_belts, help::BELTS_LAYER),
+        (&mut settings.show_comets, help::COMETS),
+        (&mut settings.show_comet_tails, help::TAILS_LAYER),
+    ];
+    for (value, item) in layers {
+        ui.checkbox(value, item.title()).on_hover_text(item.tip());
+    }
+    ui.label(RichText::new(tr("Guides")).strong());
+    let layers = [
+        (&mut settings.show_orbits, help::ORBITS),
+        (&mut settings.show_habitable_zone, help::HABITABLE_ZONE),
+        (&mut settings.show_stability_limits, help::LIMITS),
+        (&mut settings.show_labels, help::NAMES),
+        (&mut settings.show_formation_highlights, help::MARKS_LAYER),
+    ];
+    for (value, item) in layers {
+        ui.checkbox(value, item.title()).on_hover_text(item.tip());
+    }
+    ui.label(RichText::new(tr("Scene")).strong());
+    let layers = [
+        (&mut settings.show_disk, help::DISK),
+        (&mut settings.show_backdrop, help::SKY),
+    ];
+    for (value, item) in layers {
+        ui.checkbox(value, item.title()).on_hover_text(item.tip());
+    }
+}
+
+/// Hides a layer by its name on the command line. An unknown name is
+/// ignored, as a mistyped link is.
+pub fn hide_layer(settings: &mut sg_render::ViewSettings, name: &str) {
+    match name {
+        "stars" => settings.show_stars = false,
+        "planets" => settings.show_planets = false,
+        "moons" => settings.show_moons = false,
+        "rings" => settings.show_rings = false,
+        "belts" => settings.show_belts = false,
+        "comets" => settings.show_comets = false,
+        "tails" => settings.show_comet_tails = false,
+        "orbits" => settings.show_orbits = false,
+        "zone" => settings.show_habitable_zone = false,
+        "limits" => settings.show_stability_limits = false,
+        "names" => settings.show_labels = false,
+        "marks" => settings.show_formation_highlights = false,
+        "disk" => settings.show_disk = false,
+        "sky" => settings.show_backdrop = false,
+        _ => {}
+    }
+}
+
+/// Turns every layer on or off.
+fn set_all_layers(settings: &mut sg_render::ViewSettings, on: bool) {
+    for value in [
+        &mut settings.show_stars,
+        &mut settings.show_planets,
+        &mut settings.show_moons,
+        &mut settings.show_rings,
+        &mut settings.show_belts,
+        &mut settings.show_comets,
+        &mut settings.show_comet_tails,
+        &mut settings.show_orbits,
+        &mut settings.show_habitable_zone,
+        &mut settings.show_stability_limits,
+        &mut settings.show_labels,
+        &mut settings.show_formation_highlights,
+        &mut settings.show_disk,
+        &mut settings.show_backdrop,
+    ] {
+        *value = on;
+    }
 }
 
 fn motion_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
@@ -1050,7 +1116,8 @@ fn menus(ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTarget
         ui.label(RichText::new(tr("Scale")).strong());
         scale_controls(ui, targets);
         ui.separator();
-        overlay_controls(ui, targets);
+        ui.checkbox(&mut state.show_layers, tr("Layers"))
+            .on_hover_text(help::LAYERS.tip());
         ui.separator();
         frame_system_button(ui, targets);
     });
@@ -1170,7 +1237,6 @@ fn frame_rate_readout(ctx: &egui::Context, state: &AppState) {
         });
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn draw(
     mut contexts: EguiContexts,
     mut state: ResMut<AppState>,
@@ -1179,22 +1245,19 @@ pub fn draw(
     placements: Res<BodyPlacements>,
     camera: Single<(&Camera, &GlobalTransform), With<Camera3d>>,
     time: Res<Time<Real>>,
-    mut exit: MessageWriter<AppExit>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
     // From the command line: once the system is placed, save it and leave.
-    if let Some(path) = state.start.export.clone() {
-        if placements.iter().next().is_some() {
-            match view_as_glb(&targets, &placements).map(|bytes| std::fs::write(&path, bytes)) {
-                Some(Ok(())) => {
-                    exit.write(AppExit::Success);
-                }
-                _ => {
-                    exit.write(AppExit::error());
-                }
-            }
-            state.start.export = None;
-        }
+    // At once, not through the app's exit: this system runs only while the
+    // window is being drawn, and the exit waits on a later frame that a
+    // covered window may never get.
+    if let Some(path) = state
+        .start
+        .export
+        .take_if(|_| placements.iter().next().is_some())
+    {
+        let saved = view_as_glb(&targets, &placements).map(|bytes| std::fs::write(&path, bytes));
+        std::process::exit(i32::from(!matches!(saved, Some(Ok(())))));
     }
     if std::mem::take(&mut state.export_wanted) {
         export_view(&mut state, &targets, &placements);
@@ -1251,6 +1314,17 @@ pub fn draw(
                 targets.selection.0 = None;
             }
         }
+        if state.show_layers {
+            let mut open = true;
+            egui::Window::new(tr("Layers"))
+                .id(egui::Id::new("layers"))
+                .anchor(Align2::RIGHT_BOTTOM, [-12.0, -96.0])
+                .resizable(false)
+                .collapsible(true)
+                .open(&mut open)
+                .show(ctx, |ui| layer_controls(ui, &mut targets));
+            state.show_layers = open;
+        }
         if state.show_help {
             help_window(ctx, &mut state, screen);
         }
@@ -1281,6 +1355,18 @@ mod tests {
         for preset in ALL_PRESETS {
             assert!(help::preset(preset_name(preset)).is_some(), "{preset:?}");
         }
+    }
+
+    #[test]
+    fn layers_hide_by_name_and_switch_together() {
+        let mut settings = sg_render::ViewSettings::default();
+        hide_layer(&mut settings, "planets");
+        hide_layer(&mut settings, "no such layer");
+        assert!(!settings.show_planets && settings.show_moons);
+        set_all_layers(&mut settings, false);
+        assert!(!settings.show_moons && !settings.show_backdrop);
+        set_all_layers(&mut settings, true);
+        assert!(settings.show_planets);
     }
 
     #[test]

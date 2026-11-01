@@ -90,6 +90,7 @@ pub fn run() {
     state.show_ui = launch.show_ui;
     state.show_fps = launch.fps;
     state.show_help = launch.help;
+    state.show_layers = launch.layers;
     if launch.drawer {
         state.panel_open = Some(true);
     }
@@ -105,6 +106,7 @@ pub fn run() {
         quality: launch.quality.unwrap_or_else(default_quality),
         tour: launch.tour,
         zoom: launch.zoom,
+        hide: launch.hide.clone(),
         export: launch.export.clone(),
     };
     let (width, height) = launch.size.unwrap_or((1440, 900));

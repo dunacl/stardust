@@ -99,6 +99,11 @@ A link can point at a system: `?seed=7&preset=circumbinary&tier=classic&scale=sc
 data-card row says the same. Start with it open with `--help-window`, or `?help=1`
 in a link.
 
+*View > Layers* switches each kind of thing on or off: stars, planets, moons, rings,
+belts, comets, tails, orbits, zones, names, the disk and the sky. What is hidden has no
+name, cannot be clicked and is left out of an export. `--hide planets,sky` starts with
+layers off, and `--layers` with the panel open (`?hide=`, `?layers=1` on the web).
+
 *Export 3D scene (.glb)* in the menu bar saves the view for Blender and other 3D tools
 (`--export scene.glb` from the command line). `--record frames --frames 300` saves a
 numbered image sequence, and `scripts/make-video.sh frames out.mp4` makes a video of it

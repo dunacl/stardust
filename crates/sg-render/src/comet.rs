@@ -259,7 +259,7 @@ pub(crate) fn sync_comets(
             }
             continue;
         }
-        if longest <= 0.0 {
+        if longest <= 0.0 || !settings.show_comet_tails {
             *visibility = Visibility::Hidden;
             continue;
         }
