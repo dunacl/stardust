@@ -5236,6 +5236,7 @@ dependencies = [
  "bevy",
  "bevy_egui",
  "clap",
+ "js-sys",
  "sg-core",
  "sg-render",
  "sg-schema",

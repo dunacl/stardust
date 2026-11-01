@@ -241,6 +241,10 @@ pub const EFFECTS: Item = item(
     "Reduced is for phones and older graphics: no glow around stars, coarser spheres, fewer \
      belt rocks, less surface detail.",
 );
+pub const EXPORT: Item = item(
+    "Export 3D scene (.glb)",
+    "Saves what is drawn now as a file that Blender and most 3D tools open, with stars, planets, moons, rings and comet nuclei at their drawn sizes. Surfaces become vertex colours, coarser than on the screen. Belts, tails and the sky are left out.",
+);
 pub const FRAME_RATE: Item = item(
     "Frame rate",
     "Shows frames per second and the time per frame in a corner of the screen.",
@@ -328,7 +332,7 @@ const PLAYBACK: &[Item] = &[
     DAYS_PER_SECOND,
     TOUR,
 ];
-const SETTINGS: &[Item] = &[EFFECTS, FRAME_RATE, CONTROL_PANEL];
+const SETTINGS: &[Item] = &[EFFECTS, FRAME_RATE, CONTROL_PANEL, EXPORT];
 const PRESETS: &[Item] = &[
     item("Sun-like", "One star of one solar mass."),
     item(

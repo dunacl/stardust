@@ -6,8 +6,10 @@ use bevy::camera::RenderTarget;
 use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
 use bevy::render::view::screenshot::{save_to_disk, Screenshot};
+use bevy::time::TimeUpdateStrategy;
 use bevy::window::WindowOccluded;
 use clap::{Parser, ValueEnum};
+use sg_render::scene::Playback;
 use sg_render::{Quality, ScaleMode};
 use sg_schema::{Fidelity, PresetId};
 use std::path::PathBuf;
@@ -71,6 +73,18 @@ struct Args {
     /// Start with the Help window open.
     #[arg(long = "help-window")]
     help_window: bool,
+    /// Save the view as a binary glTF file (.glb) and exit.
+    #[arg(long)]
+    export: Option<PathBuf>,
+    /// Play the view and save numbered PNG frames in this folder, off screen.
+    #[arg(long)]
+    record: Option<PathBuf>,
+    /// How many frames to record.
+    #[arg(long, default_value_t = 300)]
+    frames: u32,
+    /// Frames per second of the recording.
+    #[arg(long, default_value_t = 30)]
+    frame_rate: u32,
     /// Interface language.
     #[arg(long, value_parser = ["en", "es", "fr", "de"])]
     lang: Option<String>,
@@ -165,6 +179,127 @@ const OFFSCREEN_SIZE: (u32, u32) = (1440, 900);
 const BENCH_SIZE: (u32, u32) = (2560, 1440);
 /// Seconds before the measurement starts: shaders compile in the first few.
 const BENCH_WARM_UP_SECS: f32 = 4.0;
+
+/// Recording a video as numbered frames. Time advances by a fixed step, so
+/// the result does not depend on how fast the machine draws.
+#[derive(Resource)]
+struct Recording {
+    folder: PathBuf,
+    frames: u32,
+    /// Frames waited for shaders to compile.
+    warmed: u32,
+    /// Frames requested so far.
+    requested: u32,
+    /// Replay the formation from its start, rather than from `--time`.
+    from_start: bool,
+    target: Option<Handle<Image>>,
+    size: (u32, u32),
+}
+
+/// Frames drawn before the first one is kept: shaders compile in the first
+/// few, and a body whose shader is not ready is not drawn.
+const RECORD_WARM_UP_FRAMES: u32 = 120;
+
+/// Name of the Nth frame of a recording, from 1.
+pub fn frame_name(index: u32) -> String {
+    format!("frame-{index:05}.png")
+}
+
+/// Sets up `--record`.
+pub fn add_recording(
+    app: &mut App,
+    folder: PathBuf,
+    frames: u32,
+    fps: u32,
+    size: Option<(u32, u32)>,
+    from_start: bool,
+) {
+    if let Err(error) = std::fs::create_dir_all(&folder) {
+        eprintln!("record: {}: {error}", folder.display());
+    }
+    let step = std::time::Duration::from_secs_f64(1.0 / f64::from(fps.max(1)));
+    app.insert_resource(TimeUpdateStrategy::ManualDuration(step))
+        .insert_resource(Recording {
+            folder,
+            frames,
+            warmed: 0,
+            requested: 0,
+            from_start,
+            target: None,
+            size: size.unwrap_or(OFFSCREEN_SIZE),
+        })
+        .add_systems(Update, (redirect_recording, record).chain());
+}
+
+fn redirect_recording(
+    mut commands: Commands,
+    mut recording: ResMut<Recording>,
+    mut images: ResMut<Assets<Image>>,
+    camera: Query<Entity, With<Camera3d>>,
+) {
+    if recording.target.is_some() {
+        return;
+    }
+    let Ok(camera) = camera.single() else {
+        return;
+    };
+    let size = recording.size;
+    let image = images.add(Image::new_target_texture(
+        size.0,
+        size.1,
+        TextureFormat::Rgba8UnormSrgb,
+        None,
+    ));
+    commands
+        .entity(camera)
+        .insert(RenderTarget::Image(image.clone().into()));
+    recording.target = Some(image);
+}
+
+fn record(
+    mut commands: Commands,
+    mut recording: ResMut<Recording>,
+    mut playback: ResMut<Playback>,
+    mut exit: MessageWriter<AppExit>,
+) {
+    let Some(target) = recording.target.clone() else {
+        return;
+    };
+    if recording.warmed < RECORD_WARM_UP_FRAMES {
+        recording.warmed += 1;
+        if recording.warmed == RECORD_WARM_UP_FRAMES {
+            if recording.from_start {
+                playback.t_myr = 0.0;
+                playback.playing = true;
+            }
+            playback.orbits_running = true;
+        }
+        return;
+    }
+    if recording.requested < recording.frames {
+        recording.requested += 1;
+        let path = recording.folder.join(frame_name(recording.requested));
+        commands
+            .spawn(Screenshot::image(target))
+            .observe(save_to_disk(path));
+        return;
+    }
+    // Frames are written in the background: wait for the last of them.
+    let written = (1..=recording.frames)
+        .filter(|index| recording.folder.join(frame_name(*index)).exists())
+        .count() as u32;
+    if written == recording.frames {
+        println!("record: {written} frames in {}", recording.folder.display());
+        exit.write(AppExit::Success);
+    }
+}
+
+/// Saves a file where the app was started, and says where.
+pub fn save(name: &str, bytes: &[u8]) -> Result<String, String> {
+    std::fs::write(name, bytes)
+        .map(|()| name.to_string())
+        .map_err(|error| error.to_string())
+}
 
 /// Points the scene camera at an image, once it exists.
 fn redirect_camera(
@@ -306,6 +441,10 @@ pub fn launch() -> Launch {
         drawer: args.drawer,
         tour: args.tour,
         help: args.help_window,
+        record: args.record,
+        record_frames: args.frames,
+        record_fps: args.frame_rate,
+        export: args.export,
         zoom: args.zoom,
         language: args
             .lang
@@ -337,4 +476,16 @@ pub fn add_capture(
         ..default()
     })
     .add_systems(Update, (redirect_camera, capture).chain());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `scripts/make-video.sh` expects these names.
+    #[test]
+    fn frames_are_numbered_from_one_in_five_digits() {
+        assert_eq!(frame_name(1), "frame-00001.png");
+        assert_eq!(frame_name(12345), "frame-12345.png");
+    }
 }

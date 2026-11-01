@@ -99,6 +99,11 @@ A link can point at a system: `?seed=7&preset=circumbinary&tier=classic&scale=sc
 data-card row says the same. Start with it open with `--help-window`, or `?help=1`
 in a link.
 
+*Export 3D scene (.glb)* in the menu bar saves the view for Blender and other 3D tools
+(`--export scene.glb` from the command line). `--record frames --frames 300` saves a
+numbered image sequence, and `scripts/make-video.sh frames out.mp4` makes a video of it
+if ffmpeg is installed.
+
 The interface speaks English, Spanish, French and German: choose in *Settings*, or
 start with `--lang es`, or `?lang=es` in a link. Body names and the program's
 command line stay as they are, and numbers keep a decimal point in every language.
