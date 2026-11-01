@@ -256,6 +256,18 @@ pub fn simulate_on_startup(mut state: ResMut<AppState>, mut targets: SimulationT
         targets.playback.t_myr = end * fraction.clamp(0.0, 1.0);
         targets.playback.playing = false;
     }
+    // Asking for something in the finished system means starting there:
+    // a comet does not exist yet while the system forms, and an age would
+    // be overwritten when playback reached the star's life.
+    let wants_finished = start.select.is_some()
+        || start.moon.is_some()
+        || start.comet.is_some()
+        || start.belt.is_some()
+        || start.star_age.is_some();
+    if wants_finished && start.time_fraction.is_none() && !start.tour {
+        targets.playback.t_myr = end;
+        targets.playback.playing = false;
+    }
     if start.frozen {
         targets.playback.playing = false;
         targets.playback.orbits_running = false;
