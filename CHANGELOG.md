@@ -5,6 +5,10 @@ Simulation changes are tracked by model version; each has a report in
 
 ## Unreleased
 
+- Long-period comets replay their passage past the star, and the card says so; they
+  would otherwise be gone in seconds. Only the selected comet shows its orbit, and hiding
+  planets hides their orbits. Very long periods and long numbers in warnings read
+  better. The "Compute atmospheres" box, which did nothing, is gone. No change to the model.
 - A Layers panel shows or hides each kind of object and guide. No change to the model.
 - Stars have layered convection cells, sunspots and faculae; hot stars stay smooth.
   The gas disk shows long trailing arcs, warm near the star, in place of radial

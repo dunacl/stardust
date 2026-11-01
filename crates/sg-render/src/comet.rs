@@ -68,8 +68,34 @@ pub fn dust_direction(away_from_star: Vec3, velocity: Vec3) -> Vec3 {
     (away * (1.0 - DUST_LAG) + behind * DUST_LAG).normalize_or(away)
 }
 
+/// Half of the passage a long-period comet replays, days.
+const PASSAGE_HALF_DAYS: f64 = 300.0;
+
+/// Days from perihelion at which to draw a long-period comet. It would leave
+/// for good within seconds and not return for ages, so the view replays its
+/// passage, and the card says so. A drawing choice: the snapshot's orbit is
+/// unchanged.
+pub fn replayed_days(days_from_perihelion: f64) -> f64 {
+    let span = 2.0 * PASSAGE_HALF_DAYS;
+    (days_from_perihelion + PASSAGE_HALF_DAYS).rem_euclid(span) - PASSAGE_HALF_DAYS
+}
+
 fn elements(comet: &Comet, orbit_days: f64) -> Elements {
     let orbit = &comet.orbit;
+    if comet.family == CometFamily::LongPeriod {
+        let turn = orbit.mean_anomaly_deg.rem_euclid(360.0);
+        let signed = if turn > 180.0 { turn - 360.0 } else { turn };
+        let start = signed / 360.0 * orbit.period_days;
+        let days = replayed_days(start + orbit_days);
+        return Elements {
+            a: Au(orbit.a_au),
+            e: orbit.e,
+            i: orbit.i_deg.to_radians(),
+            long_asc_node: orbit.long_asc_node_deg.to_radians(),
+            arg_periapsis: orbit.arg_periapsis_deg.to_radians(),
+            mean_anomaly: TAU * (days / orbit.period_days),
+        };
+    }
     Elements {
         a: Au(orbit.a_au),
         e: orbit.e,
@@ -314,7 +340,8 @@ pub(crate) fn sync_comets(
     }
 }
 
-/// Draws the orbits of the short-period comets, and of a selected comet.
+/// Draws the orbit of the selected comet: all of them at once cross the
+/// planets' orbits and hide them.
 pub(crate) fn draw_comet_orbits(
     mut gizmos: Gizmos,
     view: Res<SystemView>,
@@ -332,8 +359,7 @@ pub(crate) fn draw_comet_orbits(
     let snapshot = &result.snapshot;
     let layout = Layout::at(&snapshot.hierarchy, &settings.scale, playback.orbit_days);
     for comet in &snapshot.comets {
-        let selected = selection.0 == Some(Target::Comet(comet.id));
-        if comet.family == CometFamily::LongPeriod && !selected {
+        if selection.0 != Some(Target::Comet(comet.id)) {
             continue;
         }
         let Some(centre) = layout.host(comet.host) else {
@@ -358,6 +384,16 @@ pub(crate) fn build(app: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_passage_replays_around_perihelion() {
+        assert_eq!(replayed_days(0.0), 0.0);
+        assert_eq!(replayed_days(100.0), 100.0);
+        let span = 2.0 * PASSAGE_HALF_DAYS;
+        assert!((replayed_days(100.0 + span) - 100.0).abs() < 1e-9);
+        assert!((replayed_days(100.0 + 50.0 * span) - 100.0).abs() < 1e-6);
+        assert!(replayed_days(PASSAGE_HALF_DAYS + 1.0) < 0.0);
+    }
 
     #[test]
     fn comets_wake_near_their_star() {

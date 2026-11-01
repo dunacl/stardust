@@ -130,12 +130,24 @@ fn holes<'a>(template: &str, text: &'a str) -> Option<Vec<&'a str>> {
     rest.is_empty().then_some(found)
 }
 
+/// A number with more digits than anyone can use, cut to three decimals.
+/// Any other text is left as it is.
+fn tidy_number(hole: &str) -> String {
+    let decimals = hole.split_once('.').map_or(0, |(_, after)| after.len());
+    match hole.parse::<f64>() {
+        Ok(number) if decimals > 3 => format!("{number:.3}"),
+        _ => hole.to_string(),
+    }
+}
+
 /// A sentence the model wrote, in `language`; unchanged if no template
 /// fits, so a new warning shows in English until it gets a row.
 fn message(language: Language, text: &str) -> String {
     for row in MESSAGES {
         if let Some(found) = holes(row[0], text) {
-            let values: Vec<&dyn Display> = found.iter().map(|hole| hole as &dyn Display).collect();
+            let tidied: Vec<String> = found.iter().map(|hole| tidy_number(hole)).collect();
+            let values: Vec<&dyn Display> =
+                tidied.iter().map(|hole| hole as &dyn Display).collect();
             return fill(row[language as usize], &values);
         }
     }
@@ -306,6 +318,16 @@ mod tests {
         assert_ne!(&spanish, warning);
         assert!(spanish.contains("2.00"), "{spanish}");
         assert_eq!(&message(Language::En, warning), warning);
+    }
+
+    #[test]
+    fn long_numbers_in_warnings_are_cut() {
+        assert_eq!(tidy_number("0.18305925325331845"), "0.183");
+        assert_eq!(tidy_number("2.00"), "2.00");
+        assert_eq!(tidy_number("Calira"), "Calira");
+        let text = "the stellar model does not reach [Fe/H] = 0.18305925325331845: the stars \
+                    were computed with Z = 0.03, its nearest limit";
+        assert!(message(Language::En, text).contains("[Fe/H] = 0.183:"));
     }
 
     #[test]

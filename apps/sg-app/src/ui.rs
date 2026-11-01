@@ -373,11 +373,6 @@ fn classic_controls(ui: &mut egui::Ui, state: &mut AppState) {
                 .text(tr("Eccentricity exponent")),
         )
         .on_hover_text(help::ECCENTRICITY_EXPONENT.tip());
-        ui.checkbox(
-            &mut state.params.toggles.atmospheres,
-            tr("Compute atmospheres"),
-        )
-        .on_hover_text(help::COMPUTE_ATMOSPHERES.tip());
         if ui
             .button(tr("Reset to Dole's values"))
             .on_hover_text(help::RESET_DOLE.tip())

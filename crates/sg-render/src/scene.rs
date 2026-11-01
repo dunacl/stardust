@@ -1072,7 +1072,7 @@ fn draw_overlays(
         }
     }
 
-    if settings.show_orbits {
+    if settings.show_orbits && settings.show_planets {
         star_paths(&mut gizmos, &snapshot.hierarchy, &layout, scale, &orbit);
         for body in display::bodies_at(result, playback.t_myr) {
             let (Some(centre), Some(host_mass)) = (
