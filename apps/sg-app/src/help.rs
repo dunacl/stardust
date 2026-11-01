@@ -275,13 +275,18 @@ pub const END: Item = item(
     "End",
     "Jumps to the finished system at the age the model gave it.",
 );
+pub const ROTATE_TOOL: Item = item("Rotate", "Dragging turns the view around what it looks at.");
+pub const MOVE_TOOL: Item = item(
+    "Move",
+    "Dragging slides the view across the system, and stops following a body. Right-drag or Shift-drag does this with either tool, and M switches tool. Frame system comes back.",
+);
 pub const TIME: Item = item(
     "Timeline",
     "The system's whole life. Left of the mark it forms, in millions of years (Myr) since the disk appeared; in the Classic tier those times are nominal. Right of the mark the disk has gone and its star ages, in billions of years (Gyr), up to where the model stops. There the star, its habitable zone and the light on each body change; orbits, masses, atmospheres, belts and comets stay as they formed.",
 );
 pub const SPEED: Item = item(
     "Speed",
-    "How fast the formation plays, as a multiple of the usual speed.",
+    "How fast everything plays, as a multiple of the usual speed: formation, orbits, rotation and the star's life.",
 );
 pub const STATUS: Item = item(
     "Status line",
@@ -290,7 +295,8 @@ pub const STATUS: Item = item(
 );
 
 const GETTING_AROUND: &[Item] = &[
-    item("Rotate", "Drag on the empty sky."),
+    ROTATE_TOOL,
+    MOVE_TOOL,
     item("Zoom", "Scroll, or pinch on a touch screen."),
     item(
         "Select a body",

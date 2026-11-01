@@ -5,7 +5,7 @@ use crate::cards::{self, Card, Companion};
 use crate::help;
 use crate::i18n::{self, tr, tr_message, trf, Language};
 use crate::lifeline::{Lifeline, Moment, FORMATION_SHARE};
-use crate::state::{run_simulation, show_age, AppState, SimulationTargets, DEFAULT_PLAYBACK_SECS};
+use crate::state::{run_simulation, show_age, AppState, SimulationTargets};
 use bevy::prelude::*;
 use bevy_egui::egui::{self, Align2, Color32, RichText};
 use bevy_egui::EguiContexts;
@@ -31,6 +31,14 @@ fn preset_name(preset: PresetId) -> &'static str {
 const YOUNGEST_GYR: f64 = sg_sim::life::YOUNGEST_GYR;
 /// Time a Play takes through the star's life, seconds.
 const LIFE_PLAY_SECS: f64 = 20.0;
+/// The speeds to choose from, as multiples of the usual one.
+const SPEEDS: [(f64, &str); 5] = [
+    (0.1, "0.1×"),
+    (0.5, "0.5×"),
+    (1.0, "1×"),
+    (2.0, "2×"),
+    (8.0, "8×"),
+];
 /// Time between ages applied while the slider moves, seconds: the scene
 /// is rebuilt for each.
 const AGE_STEP_SECS: f32 = 0.12;
@@ -225,6 +233,7 @@ fn controls(
         ui.separator();
         ui.label(RichText::new(tr("View")).strong());
         scale_controls(ui, targets);
+        ui.horizontal(|ui| tool_choice(ui, targets));
         ui.collapsing(tr("Layers"), |ui| layer_controls(ui, targets));
         ui.horizontal_wrapped(|ui| motion_controls(ui, targets));
         ui.horizontal_wrapped(|ui| quality_controls(ui, targets, &mut state.show_fps));
@@ -523,6 +532,14 @@ fn tour_button(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
     }
 }
 
+/// What dragging does: turn the view, or move it.
+fn tool_choice(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
+    ui.selectable_value(&mut targets.camera.move_tool, false, tr("Rotate"))
+        .on_hover_text(help::ROTATE_TOOL.tip());
+    ui.selectable_value(&mut targets.camera.move_tool, true, tr("Move"))
+        .on_hover_text(help::MOVE_TOOL.tip());
+}
+
 fn frame_system_button(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
     if ui
         .button(tr("Frame system"))
@@ -549,7 +566,7 @@ fn run_notes(ui: &mut egui::Ui, state: &mut AppState, targets: &SimulationTarget
     ui.add_space(2.0);
     ui.label(
         RichText::new(tr(
-            "Drag to rotate · scroll or pinch to zoom · click or tap a body for its card",
+            "Drag to rotate · right-drag or Shift to move · scroll or pinch to zoom · click a body for its card",
         ))
         .small()
         .color(MUTED),
@@ -748,22 +765,10 @@ fn timeline(
             };
             ui.label(RichText::new(readout).monospace());
         };
-    let speed_slider = |ui: &mut egui::Ui, targets: &mut SimulationTargets, width: f32| {
-        // Speed as a multiple of the default playback duration.
-        let base = end / DEFAULT_PLAYBACK_SECS;
-        let mut speed = targets.playback.myr_per_second / base;
-        ui.spacing_mut().slider_width = width;
-        if ui
-            .add(
-                egui::Slider::new(&mut speed, 0.1..=8.0)
-                    .logarithmic(true)
-                    .suffix("×")
-                    .fixed_decimals(1),
-            )
-            .on_hover_text(help::SPEED.tip())
-            .changed()
-        {
-            targets.playback.myr_per_second = speed * base;
+    let speed_choice = |ui: &mut egui::Ui, targets: &mut SimulationTargets| {
+        for (scale, label) in SPEEDS {
+            ui.selectable_value(&mut targets.playback.time_scale, scale, label)
+                .on_hover_text(help::SPEED.tip());
         }
     };
     if narrow {
@@ -772,15 +777,14 @@ fn timeline(
         let room = ui.available_width();
         ui.horizontal(|ui| {
             buttons(ui, state, targets);
-            let left = (room - ui.min_rect().width() - 110.0).max(40.0);
-            speed_slider(ui, targets, left);
+            speed_choice(ui, targets);
         });
         ui.horizontal(|ui| time_slider(ui, state, targets, (room - 100.0).max(80.0)));
     } else {
         ui.horizontal(|ui| {
             buttons(ui, state, targets);
             time_slider(ui, state, targets, 420.0);
-            speed_slider(ui, targets, 90.0);
+            speed_choice(ui, targets);
         });
     }
     let clock = match targets.view.result().map(|r| r.diagnostics.fidelity) {
@@ -1184,6 +1188,9 @@ fn menus(ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTarget
         state.export_wanted = true;
         ui.close();
     }
+    ui.separator();
+    tool_choice(ui, targets);
+    ui.separator();
     ui.menu_button(tr("View"), |ui| {
         ui.label(RichText::new(tr("Scale")).strong());
         scale_controls(ui, targets);
@@ -1331,13 +1338,17 @@ pub fn draw(
         let saved = view_as_glb(&targets, &placements).map(|bytes| std::fs::write(&path, bytes));
         std::process::exit(i32::from(!matches!(saved, Some(Ok(())))));
     }
-    advance_life(&mut state, &targets, f64::from(time.delta_secs()));
+    let dt = f64::from(time.delta_secs()) * targets.playback.time_scale;
+    advance_life(&mut state, &targets, dt);
     let now = time.elapsed_secs();
     if state.age_wanted.is_some() && now >= state.age_applied_at + AGE_STEP_SECS {
         if let Some(age) = state.age_wanted.take() {
             show_age(&mut state, &mut targets, age);
             state.age_applied_at = now;
         }
+    }
+    if !ctx.egui_wants_keyboard_input() && ctx.input(|input| input.key_pressed(egui::Key::M)) {
+        targets.camera.move_tool = !targets.camera.move_tool;
     }
     if std::mem::take(&mut state.export_wanted) {
         export_view(&mut state, &targets, &placements);

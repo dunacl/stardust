@@ -5,6 +5,10 @@ Simulation changes are tracked by model version; each has a report in
 
 ## Unreleased
 
+- Speeds of 0.1×, 0.5×, 1×, 2× and 8× apply to everything that plays. Orbit lines now pass
+  through their bodies when zoomed in: they were polygons that cut inside the ellipse.
+  A Move tool slides the view (also right-drag, Shift-drag, or M to switch). Bodies turn
+  at rates that follow their day length, and stars turn too. No change to the model.
 - One timeline now covers a system's whole life: it forms, then, past a mark, its star
   ages to the end of its main sequence, and Play runs straight through. The star, its
   habitable zone and the light on each body change; the bodies stay as they formed. A

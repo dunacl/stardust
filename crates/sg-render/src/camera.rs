@@ -38,6 +38,8 @@ pub struct OrbitCamera {
     /// selects something: the distance that fits it depends on the shape
     /// of the window, which can change (a phone turned on its side).
     pub framing: Option<f32>,
+    /// The left button and one finger move the view rather than turn it.
+    pub move_tool: bool,
     /// How much closer than usual a selected body is framed, for close-ups
     /// from the command line; 1 is the usual view.
     pub select_zoom: f32,
@@ -58,6 +60,7 @@ impl Default for OrbitCamera {
             goal_distance: 8.0,
             swing: None,
             framing: None,
+            move_tool: false,
             select_zoom: 1.0,
             drag_pixels: 0.0,
         }
@@ -106,6 +109,19 @@ impl OrbitCamera {
         self.origin += self.focus.as_dvec3();
         self.goal_focus -= self.focus;
         self.focus = Vec3::ZERO;
+    }
+
+    /// Slides the view by this many pixels across the screen, keeping the
+    /// distance and the angle. `height` is the window's, in pixels. The view
+    /// no longer follows anything after this.
+    pub fn pan(&mut self, pixels: Vec2, height: f32) {
+        let per_pixel = pan_per_pixel(self.distance, height);
+        let rotation = Quat::from_euler(EulerRot::YXZ, self.yaw, -self.pitch, 0.0);
+        let shift = rotation * Vec3::new(-pixels.x, pixels.y, 0.0) * per_pixel;
+        self.focus += shift;
+        self.goal_focus += shift;
+        self.framing = None;
+        self.swing = None;
     }
 
     /// Jumps to the goals without easing.
@@ -169,25 +185,46 @@ pub(crate) fn rebase_camera(mut orbit: ResMut<OrbitCamera>) {
     orbit.rebase();
 }
 
+/// Scene units the view slides per pixel, at this distance from what it
+/// looks at, so that what is there stays under the pointer.
+pub fn pan_per_pixel(distance: f32, height_pixels: f32) -> f32 {
+    2.0 * distance * (0.5 * crate::scene::FIELD_OF_VIEW).tan() / height_pixels.max(1.0)
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn control_camera(
     mut orbit: ResMut<OrbitCamera>,
     captured: Res<PointerCaptured>,
     buttons: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
     motion: Res<AccumulatedMouseMotion>,
     scroll: Res<AccumulatedMouseScroll>,
+    window: Query<&Window, With<PrimaryWindow>>,
+    mut selection: ResMut<Selection>,
 ) {
     if captured.0 {
         return;
     }
-    if buttons.just_pressed(MouseButton::Left) {
+    if buttons.just_pressed(MouseButton::Left) || buttons.just_pressed(MouseButton::Right) {
         orbit.drag_pixels = 0.0;
     }
-    if buttons.pressed(MouseButton::Left) {
+    let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+    let left = buttons.pressed(MouseButton::Left);
+    let moving = buttons.pressed(MouseButton::Right)
+        || buttons.pressed(MouseButton::Middle)
+        || (left && (orbit.move_tool || shift));
+    if left || moving {
         orbit.drag_pixels += motion.delta.length();
         if orbit.drag_pixels > CLICK_SLOP_PIXELS {
-            orbit.swing = None;
-            orbit.yaw -= motion.delta.x * TURN_PER_PIXEL;
-            orbit.pitch = (orbit.pitch + motion.delta.y * TURN_PER_PIXEL).clamp(-1.55, 1.55);
+            if moving {
+                let height = window.single().map_or(900.0, Window::height);
+                selection.0 = None;
+                orbit.pan(motion.delta, height);
+            } else {
+                orbit.swing = None;
+                orbit.yaw -= motion.delta.x * TURN_PER_PIXEL;
+                orbit.pitch = (orbit.pitch + motion.delta.y * TURN_PER_PIXEL).clamp(-1.55, 1.55);
+            }
         }
     }
     if scroll.delta.y != 0.0 {
@@ -213,6 +250,7 @@ pub(crate) struct TouchState {
 }
 
 /// Turns, zooms and selects by touch ([`crate::gesture`]).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn touch_camera(
     mut orbit: ResMut<OrbitCamera>,
     captured: Res<PointerCaptured>,
@@ -220,6 +258,7 @@ pub(crate) fn touch_camera(
     camera: Single<(&Camera, &GlobalTransform), With<Camera3d>>,
     placements: Res<BodyPlacements>,
     mut selection: ResMut<Selection>,
+    window: Query<&Window, With<PrimaryWindow>>,
     mut state: Local<TouchState>,
 ) {
     let down: Vec<Finger> = touches
@@ -246,6 +285,11 @@ pub(crate) fn touch_camera(
         return;
     }
     match gesture::gesture(&down) {
+        Gesture::Turn(delta) if orbit.move_tool => {
+            let height = window.single().map_or(900.0, Window::height);
+            selection.0 = None;
+            orbit.pan(delta, height);
+        }
         Gesture::Turn(delta) => {
             orbit.swing = None;
             orbit.yaw -= delta.x * TURN_PER_PIXEL;
@@ -493,6 +537,23 @@ mod tests {
         );
         // Grazing.
         assert!(ray_sphere(origin, forward, Vec3::new(1.0, 0.0, 0.0), 1.0).is_some());
+    }
+
+    #[test]
+    fn panning_slides_the_view_and_keeps_the_distance() {
+        let mut orbit = OrbitCamera {
+            distance: 10.0,
+            framing: Some(3.0),
+            ..OrbitCamera::default()
+        };
+        let (eye, focus) = (orbit.eye(), orbit.focus);
+        orbit.pan(Vec2::new(100.0, 0.0), 800.0);
+        let moved = orbit.focus - focus;
+        let expected = 100.0 * pan_per_pixel(10.0, 800.0);
+        assert!((moved.length() - expected).abs() < 1e-4);
+        assert!(((orbit.eye() - eye).length() - expected).abs() < 1e-4);
+        assert!(((orbit.eye() - orbit.focus).length() - 10.0).abs() < 1e-4);
+        assert_eq!(orbit.framing, None);
     }
 
     #[test]

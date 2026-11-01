@@ -46,7 +46,6 @@ pub const ROWS: &[[&str; 4]] = &[
     [" × star", " × estrella", " × étoile", " × Stern"],
     ["Accretion model", "Modelo de acreción", "Modèle d'accrétion", "Akkretionsmodell"],
     ["Critical mass B (M☉)", "Masa crítica B (M☉)", "Masse critique B (M☉)", "Kritische Masse B (M☉)"],
-    ["Drag to rotate · scroll or pinch to zoom · click or tap a body for its card", "Arrastra para girar · desplaza o pellizca para acercar · pulsa un cuerpo para ver su ficha", "Glisser pour tourner · défiler ou pincer pour zoomer · cliquer sur un corps pour sa fiche", "Ziehen zum Drehen · Scrollen oder Kneifen zum Zoomen · Körper antippen für seine Karte"],
 
     // Menus and the view.
     ["System", "Sistema", "Système", "System"],
@@ -162,11 +161,8 @@ pub const ROWS: &[[&str; 4]] = &[
     ["Plays the formation from the beginning.", "Reproduce la formación desde el principio.", "Lit la formation depuis le début.", "Spielt die Entstehung von Anfang an ab."],
     ["End", "Fin", "Fin", "Ende"],
     ["Speed", "Velocidad", "Vitesse", "Tempo"],
-    ["How fast the formation plays, as a multiple of the usual speed.", "A qué velocidad se reproduce la formación, como múltiplo de la velocidad habitual.", "La vitesse de lecture de la formation, en multiple de la vitesse habituelle.", "Wie schnell die Entstehung abläuft, als Vielfaches des üblichen Tempos."],
     ["Status line", "Línea de estado", "Ligne d'état", "Statuszeile"],
     ["How many embryos exist at this moment, how many events the formation had, and what the clock measures. Embryo sizes are a drawing choice.", "Cuántos embriones existen en este momento, cuántos sucesos tuvo la formación y qué mide el reloj. Los tamaños de los embriones son una decisión de dibujo.", "Le nombre d'embryons à cet instant, le nombre d'événements de la formation et ce que mesure l'horloge. La taille des embryons est un choix de dessin.", "Wie viele Embryonen es gerade gibt, wie viele Ereignisse die Entstehung hatte und was die Uhr misst. Die Größe der Embryonen ist eine Zeichenentscheidung."],
-    ["Rotate", "Girar", "Tourner", "Drehen"],
-    ["Drag on the empty sky.", "Arrastra sobre el cielo vacío.", "Glissez sur le ciel vide.", "Auf dem leeren Himmel ziehen."],
     ["Zoom", "Acercar", "Zoomer", "Zoomen"],
     ["Scroll, or pinch on a touch screen.", "Desplaza, o pellizca en una pantalla táctil.", "Faites défiler, ou pincez sur un écran tactile.", "Scrollen oder auf einem Touchscreen kneifen."],
     ["Select a body", "Seleccionar un cuerpo", "Sélectionner un corps", "Körper auswählen"],
@@ -305,6 +301,13 @@ pub const ROWS: &[[&str; 4]] = &[
     ["Play / Pause", "Reproducir / Pausa", "Lecture / Pause", "Abspielen / Pause"],
     ["Plays the formation, then the star's life, or stops. At the very end, Play starts again.", "Reproduce la formación y luego la vida de la estrella, o se detiene. Al final del todo, Reproducir vuelve a empezar.", "Lit la formation, puis la vie de l'étoile, ou s'arrête. Tout à la fin, Lecture reprend au début.", "Spielt die Entstehung und dann das Leben des Sterns ab oder hält an. Ganz am Ende beginnt Abspielen von vorn."],
     ["Jumps to the finished system at the age the model gave it.", "Salta al sistema terminado, a la edad que le dio el modelo.", "Passe au système achevé, à l'âge que le modèle lui a donné.", "Springt zum fertigen System in dem Alter, das ihm das Modell gab."],
+
+    ["Drag to rotate · right-drag or Shift to move · scroll or pinch to zoom · click a body for its card", "Arrastra para girar · clic derecho o Mayús para mover · desplaza o pellizca para acercar · pulsa un cuerpo para ver su ficha", "Glisser pour tourner · clic droit ou Maj pour déplacer · défiler ou pincer pour zoomer · cliquer sur un corps pour sa fiche", "Ziehen zum Drehen · Rechtsklick oder Umschalt zum Verschieben · Scrollen oder Kneifen zum Zoomen · Körper anklicken für seine Karte"],
+    ["How fast everything plays, as a multiple of the usual speed: formation, orbits, rotation and the star's life.", "A qué velocidad se reproduce todo, como múltiplo de la velocidad habitual: formación, órbitas, rotación y vida de la estrella.", "La vitesse de lecture de tout, en multiple de la vitesse habituelle : formation, orbites, rotation et vie de l'étoile.", "Wie schnell alles abläuft, als Vielfaches des üblichen Tempos: Entstehung, Bahnen, Rotation und das Leben des Sterns."],
+    ["Rotate", "Girar", "Tourner", "Drehen"],
+    ["Dragging turns the view around what it looks at.", "Arrastrar gira la vista en torno a lo que mira.", "Glisser fait tourner la vue autour de ce qu'elle regarde.", "Ziehen dreht die Ansicht um das, worauf sie blickt."],
+    ["Move", "Mover", "Déplacer", "Verschieben"],
+    ["Dragging slides the view across the system, and stops following a body. Right-drag or Shift-drag does this with either tool, and M switches tool. Frame system comes back.", "Arrastrar desliza la vista por el sistema y deja de seguir a un cuerpo. Con clic derecho o Mayús funciona con cualquier herramienta, y M cambia de herramienta. Encuadrar el sistema vuelve atrás.", "Glisser fait défiler la vue à travers le système et cesse de suivre un corps. Le clic droit ou Maj le font avec les deux outils, et M change d'outil. Cadrer le système ramène la vue.", "Ziehen verschiebt die Ansicht durch das System und beendet das Folgen eines Körpers. Mit Rechtsklick oder Umschalt geht das mit beiden Werkzeugen, und M wechselt das Werkzeug. System einpassen führt zurück."],
 
     // Layers.
     ["Layers", "Capas", "Calques", "Ebenen"],

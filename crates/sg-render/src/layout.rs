@@ -91,6 +91,18 @@ pub fn host_luminosity(snapshot: &SystemSnapshot, host: HostRef) -> Option<f64> 
     Some(stars(node).iter().map(|s| s.luminosity_lsun).sum())
 }
 
+/// Eccentric anomalies at which to sample an orbit, once round, closest
+/// together at `around`, where the body is. A polygon of even segments cuts
+/// inside the ellipse by `1 − cos(π/n)` of its size, which from close up is
+/// wider than the body, so the line misses it. Spacing grows with the fourth
+/// power of the distance along the orbit.
+pub fn orbit_samples(around: f64, segments: usize) -> impl Iterator<Item = f64> {
+    (0..=segments).map(move |k| {
+        let u = 2.0 * k as f64 / segments as f64 - 1.0;
+        around + std::f64::consts::PI * u.signum() * u.powi(4)
+    })
+}
+
 /// Mass a planet of `host` orbits, M☉.
 pub fn host_mass(snapshot: &SystemSnapshot, host: HostRef) -> Option<f64> {
     find_host(&snapshot.hierarchy, host).map(node_mass)
@@ -247,6 +259,20 @@ mod tests {
 
     fn linear() -> ScaleBlend {
         ScaleBlend::settled(ScaleMode::True)
+    }
+
+    #[test]
+    fn orbit_samples_go_once_round_closest_at_the_body() {
+        let samples: Vec<f64> = orbit_samples(1.0, 400).collect();
+        assert_eq!(samples.len(), 401);
+        let round = samples[400] - samples[0];
+        assert!((round - std::f64::consts::TAU).abs() < 1e-12);
+        assert!(samples.windows(2).all(|pair| pair[1] > pair[0]));
+        let gaps: Vec<f64> = samples.windows(2).map(|pair| pair[1] - pair[0]).collect();
+        // By the body the line is a hundred thousand times finer than
+        // 128 even segments, and on the far side no coarser than 100.
+        assert!(gaps[200] < 1e-5);
+        assert!(gaps[0] < std::f64::consts::TAU / 100.0);
     }
 
     #[test]

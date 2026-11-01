@@ -50,9 +50,13 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     var mottle = vec3<f32>(1.0);
     let contrast = star.detail.x;
+    // The surface turns about the pole, by the clock. Slower than the
+    // planets, as a drawing choice; the Sun takes about 25 days.
+    let turn = star.detail.y * 0.45;
+    let turned = vec3<f32>(cos(turn) * n.x + sin(turn) * n.z, n.y, cos(turn) * n.z - sin(turn) * n.x);
     let pixels = star.detail.z;
     if contrast > 0.0 && pixels > 12.0 {
-        let p = n + vec3<f32>(star.detail.w);
+        let p = turned + vec3<f32>(star.detail.w);
         let t = star.detail.y;
         // Bright cells with dark lanes between, slowly boiling, at sizes
         // that appear as the star fills the view; a coarser layer stands
