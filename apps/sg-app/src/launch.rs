@@ -20,6 +20,10 @@ pub struct Launch {
     pub time: Option<f64>,
     /// Select the Nth planet outward (1-based), or 0 for the star.
     pub select: Option<usize>,
+    /// Select the Nth moon, from 1.
+    pub moon: Option<usize>,
+    /// Look at the Nth belt, from 1.
+    pub belt: Option<usize>,
     /// Desktop only: save a screenshot here and exit.
     pub screenshot: Option<PathBuf>,
     /// Desktop only: draw that screenshot off screen.
@@ -41,6 +45,9 @@ pub struct Launch {
     pub help: bool,
     /// The interface language.
     pub language: Language,
+    /// How much closer than usual to frame the selected body. Above about
+    /// 7 the camera is inside it.
+    pub zoom: f32,
 }
 
 impl Default for Launch {
@@ -52,6 +59,8 @@ impl Default for Launch {
             scale: ScaleMode::Exaggerated,
             time: None,
             select: None,
+            moon: None,
+            belt: None,
             screenshot: None,
             offscreen: false,
             bench: None,
@@ -63,6 +72,7 @@ impl Default for Launch {
             fps: false,
             help: false,
             language: Language::En,
+            zoom: 1.0,
         }
     }
 }
@@ -108,9 +118,20 @@ impl Launch {
                 },
                 "time" => launch.time = value.parse().ok().filter(|t: &f64| t.is_finite()),
                 "select" => launch.select = value.parse().ok(),
+                "moon" => launch.moon = value.parse().ok(),
+                "belt" => launch.belt = value.parse().ok(),
                 "ui" => launch.show_ui = value != "0",
                 "fps" => launch.fps = value != "0",
                 "tour" => launch.tour = value != "0",
+                "zoom" => {
+                    if let Some(zoom) = value
+                        .parse()
+                        .ok()
+                        .filter(|z: &f32| *z >= 1.0 && z.is_finite())
+                    {
+                        launch.zoom = zoom;
+                    }
+                }
                 "help" => launch.help = value != "0",
                 "lang" => {
                     if let Some(language) = Language::from_code(value) {
@@ -142,7 +163,7 @@ mod tests {
     #[test]
     fn query_sets_the_starting_system() {
         let launch = Launch::from_query(
-            "?seed=7&preset=red-dwarf&tier=classic&scale=schematic&select=3&time=0.5&ui=0\
+            "?seed=7&preset=red-dwarf&tier=classic&scale=schematic&select=3&moon=2&belt=1&time=0.5&ui=0\
              &quality=reduced&fps=1&help=1&lang=fr",
         );
         assert_eq!(
@@ -154,6 +175,8 @@ mod tests {
                 scale: ScaleMode::Schematic,
                 time: Some(0.5),
                 select: Some(3),
+                moon: Some(2),
+                belt: Some(1),
                 screenshot: None,
                 offscreen: false,
                 bench: None,
@@ -165,6 +188,7 @@ mod tests {
                 fps: true,
                 help: true,
                 language: Language::Fr,
+                zoom: 1.0,
             }
         );
     }

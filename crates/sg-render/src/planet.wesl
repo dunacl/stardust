@@ -71,7 +71,7 @@ fn fbm(p: vec3<f32>, octaves: i32) -> f32 {
     var norm = 0.0;
     var amp = 0.5;
     var q = p;
-    for (var i = 0; i < 7; i = i + 1) {
+    for (var i = 0; i < 9; i = i + 1) {
         if i >= octaves {
             break;
         }
@@ -103,7 +103,7 @@ fn ridged(p: vec3<f32>, octaves: i32) -> f32 {
 }
 
 fn octaves_for(pixels: f32) -> i32 {
-    return clamp(i32(log2(max(pixels, 1.0))) - 1, 1, 7);
+    return clamp(i32(log2(max(pixels, 1.0))) - 1, 1, 9);
 }
 
 // Starlight reaching a point whose normal is `n`, with the reddening of a
@@ -136,27 +136,144 @@ struct Surface {
     emission: vec3<f32>,
     // 0 matte, 1 mirror-like water.
     gloss: f32,
+    // Slope of the ground in the planet's frame, added to the normal for
+    // lighting. Zero on anything that has no relief drawn.
+    tilt: vec3<f32>,
 }
 
-fn rock(p: vec3<f32>, octaves: i32) -> Surface {
+// What the craters do to a point.
+struct Craters {
+    // Added to the albedo as a factor: below 0 darkens, above 0 brightens.
+    shade: f32,
+    tilt: vec3<f32>,
+}
+
+// Slope of a crater `x` radii from its centre, positive where the ground
+// rises outward: a flat floor, a steep inner wall up to a sharp rim, then a
+// gentle outer flank.
+fn crater_slope(x: f32) -> f32 {
+    return 1.6 * smoothstep(0.55, 0.9, x) * (1.0 - smoothstep(0.93, 1.0, x))
+        - 0.35 * smoothstep(1.0, 1.04, x) * (1.0 - smoothstep(1.04, 1.3, x));
+}
+
+// Height of rough ground, for relief too fine to draw as craters.
+fn rubble(p: vec3<f32>) -> f32 {
+    return fbm(p * 34.0, 4) + 0.35 * ridged(p * 90.0 + 13.0, 3);
+}
+
+// Slope of that ground, by differences; `step_size` is in its own units.
+fn rubble_tilt(p: vec3<f32>, step_size: f32) -> vec3<f32> {
+    let h = rubble(p);
+    return (h - vec3<f32>(
+        rubble(p + vec3<f32>(step_size, 0.0, 0.0)),
+        rubble(p + vec3<f32>(0.0, step_size, 0.0)),
+        rubble(p + vec3<f32>(0.0, 0.0, step_size)),
+    )) / step_size;
+}
+
+// One size of crater: a jittered lattice around the unit sphere `local`, of
+// which `presence` of the cells near the surface hold one. Distance is
+// measured along the surface, so a crater is a full circle wherever its
+// centre lies in the shell. The eight cells around the point see every
+// crater that can reach it: a centre moves at most 0.25 of a cell, and a
+// crater reaches 0.22 along the surface and 0.12 through the shell, 0.25 in
+// all.
+fn crater_layer(local: vec3<f32>, scale: f32, salt: f32, presence: f32, strength: f32) -> Craters {
+    var out = Craters(0.0, vec3<f32>(0.0));
+    let q = local * scale;
+    let base = floor(q - 0.5);
+    for (var i = 0; i < 8; i = i + 1) {
+        let cell = base + vec3<f32>(f32(i & 1), f32((i >> 1) & 1), f32((i >> 2) & 1));
+        let key = cell + salt;
+        if hash3(key) > presence {
+            continue;
+        }
+        let jitter = vec3<f32>(hash3(key + 11.0), hash3(key + 23.0), hash3(key + 37.0)) - 0.5;
+        let d = q - (cell + 0.5 + 0.5 * jitter);
+        let radial = dot(d, local);
+        if abs(radial) > 0.12 {
+            continue;
+        }
+        let along = d - local * radial;
+        let span = length(along);
+        let age = hash3(key + 53.0);
+        let radius = mix(0.08, 0.17, age * age);
+        if span >= radius * 1.45 {
+            continue;
+        }
+        let dir = along / max(span, 1e-5);
+        // No rim is a true circle: slumps and younger hits break it up.
+        let rough = fbm(dir * 3.0 + key, 3) - 0.5;
+        let x = (span / radius) * (1.0 + 0.3 * rough);
+        // Old craters are softened; the freshest keep bright walls.
+        let fresh = smoothstep(0.75, 1.0, hash3(key + 71.0));
+        let depth = strength * mix(0.55, 1.0, fresh);
+        out.tilt = out.tilt - dir * crater_slope(x) * depth;
+        out.shade = out.shade - 0.12 * (1.0 - smoothstep(0.6, 0.95, x)) * (1.0 - fresh)
+            + fresh * 0.35 * (1.0 - smoothstep(0.8, 1.3, x));
+    }
+    return out;
+}
+
+// Craters at the sizes the body's size on screen can show, from basins
+// down. Their sizes and places are a drawing choice, as all terrain is
+// (`surface.rs`).
+fn craters(local: vec3<f32>, seed: f32, octaves: i32) -> Craters {
+    var out = Craters(0.0, vec3<f32>(0.0));
+    for (var level = 0; level < 6; level = level + 1) {
+        if octaves < level + 1 {
+            break;
+        }
+        let f = f32(level);
+        let layer = crater_layer(local, 1.4 * pow(2.0, f), 100.0 + seed + 17.0 * f, 1.0, 0.9 - 0.1 * f);
+        out.shade = out.shade + layer.shade;
+        out.tilt = out.tilt + layer.tilt;
+    }
+    return out;
+}
+
+fn rock(p: vec3<f32>, local: vec3<f32>, octaves: i32) -> Surface {
     let h = fbm(p * 2.2, octaves);
     let fine = fbm(p * 9.0 + 40.0, octaves);
     var albedo = mix(planet.color_a.rgb, planet.color_b.rgb, smoothstep(0.3, 0.7, h));
     albedo = mix(albedo, planet.color_c.rgb, smoothstep(0.55, 0.8, fine) * 0.6);
-    return Surface(albedo, vec3<f32>(0.0), 0.0);
+    // Dark plains, flooded long ago: few craters survive on them.
+    let plains = smoothstep(0.52, 0.60, fbm(p * 1.1 + 70.0, min(octaves, 4)));
+    albedo = albedo * (1.0 - 0.32 * plains);
+    let marks = craters(local, planet.cover.w, octaves);
+    let kept = 1.0 - 0.75 * plains;
+    albedo = albedo * clamp(1.0 + marks.shade * kept, 0.4, 1.6);
+    var tilt = marks.tilt * kept;
+    // Close up, the ground itself is rough, on plains less than in the
+    // highlands.
+    if octaves >= 6 {
+        tilt = tilt + 0.006 * (1.0 - 0.5 * plains) * rubble_tilt(p, 0.0015);
+        albedo = albedo * (0.86 + 0.28 * fbm(p * 60.0, 4));
+    }
+    return Surface(albedo, vec3<f32>(0.0), 0.0, tilt);
 }
 
 fn land_and_sea(p: vec3<f32>, latitude_sin: f32, octaves: i32) -> Surface {
     let warp = vec3<f32>(fbm(p * 1.7 + 11.0, 3), fbm(p * 1.7 + 23.0, 3), fbm(p * 1.7 + 37.0, 3));
-    let h = fbm(p * 1.6 + 1.5 * warp, octaves);
+    var h = fbm(p * 1.6 + 1.5 * warp, octaves);
+    // Close up, coasts break into bays and islands. This hardly moves the
+    // sea level, which the model's fraction sets.
+    if octaves >= 5 {
+        h = h + 0.035 * (fbm(p * 26.0, 5) - 0.5);
+    }
     // The sea level is the height below which the model's fraction of the
     // surface lies (`planet.rs`: `noise_quantile`).
     let sea_level = planet.cover.x;
-    let edge = 0.006;
+    let edge = 0.004;
     let water = 1.0 - smoothstep(sea_level - edge, sea_level + edge, h);
     let height = clamp((h - sea_level) / max(1.0 - sea_level, 0.05), 0.0, 1.0);
     var land = mix(planet.color_a.rgb, planet.color_b.rgb, smoothstep(0.05, 0.45, height));
     land = mix(land, planet.color_c.rgb, smoothstep(0.5, 0.9, height));
+    // Dry belts near 30 degrees, as Hadley circulation leaves them. The
+    // tint and where it falls are a drawing choice: the model has no rain.
+    let belt = 1.0 - smoothstep(0.08, 0.26, abs(abs(latitude_sin) - 0.48 + 0.3 * (fbm(p * 3.1 + 88.0, 4) - 0.5)));
+    land = mix(land, vec3<f32>(0.46, 0.34, 0.19), 0.7 * belt * (1.0 - smoothstep(0.4, 0.7, height)));
+    land = land * (0.8 + 0.4 * fbm(p * 14.0 + 3.0, min(octaves, 6)));
     let depth = clamp((sea_level - h) * 6.0, 0.0, 1.0);
     let sea = mix(planet.ocean_color.rgb * 1.8, planet.ocean_color.rgb * 0.7, depth);
     var albedo = mix(land, sea, water);
@@ -169,30 +286,51 @@ fn land_and_sea(p: vec3<f32>, latitude_sin: f32, octaves: i32) -> Surface {
         albedo = mix(albedo, vec3<f32>(0.90, 0.93, 0.96), ice);
         gloss = gloss * (1.0 - ice);
     }
-    return Surface(albedo, vec3<f32>(0.0), gloss);
+    var tilt = vec3<f32>(0.0);
+    if octaves >= 5 {
+        tilt = 0.008 * (1.0 - water) * rubble_tilt(p * 0.5, 0.002);
+    }
+    return Surface(albedo, vec3<f32>(0.0), gloss, tilt);
 }
 
 fn ice(p: vec3<f32>, octaves: i32) -> Surface {
     let h = fbm(p * 2.0, octaves);
-    let cracks = ridged(p * 3.5 + 9.0, min(octaves, 5));
     var albedo = mix(planet.color_a.rgb, planet.color_b.rgb, smoothstep(0.35, 0.7, h));
-    albedo = mix(albedo, planet.color_c.rgb, smoothstep(0.80, 0.94, cracks) * 0.7);
-    return Surface(albedo, vec3<f32>(0.0), 0.25);
+    // Long lines where the crust has split, at two sizes, stained by what
+    // came up through them.
+    let wide = ridged(p * 3.5 + 9.0, min(octaves, 6));
+    let thin = ridged(p * 9.0 + 31.0, min(octaves, 6));
+    let lines = max(smoothstep(0.84, 0.93, wide), 0.65 * smoothstep(0.85, 0.94, thin));
+    albedo = mix(albedo, planet.color_c.rgb, lines * 0.85);
+    albedo = albedo * (0.92 + 0.16 * fbm(p * 22.0, min(octaves, 6)));
+    var tilt = vec3<f32>(0.0);
+    if octaves >= 5 {
+        tilt = 0.003 * rubble_tilt(p, 0.0015);
+    }
+    return Surface(albedo, vec3<f32>(0.0), 0.08, tilt);
 }
 
 fn lava(p: vec3<f32>, n: vec3<f32>, octaves: i32) -> Surface {
     let h = fbm(p * 2.4, octaves);
-    let cracks = ridged(p * 3.0 + 4.0, min(octaves, 5));
+    let cracks = ridged(p * 3.0 + 4.0, min(octaves, 6));
     let albedo = mix(planet.color_a.rgb, planet.color_b.rgb, smoothstep(0.3, 0.7, h));
-    // Molten rock shows in the cracks, and everywhere under the star of a
-    // locked world.
-    var molten = smoothstep(0.78, 0.93, cracks);
+    // Molten rock shows in the cracks, and under the star of a locked world
+    // as open seas with rafts of crust still floating on them.
+    var molten = smoothstep(0.74, 0.90, cracks);
     if planet.flags.x > 0.5 {
         let noon = substellar(n);
-        molten = max(molten, smoothstep(0.35, 0.9, noon + 0.35 * (h - 0.5)));
+        let heat = smoothstep(0.1, 0.8, noon + 0.35 * (h - 0.5));
+        let rafts = smoothstep(0.42, 0.62, fbm(p * 6.0 + 3.0 * h + 21.0, octaves));
+        molten = max(molten, heat * rafts);
     }
-    let emission = planet.glow.rgb * planet.glow.a * molten * 3.0;
-    return Surface(mix(albedo, planet.color_c.rgb, molten), emission, 0.0);
+    // The hottest melt is brightest, so the seas are not one flat colour.
+    let bright = 0.45 + 1.1 * fbm(p * 12.0 + 51.0, octaves);
+    let emission = planet.glow.rgb * planet.glow.a * molten * 2.0 * bright;
+    var tilt = vec3<f32>(0.0);
+    if octaves >= 5 {
+        tilt = 0.006 * (1.0 - molten) * rubble_tilt(p, 0.0015);
+    }
+    return Surface(mix(albedo, planet.color_c.rgb, molten), emission, 0.0, tilt);
 }
 
 fn bands(p: vec3<f32>, latitude_sin: f32, octaves: i32, hazy: bool) -> Surface {
@@ -201,25 +339,35 @@ fn bands(p: vec3<f32>, latitude_sin: f32, octaves: i32, hazy: bool) -> Surface {
     let latitude = asin(clamp(latitude_sin, -1.0, 1.0));
     // Stretch the turbulence along the bands.
     let q = vec3<f32>(p.x, p.y * 4.0, p.z);
-    let swirl = fbm(q * 3.0 + 7.0, octaves) - 0.5;
+    // Eddies carried along by eddies: each layer's noise is displaced by
+    // the one before, which curls it as shear does.
+    let swirl = fbm(q * 2.2 + 7.0, min(octaves, 5)) - 0.5;
+    let curl = fbm(q * 5.0 + 6.0 * swirl + 21.0, octaves) - 0.5;
     // Waves along each band's edge, and slow meanders of the whole pattern.
     let meander = fbm(p * 1.3 + 19.0, 3) - 0.5;
-    let phase = latitude * count + select(5.0, 1.5, hazy) * swirl + select(2.5, 1.0, hazy) * meander;
+    let phase = latitude * count + select(5.0, 1.5, hazy) * (swirl + 0.5 * curl) + select(2.5, 1.0, hazy) * meander;
     let wave = 0.5 + 0.5 * sin(phase);
     // Belts are narrower and sharper-edged than zones.
     let belt = smoothstep(0.35, 0.65, wave);
-    let fine = fbm(q * 9.0 + 3.0, octaves) - 0.5;
-    var albedo = mix(planet.color_a.rgb, planet.color_b.rgb, clamp(belt + 0.5 * fine, 0.0, 1.0) * contrast);
+    let fine = fbm(q * 11.0 + 9.0 * curl + 3.0, octaves) - 0.5;
+    var albedo = mix(planet.color_a.rgb, planet.color_b.rgb, clamp(belt + 0.9 * fine, 0.0, 1.0) * contrast);
+    // Brightness varies as well as colour, so bands show even on a planet
+    // whose two cloud colours are nearly the same.
+    let relief = select(0.32, 0.30, hazy) * mix(0.6, 1.0, contrast);
+    albedo = albedo * (1.0 + relief * (2.0 * (belt - 0.5) + 2.2 * fine));
     // A few large ovals.
     let storms = planet.shape.w;
     if storms > 0.0 && !hazy {
-        let cell = fbm(vec3<f32>(p.x * 2.0, p.y * 6.0, p.z * 2.0) + 51.0, min(octaves, 3));
+        let cell = fbm(vec3<f32>(p.x * 2.0, p.y * 6.0, p.z * 2.0) + 51.0 + 0.5 * curl, min(octaves, 3));
         let oval = smoothstep(0.80 - 0.08 * storms, 0.86, cell);
         albedo = mix(albedo, planet.color_c.rgb, oval * contrast);
     }
     // The poles darken a little, as on Jupiter and Saturn.
     albedo = albedo * (1.0 - 0.25 * smoothstep(0.75, 1.0, abs(latitude_sin)));
-    return Surface(albedo, vec3<f32>(0.0), 0.0);
+    // A hot giant shines by its own heat, and thin clouds let more of it
+    // out: `emission` is the factor on that glow (`fragment`).
+    let through = clamp(1.0 + 1.6 * (belt - 0.5) + 2.5 * fine, 0.1, 2.2);
+    return Surface(albedo, vec3<f32>(through), 0.0, vec3<f32>(0.0));
 }
 
 // Local position on the unit sphere, rotated by `angle` about the pole.
@@ -280,23 +428,37 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     } else if kind == 5 {
         surface = bands(p, local.y, octaves, true);
     } else {
-        surface = rock(p, octaves);
+        surface = rock(p, local, octaves);
     }
 
     // Clouds drift over the surface.
     let cloud_level = planet.cover.z;
     var cloud = 0.0;
+    var cloud_tone = 1.0;
     if cloud_level < 1.5 && kind != 4 && kind != 5 {
         let cp = turned(local, planet.extra.x) + vec3<f32>(seed * 0.19 + 80.0);
         let cw = vec3<f32>(fbm(cp * 2.0 + 5.0, 3), fbm(cp * 2.0 + 15.0, 3), fbm(cp * 2.0 + 25.0, 3));
         let c = fbm(vec3<f32>(cp.x, cp.y * 1.6, cp.z) * 2.6 + 1.2 * cw, octaves);
-        cloud = smoothstep(cloud_level - 0.025, cloud_level + 0.025, c);
+        // Fine wisps along the edges, and thicker, greyer cores.
+        let wisp = 0.09 * (fbm(cp * 15.0 + 4.0 * cw, min(octaves, 7)) - 0.5);
+        cloud = smoothstep(cloud_level - 0.035, cloud_level + 0.035, c + wisp);
+        cloud_tone = mix(1.0, 0.82, smoothstep(cloud_level + 0.04, cloud_level + 0.22, c));
     }
-    let albedo = mix(surface.albedo, vec3<f32>(0.92), cloud);
+    let albedo = mix(surface.albedo, vec3<f32>(0.92) * cloud_tone, cloud);
     let gloss = surface.gloss * (1.0 - cloud);
 
     let wrap = 0.12 * density;
-    let light = starlight(n, density, wrap);
+    // Relief catches the light; the sphere's own normal still sets the
+    // terminator and the rim of the air below.
+    let tilt = surface.tilt.x * planet.frame_x.xyz
+        + surface.tilt.y * planet.frame_y.xyz
+        + surface.tilt.z * planet.frame_z.xyz;
+    var light = starlight(n, density, wrap);
+    if dot(tilt, tilt) > 0.0 {
+        // A wall facing the star can brighten only so far, and nothing
+        // past the terminator lights up.
+        light = min(starlight(normalize(n + tilt), density, wrap), light * 3.0);
+    }
     var color = albedo * (light + vec3<f32>(0.006));
 
     // The glint of each star on open water.
@@ -308,8 +470,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             }
             let l = planet.star_dir[i].xyz;
             let half_way = normalize(l + v);
-            let shine = pow(max(dot(n, half_way), 0.0), 90.0) * step(0.0, dot(n, l));
-            color = color + planet.star_color[i].rgb * weight * shine * gloss * 2.5;
+            let shine = pow(max(dot(n, half_way), 0.0), 320.0) * step(0.0, dot(n, l));
+            color = color + planet.star_color[i].rgb * weight * shine * gloss * 1.4;
         }
     }
 
@@ -324,7 +486,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // of the whole disc, seen best on the night side.
     var emission = surface.emission;
     if kind == 4 || kind == 5 {
-        emission = planet.glow.rgb * planet.glow.a * (0.25 + 0.5 * surface.albedo);
+        emission = planet.glow.rgb * planet.glow.a * (0.25 + 0.5 * surface.albedo) * surface.emission;
     }
     color = color + emission * (1.0 - cloud);
 

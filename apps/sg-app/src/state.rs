@@ -18,11 +18,17 @@ pub struct StartOptions {
     pub scale: ScaleMode,
     pub time_fraction: Option<f64>,
     pub select: Option<usize>,
+    /// Select the Nth moon, from 1.
+    pub moon: Option<usize>,
+    /// Look at the Nth belt, from 1.
+    pub belt: Option<usize>,
     /// Freeze the clocks (screenshot mode), so captures are repeatable.
     pub frozen: bool,
     pub quality: sg_render::Quality,
     /// Start the spaceship from the selected body.
     pub tour: bool,
+    /// How much closer than usual to frame the selected body.
+    pub zoom: f32,
 }
 
 #[derive(Resource)]
@@ -200,6 +206,23 @@ pub fn simulate_on_startup(mut state: ResMut<AppState>, mut targets: SimulationT
         }
     }
     targets.camera.snap();
+    targets.camera.select_zoom = start.zoom;
+    if let (Some(n), Some(result)) = (start.moon, targets.view.result()) {
+        targets.selection.0 = crate::nth_moon(&result.snapshot, n);
+    }
+    if let (Some(n), Some(result)) = (start.belt, targets.view.result()) {
+        let view = n.checked_sub(1).and_then(|zone| {
+            sg_render::belt::view_of(
+                &result.snapshot,
+                &targets.settings.scale,
+                targets.playback.orbit_days,
+                zone,
+            )
+        });
+        if let Some((focus, distance)) = view {
+            targets.camera.look_at(focus, distance / start.zoom);
+        }
+    }
     if let (Some(n), Some(result)) = (start.select, targets.view.result()) {
         if let Some(target) = crate::nth_target(result, n) {
             targets.selection.0 = Some(target);

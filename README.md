@@ -93,7 +93,7 @@ it with right-click > Open the first time). The script can also build Linux
 (`WHAT=linux`) and Windows (`WHAT=windows`) in Docker, but neither build has
 been completed or tested yet; they need about 8 GB of memory for Docker.
 
-A link can point at a system: `?seed=7&preset=circumbinary&tier=classic&scale=schematic`.
+A link can point at a system: `?seed=7&preset=circumbinary&tier=classic&scale=schematic`. Add `&select=3&zoom=4` to start close to a body (`--select 3 --zoom 4` on the desktop), or `moon=1` or `belt=1` for a moon or a belt.
 
 *Help* (or F1) explains everything on the screen, and hovering over a control or a
 data-card row says the same. Start with it open with `--help-window`, or `?help=1`

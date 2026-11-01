@@ -38,6 +38,12 @@ struct Args {
     /// Select the Nth planet outward (1-based), or 0 for the star.
     #[arg(long)]
     select: Option<usize>,
+    /// Select the Nth moon of the system, from 1.
+    #[arg(long)]
+    moon: Option<usize>,
+    /// Look at the Nth belt of the system, from 1.
+    #[arg(long)]
+    belt: Option<usize>,
     /// Render a few frames, save a screenshot here, and exit. For checking
     /// the visuals without a person at the keyboard.
     #[arg(long)]
@@ -65,6 +71,10 @@ struct Args {
     /// Interface language.
     #[arg(long, value_parser = ["en", "es", "fr", "de"])]
     lang: Option<String>,
+    /// Frame the body given by --select this many times closer (above about
+    /// 7 the camera is inside it).
+    #[arg(long, default_value_t = 1.0)]
+    zoom: f32,
     /// Effects level: full, or the reduced set meant for phones.
     #[arg(long, value_enum)]
     quality: Option<QualityArg>,
@@ -278,6 +288,8 @@ pub fn launch() -> Launch {
         },
         time: args.time,
         select: args.select,
+        moon: args.moon,
+        belt: args.belt,
         screenshot: args.screenshot,
         offscreen: args.offscreen || args.bench.is_some(),
         bench: args.bench,
@@ -290,6 +302,7 @@ pub fn launch() -> Launch {
         drawer: args.drawer,
         tour: args.tour,
         help: args.help_window,
+        zoom: args.zoom,
         language: args
             .lang
             .as_deref()
