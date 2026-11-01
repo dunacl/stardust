@@ -83,6 +83,13 @@ impl StarMaterial {
     }
 
     /// The parts that change every frame.
+    /// Changes the colour, as a star's does with age. Brightness stays with
+    /// [`Self::update`].
+    pub fn set_color(&mut self, color: LinearRgba) {
+        let brightness = self.uniform.color.w;
+        self.uniform.color = Vec4::new(color.red, color.green, color.blue, brightness);
+    }
+
     pub fn update(&mut self, eye: Vec3, clock: f32, apparent_radius_pixels: f32) {
         self.uniform.eye = eye.extend(1.0);
         self.uniform.detail.y = clock;

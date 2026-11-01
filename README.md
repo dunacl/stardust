@@ -99,6 +99,11 @@ A link can point at a system: `?seed=7&preset=circumbinary&tier=classic&scale=sc
 data-card row says the same. Start with it open with `--help-window`, or `?help=1`
 in a link.
 
+The timeline covers a system's whole life. Left of its mark the system forms; right of
+it the star ages to the end of its main sequence, and its habitable zone and the light
+on each body follow, while the planets stay as they formed (`--star-age 9`,
+`?star_age=9`). Play runs straight through.
+
 *View > Layers* switches each kind of thing on or off: stars, planets, moons, rings,
 belts, comets, tails, orbits, zones, names, the disk and the sky. What is hidden has no
 name, cannot be clicked and is left out of an export. `--hide planets,sky` starts with

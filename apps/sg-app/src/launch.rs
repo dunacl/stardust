@@ -57,6 +57,8 @@ pub struct Launch {
     pub layers: bool,
     /// Layers to start hidden, by name.
     pub hide: Vec<String>,
+    /// Show the finished system with its star at this age, Gyr.
+    pub star_age: Option<f64>,
     /// The interface language.
     pub language: Language,
     /// How much closer than usual to frame the selected body. Above about
@@ -92,6 +94,7 @@ impl Default for Launch {
             help: false,
             layers: false,
             hide: Vec::new(),
+            star_age: None,
             language: Language::En,
             zoom: 1.0,
         }
@@ -155,6 +158,7 @@ impl Launch {
                     }
                 }
                 "layers" => launch.layers = value != "0",
+                "star_age" => launch.star_age = value.parse().ok().filter(|a: &f64| a.is_finite()),
                 "hide" => launch.hide = value.split(',').map(str::to_string).collect(),
                 "help" => launch.help = value != "0",
                 "lang" => {
@@ -218,6 +222,7 @@ mod tests {
                 help: true,
                 layers: false,
                 hide: Vec::new(),
+                star_age: None,
                 language: Language::Fr,
                 zoom: 1.0,
             }

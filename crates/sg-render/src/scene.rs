@@ -48,6 +48,15 @@ impl SystemView {
         self.generation += 1;
     }
 
+    /// Replaces what the finished system is like, keeping its timeline and
+    /// its entities: the bodies are the same ones, and stars follow every
+    /// frame. Bodies keep the look they were given.
+    pub fn set_snapshot(&mut self, snapshot: sg_schema::SystemSnapshot) {
+        if let Some(result) = &mut self.result {
+            result.snapshot = snapshot;
+        }
+    }
+
     pub fn result(&self) -> Option<&SimulationResult> {
         self.result.as_ref()
     }
@@ -577,6 +586,7 @@ fn sync_scene(
                         let pixels =
                             pixels_per_radian * radius / (position - eye).length().max(1e-9);
                         material.update(eye, star_clock, pixels);
+                        material.set_color(color);
                     }
                 }
             }

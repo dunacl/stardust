@@ -92,6 +92,9 @@ struct Args {
     /// belts, comets, tails, orbits, zone, limits, names, marks, disk, sky.
     #[arg(long, value_delimiter = ',')]
     hide: Vec<String>,
+    /// Show the finished system with its star at this age, in Gyr.
+    #[arg(long)]
+    star_age: Option<f64>,
     /// Interface language.
     #[arg(long, value_parser = ["en", "es", "fr", "de"])]
     lang: Option<String>,
@@ -469,6 +472,7 @@ pub fn launch() -> Launch {
         tour: args.tour,
         help: args.help_window,
         layers: args.layers,
+        star_age: args.star_age,
         hide: args.hide,
         record: args.record,
         record_frames: args.frames,

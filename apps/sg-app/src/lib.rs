@@ -18,6 +18,7 @@ mod desktop;
 mod help;
 mod i18n;
 mod launch;
+mod lifeline;
 mod state;
 mod strings;
 mod ui;
@@ -107,6 +108,7 @@ pub fn run() {
         tour: launch.tour,
         zoom: launch.zoom,
         hide: launch.hide.clone(),
+        star_age: launch.star_age,
         export: launch.export.clone(),
     };
     let (width, height) = launch.size.unwrap_or((1440, 900));

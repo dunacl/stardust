@@ -4,7 +4,8 @@
 use crate::cards::{self, Card, Companion};
 use crate::help;
 use crate::i18n::{self, tr, tr_message, trf, Language};
-use crate::state::{run_simulation, AppState, SimulationTargets, DEFAULT_PLAYBACK_SECS};
+use crate::lifeline::{Lifeline, Moment, FORMATION_SHARE};
+use crate::state::{run_simulation, show_age, AppState, SimulationTargets, DEFAULT_PLAYBACK_SECS};
 use bevy::prelude::*;
 use bevy_egui::egui::{self, Align2, Color32, RichText};
 use bevy_egui::EguiContexts;
@@ -26,6 +27,13 @@ fn preset_name(preset: PresetId) -> &'static str {
         PresetId::Random => "Random",
     }
 }
+
+const YOUNGEST_GYR: f64 = sg_sim::life::YOUNGEST_GYR;
+/// Time a Play takes through the star's life, seconds.
+const LIFE_PLAY_SECS: f64 = 20.0;
+/// Time between ages applied while the slider moves, seconds: the scene
+/// is rebuilt for each.
+const AGE_STEP_SECS: f32 = 0.12;
 
 const MUTED: Color32 = Color32::from_rgb(150, 156, 170);
 
@@ -179,26 +187,6 @@ fn controls(
     });
 
     system_controls(ui, &mut state.params.system, state.fidelity);
-
-    let mut fixed_age = state.params.age_gyr.is_some();
-    ui.horizontal(|ui| {
-        if ui
-            .checkbox(&mut fixed_age, tr("Fix age"))
-            .on_hover_text(help::FIX_AGE.tip())
-            .changed()
-        {
-            state.params.age_gyr = fixed_age.then_some(4.6);
-        }
-        if let Some(age) = state.params.age_gyr.as_mut() {
-            ui.add(
-                egui::Slider::new(age, 0.5..=10.0)
-                    .suffix(" Gyr")
-                    .fixed_decimals(1),
-            );
-        } else {
-            ui.label(RichText::new(tr("sampled")).color(MUTED));
-        }
-    });
 
     if state.fidelity != Fidelity::Classic {
         standard_controls(ui, state);
@@ -614,7 +602,56 @@ fn note_of(saved: Result<String, String>) -> String {
     }
 }
 
-fn timeline(ui: &mut egui::Ui, targets: &mut SimulationTargets, narrow: bool) {
+/// The timeline of a system, from its birth to the end of its star's main
+/// sequence.
+fn lifeline_of(targets: &SimulationTargets) -> Option<Lifeline> {
+    let snapshot = &targets.view.result()?.snapshot;
+    Some(Lifeline::new(
+        targets.view.timeline_end_myr(),
+        YOUNGEST_GYR,
+        sg_sim::life::oldest_gyr(snapshot),
+    ))
+}
+
+/// Where the system is on its timeline now.
+fn moment_now(state: &AppState, targets: &SimulationTargets) -> Option<Moment> {
+    let end = targets.view.timeline_end_myr();
+    if targets.playback.t_myr < end {
+        return Some(Moment::Forming(targets.playback.t_myr));
+    }
+    let age = state
+        .age_wanted
+        .or_else(|| targets.view.result().map(|r| r.snapshot.age_gyr))?;
+    Some(Moment::Aging(age))
+}
+
+/// Carries Play from formation into the star's life, and on to its end.
+fn advance_life(state: &mut AppState, targets: &SimulationTargets, dt: f64) {
+    let Some(line) = lifeline_of(targets) else {
+        return;
+    };
+    let finished = targets.playback.t_myr >= targets.view.timeline_end_myr();
+    if state.was_forming && !targets.playback.playing && finished {
+        state.life_playing = true;
+        state.life_share = 0.0;
+    }
+    state.was_forming = targets.playback.playing;
+    if state.life_playing {
+        state.life_share += dt / LIFE_PLAY_SECS;
+        if state.life_share >= 1.0 {
+            state.life_share = 1.0;
+            state.life_playing = false;
+        }
+        state.age_wanted = Some(line.age_at(state.life_share));
+    }
+}
+
+fn timeline(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    targets: &mut SimulationTargets,
+    narrow: bool,
+) {
     let end = targets.view.timeline_end_myr();
     if end <= 0.0 {
         ui.label(tr("No formation timeline."));
@@ -628,29 +665,39 @@ fn timeline(ui: &mut egui::Ui, targets: &mut SimulationTargets, narrow: bool) {
         None => (0, 0),
     };
 
-    let buttons = |ui: &mut egui::Ui, targets: &mut SimulationTargets| {
-        let at_end = targets.playback.t_myr >= end;
-        let label = if targets.playback.playing {
-            tr("Pause")
-        } else {
-            tr("Play")
-        };
+    let buttons = |ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTargets| {
+        let running = targets.playback.playing || state.life_playing;
+        let label = if running { tr("Pause") } else { tr("Play") };
         let height = ui.spacing().interact_size.y.max(22.0);
         if ui
             .add_sized([56.0, height], egui::Button::new(label))
             .on_hover_text(help::PLAY.tip())
             .clicked()
         {
-            if at_end {
-                targets.playback.t_myr = 0.0;
+            let line = lifeline_of(targets);
+            let moment = moment_now(state, targets);
+            match (running, line, moment) {
+                (true, ..) => {
+                    targets.playback.playing = false;
+                    state.life_playing = false;
+                }
+                (false, Some(line), Some(Moment::Aging(age))) if line.share_of(age) < 0.999 => {
+                    state.life_share = line.share_of(age);
+                    state.life_playing = true;
+                }
+                (false, _, Some(Moment::Forming(_))) => targets.playback.playing = true,
+                _ => {
+                    targets.playback.t_myr = 0.0;
+                    targets.playback.playing = true;
+                }
             }
-            targets.playback.playing = !targets.playback.playing;
         }
         if ui
             .button(tr("Restart"))
             .on_hover_text(help::RESTART.tip())
             .clicked()
         {
+            state.life_playing = false;
             targets.playback.t_myr = 0.0;
             targets.playback.playing = true;
         }
@@ -659,24 +706,48 @@ fn timeline(ui: &mut egui::Ui, targets: &mut SimulationTargets, narrow: bool) {
             .on_hover_text(help::END.tip())
             .clicked()
         {
+            state.life_playing = false;
             targets.playback.t_myr = end;
             targets.playback.playing = false;
+            state.age_wanted = Some(state.native_age_gyr);
         }
     };
-    let time_slider = |ui: &mut egui::Ui, targets: &mut SimulationTargets, width: f32| {
-        ui.spacing_mut().slider_width = width;
-        // The slider works on a copy: it rounds what it shows, and writing
-        // that back would nudge the time off the end of the timeline.
-        let mut shown = targets.playback.t_myr;
-        let slider = egui::Slider::new(&mut shown, 0.0..=end)
-            .suffix(" Myr")
-            .fixed_decimals(2);
-        let response = ui.add(slider).on_hover_text(help::TIME.tip());
-        if response.dragged() || (response.changed() && response.has_focus()) {
-            targets.playback.t_myr = shown.clamp(0.0, end);
-            targets.playback.playing = false;
-        }
-    };
+    let time_slider =
+        |ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTargets, width: f32| {
+            let (Some(line), Some(moment)) = (lifeline_of(targets), moment_now(state, targets))
+            else {
+                return;
+            };
+            ui.spacing_mut().slider_width = width;
+            let mut position = line.position(moment);
+            let response = ui
+                .add(egui::Slider::new(&mut position, 0.0..=1.0).show_value(false))
+                .on_hover_text(help::TIME.tip());
+            if response.dragged() || response.changed() {
+                targets.playback.playing = false;
+                state.life_playing = false;
+                match line.moment(position) {
+                    Moment::Forming(t_myr) => targets.playback.t_myr = t_myr,
+                    Moment::Aging(age) => {
+                        targets.playback.t_myr = end;
+                        state.age_wanted = Some(age);
+                    }
+                }
+            }
+            // The mark where the disk has gone and the star's life begins.
+            let rect = response.rect;
+            let x = rect.left() + rect.width() * FORMATION_SHARE as f32;
+            ui.painter().vline(
+                x,
+                (rect.center().y - 7.0)..=(rect.center().y + 7.0),
+                egui::Stroke::new(1.5, MUTED),
+            );
+            let readout = match line.moment(line.position(moment)) {
+                Moment::Forming(t_myr) => format!("{t_myr:.2} Myr"),
+                Moment::Aging(age) => format!("{age:.2} Gyr"),
+            };
+            ui.label(RichText::new(readout).monospace());
+        };
     let speed_slider = |ui: &mut egui::Ui, targets: &mut SimulationTargets, width: f32| {
         // Speed as a multiple of the default playback duration.
         let base = end / DEFAULT_PLAYBACK_SECS;
@@ -700,15 +771,15 @@ fn timeline(ui: &mut egui::Ui, targets: &mut SimulationTargets, narrow: bool) {
         // The value box beside a slider takes about 90 points.
         let room = ui.available_width();
         ui.horizontal(|ui| {
-            buttons(ui, targets);
+            buttons(ui, state, targets);
             let left = (room - ui.min_rect().width() - 110.0).max(40.0);
             speed_slider(ui, targets, left);
         });
-        ui.horizontal(|ui| time_slider(ui, targets, (room - 100.0).max(80.0)));
+        ui.horizontal(|ui| time_slider(ui, state, targets, (room - 100.0).max(80.0)));
     } else {
         ui.horizontal(|ui| {
-            buttons(ui, targets);
-            time_slider(ui, targets, 420.0);
+            buttons(ui, state, targets);
+            time_slider(ui, state, targets, 420.0);
             speed_slider(ui, targets, 90.0);
         });
     }
@@ -993,7 +1064,7 @@ fn narrow_layout(
         .resizable(false)
         .collapsible(false)
         .title_bar(false)
-        .show(ctx, |ui| timeline(ui, targets, true));
+        .show(ctx, |ui| timeline(ui, state, targets, true));
     let bar_top = bar.map_or(screen.bottom(), |shown| shown.response.rect.top());
 
     // Help covers the rest: a phone has no room for it beside anything.
@@ -1260,6 +1331,14 @@ pub fn draw(
         let saved = view_as_glb(&targets, &placements).map(|bytes| std::fs::write(&path, bytes));
         std::process::exit(i32::from(!matches!(saved, Some(Ok(())))));
     }
+    advance_life(&mut state, &targets, f64::from(time.delta_secs()));
+    let now = time.elapsed_secs();
+    if state.age_wanted.is_some() && now >= state.age_applied_at + AGE_STEP_SECS {
+        if let Some(age) = state.age_wanted.take() {
+            show_age(&mut state, &mut targets, age);
+            state.age_applied_at = now;
+        }
+    }
     if std::mem::take(&mut state.export_wanted) {
         export_view(&mut state, &targets, &placements);
     }
@@ -1307,7 +1386,7 @@ pub fn draw(
             .resizable(false)
             .collapsible(false)
             .title_bar(false)
-            .show(ctx, |ui| timeline(ui, &mut targets, false));
+            .show(ctx, |ui| timeline(ui, &mut state, &mut targets, false));
 
         if let Some(data) = selected_card(&targets) {
             let mut open = true;

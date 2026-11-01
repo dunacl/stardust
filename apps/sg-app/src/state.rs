@@ -33,6 +33,8 @@ pub struct StartOptions {
     pub export: Option<std::path::PathBuf>,
     /// Layers to start hidden, by name.
     pub hide: Vec<String>,
+    /// Show the finished system with its star at this age, Gyr.
+    pub star_age: Option<f64>,
     /// How much closer than usual to frame the selected body.
     pub zoom: f32,
 }
@@ -66,6 +68,18 @@ pub struct AppState {
     pub export_note: Option<String>,
     /// Save the view on the next frame.
     pub export_wanted: bool,
+    /// The star's age to show, once enough time has passed since the last.
+    pub age_wanted: Option<f64>,
+    /// When the last age was applied, seconds.
+    pub age_applied_at: f32,
+    /// The age the simulation gave the system, Gyr.
+    pub native_age_gyr: f64,
+    /// The timeline is playing through the star's life.
+    pub life_playing: bool,
+    /// How far through it, 0 to 1.
+    pub life_share: f64,
+    /// Formation was playing a frame ago.
+    pub was_forming: bool,
     /// Show the Layers window.
     pub show_layers: bool,
     /// Show the Help window.
@@ -127,6 +141,12 @@ impl AppState {
             panel_open: None,
             show_panel: true,
             show_fps: false,
+            age_wanted: None,
+            age_applied_at: 0.0,
+            native_age_gyr: 0.0,
+            life_playing: false,
+            life_share: 0.0,
+            was_forming: false,
             show_layers: false,
             show_help: false,
             #[cfg(not(target_arch = "wasm32"))]
@@ -176,6 +196,18 @@ pub struct SimulationTargets<'w> {
     pub voyage: ResMut<'w, Voyage>,
 }
 
+/// Shows the finished system with its star at this age. The view stays where
+/// it is, and so does what is selected.
+pub fn show_age(state: &mut AppState, targets: &mut SimulationTargets, age_gyr: f64) {
+    let Some(result) = targets.view.result() else {
+        return;
+    };
+    match sg_sim::life::at_age(&result.snapshot, age_gyr) {
+        Ok(snapshot) => targets.view.set_snapshot(snapshot),
+        Err(err) => state.error = Some(err.to_string()),
+    }
+}
+
 /// Runs the simulation for the current parameters and shows the result.
 pub fn run_simulation(state: &mut AppState, targets: &mut SimulationTargets) {
     let started = bevy::platform::time::Instant::now();
@@ -189,6 +221,9 @@ pub fn run_simulation(state: &mut AppState, targets: &mut SimulationTargets) {
         }
     };
     state.error = None;
+    state.native_age_gyr = result.snapshot.age_gyr;
+    state.life_playing = false;
+    state.age_wanted = None;
 
     let end = sg_render::display::timeline_end_myr(&result);
     targets.playback.myr_per_second = end / DEFAULT_PLAYBACK_SECS;
@@ -227,6 +262,9 @@ pub fn simulate_on_startup(mut state: ResMut<AppState>, mut targets: SimulationT
         if start.time_fraction.is_none() {
             targets.playback.t_myr = end;
         }
+    }
+    if let Some(age) = start.star_age {
+        show_age(&mut state, &mut targets, age);
     }
     targets.camera.snap();
     targets.camera.select_zoom = start.zoom;
