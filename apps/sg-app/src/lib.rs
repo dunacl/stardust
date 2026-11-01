@@ -38,6 +38,29 @@ fn launch_options() -> Launch {
     desktop::launch()
 }
 
+/// Offers a file to the browser as a download, and says what it was called.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn download(name: &str, bytes: &[u8]) -> Result<String, String> {
+    use web_sys::wasm_bindgen::JsCast;
+    let failed = |_| "the browser refused".to_string();
+    let parts = js_sys::Array::of1(&js_sys::Uint8Array::from(bytes));
+    let blob = web_sys::Blob::new_with_u8_array_sequence(&parts).map_err(failed)?;
+    let url = web_sys::Url::create_object_url_with_blob(&blob).map_err(failed)?;
+    let document = web_sys::window()
+        .and_then(|window| window.document())
+        .ok_or("no document")?;
+    let link: web_sys::HtmlAnchorElement = document
+        .create_element("a")
+        .map_err(failed)?
+        .dyn_into()
+        .map_err(|_| "no link".to_string())?;
+    link.set_href(&url);
+    link.set_download(name);
+    link.click();
+    web_sys::Url::revoke_object_url(&url).map_err(failed)?;
+    Ok(name.to_string())
+}
+
 #[cfg(target_arch = "wasm32")]
 fn launch_options() -> Launch {
     let query = web_sys::window()
@@ -78,10 +101,11 @@ pub fn run() {
         moon: launch.moon,
         comet: launch.comet,
         belt: launch.belt,
-        frozen: launch.screenshot.is_some(),
+        frozen: launch.screenshot.is_some() || launch.export.is_some() || launch.record.is_some(),
         quality: launch.quality.unwrap_or_else(default_quality),
         tour: launch.tour,
         zoom: launch.zoom,
+        export: launch.export.clone(),
     };
     let (width, height) = launch.size.unwrap_or((1440, 900));
 
@@ -117,7 +141,16 @@ pub fn run() {
     .add_systems(EguiPrimaryContextPass, ui::draw);
 
     #[cfg(not(target_arch = "wasm32"))]
-    if launch.screenshot.is_some() || launch.bench.is_some() {
+    if let Some(folder) = launch.record.clone() {
+        desktop::add_recording(
+            &mut app,
+            folder,
+            launch.record_frames,
+            launch.record_fps,
+            launch.size,
+            launch.time.is_none(),
+        );
+    } else if launch.screenshot.is_some() || launch.bench.is_some() {
         desktop::add_capture(
             &mut app,
             launch.screenshot.unwrap_or_default(),

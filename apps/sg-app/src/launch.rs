@@ -28,6 +28,14 @@ pub struct Launch {
     pub belt: Option<usize>,
     /// Desktop only: save a screenshot here and exit.
     pub screenshot: Option<PathBuf>,
+    /// Desktop only: save the view as a `.glb` here and exit.
+    pub export: Option<PathBuf>,
+    /// Desktop only: play the view and save numbered frames in this folder.
+    pub record: Option<PathBuf>,
+    /// Desktop only: how many frames to record.
+    pub record_frames: u32,
+    /// Desktop only: frames per second of the recording.
+    pub record_fps: u32,
     /// Desktop only: draw that screenshot off screen.
     pub offscreen: bool,
     /// Desktop only: measure the frame rate for this many seconds and exit.
@@ -65,6 +73,10 @@ impl Default for Launch {
             comet: None,
             belt: None,
             screenshot: None,
+            export: None,
+            record: None,
+            record_frames: 300,
+            record_fps: 30,
             offscreen: false,
             bench: None,
             show_ui: true,
@@ -183,6 +195,10 @@ mod tests {
                 comet: None,
                 belt: Some(1),
                 screenshot: None,
+                export: None,
+                record: None,
+                record_frames: 300,
+                record_fps: 30,
                 offscreen: false,
                 bench: None,
                 show_ui: false,

@@ -24,6 +24,7 @@ pub mod clearance;
 pub mod comet;
 pub mod disk;
 pub mod display;
+pub mod export;
 pub mod gesture;
 pub mod layout;
 pub mod palette;

@@ -29,6 +29,8 @@ pub struct StartOptions {
     pub quality: sg_render::Quality,
     /// Start the spaceship from the selected body.
     pub tour: bool,
+    /// Desktop only: save the view as a `.glb` here and exit.
+    pub export: Option<std::path::PathBuf>,
     /// How much closer than usual to frame the selected body.
     pub zoom: f32,
 }
@@ -55,6 +57,10 @@ pub struct AppState {
     pub show_panel: bool,
     /// Show the frame rate in a corner.
     pub show_fps: bool,
+    /// What the last export did, for the panel.
+    pub export_note: Option<String>,
+    /// Save the view on the next frame.
+    pub export_wanted: bool,
     /// Show the Help window.
     pub show_help: bool,
     /// What the Help window is searching for.
@@ -115,6 +121,8 @@ impl AppState {
             show_panel: true,
             show_fps: false,
             show_help: false,
+            export_note: None,
+            export_wanted: false,
             help_search: String::new(),
             frame_rate: FrameRate::default(),
         }

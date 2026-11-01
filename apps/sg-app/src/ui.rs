@@ -505,9 +505,46 @@ fn run_notes(ui: &mut egui::Ui, state: &mut AppState, targets: &SimulationTarget
         .small()
         .color(MUTED),
     );
-    if ui.button(tr("Help")).clicked() {
-        state.show_help = true;
+    ui.horizontal(|ui| {
+        if ui.button(tr("Help")).clicked() {
+            state.show_help = true;
+        }
+        if ui
+            .button(tr("Export 3D scene (.glb)"))
+            .on_hover_text(help::EXPORT.tip())
+            .clicked()
+        {
+            state.export_wanted = true;
+        }
+    });
+    if let Some(note) = &state.export_note {
+        ui.label(RichText::new(note).small().color(MUTED));
     }
+}
+
+/// The view as a `.glb` file, if a system is showing.
+fn view_as_glb(targets: &SimulationTargets, placements: &BodyPlacements) -> Option<Vec<u8>> {
+    let snapshot = &targets.view.result()?.snapshot;
+    Some(sg_render::export::glb(&sg_render::export::objects_in_view(
+        snapshot, placements,
+    )))
+}
+
+/// Saves the view: a file beside the app on the desktop, a download in a
+/// browser.
+fn export_view(state: &mut AppState, targets: &SimulationTargets, placements: &BodyPlacements) {
+    let Some(bytes) = view_as_glb(targets, placements) else {
+        return;
+    };
+    let name = format!("stardust-{}.glb", state.params.seed);
+    #[cfg(not(target_arch = "wasm32"))]
+    let saved = crate::desktop::save(&name, &bytes);
+    #[cfg(target_arch = "wasm32")]
+    let saved = crate::download(&name, &bytes);
+    state.export_note = Some(match saved {
+        Ok(place) => trf("Saved {}", &[&place]),
+        Err(error) => trf("Could not save: {}", &[&error]),
+    });
 }
 
 fn timeline(ui: &mut egui::Ui, targets: &mut SimulationTargets, narrow: bool) {
@@ -1001,6 +1038,14 @@ fn menus(ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTarget
             state.set_fidelity(fidelity);
         }
     });
+    if ui
+        .button(tr("Export 3D scene (.glb)"))
+        .on_hover_text(help::EXPORT.tip())
+        .clicked()
+    {
+        state.export_wanted = true;
+        ui.close();
+    }
     ui.menu_button(tr("View"), |ui| {
         ui.label(RichText::new(tr("Scale")).strong());
         scale_controls(ui, targets);
@@ -1125,6 +1170,7 @@ fn frame_rate_readout(ctx: &egui::Context, state: &AppState) {
         });
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn draw(
     mut contexts: EguiContexts,
     mut state: ResMut<AppState>,
@@ -1133,8 +1179,26 @@ pub fn draw(
     placements: Res<BodyPlacements>,
     camera: Single<(&Camera, &GlobalTransform), With<Camera3d>>,
     time: Res<Time<Real>>,
+    mut exit: MessageWriter<AppExit>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
+    // From the command line: once the system is placed, save it and leave.
+    if let Some(path) = state.start.export.clone() {
+        if placements.iter().next().is_some() {
+            match view_as_glb(&targets, &placements).map(|bytes| std::fs::write(&path, bytes)) {
+                Some(Ok(())) => {
+                    exit.write(AppExit::Success);
+                }
+                _ => {
+                    exit.write(AppExit::error());
+                }
+            }
+            state.start.export = None;
+        }
+    }
+    if std::mem::take(&mut state.export_wanted) {
+        export_view(&mut state, &targets, &placements);
+    }
     state.frame_rate.record(time.delta_secs());
     if state.show_fps {
         frame_rate_readout(ctx, &state);

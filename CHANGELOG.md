@@ -5,6 +5,13 @@ Simulation changes are tracked by model version; each has a report in
 
 ## Unreleased
 
+- *Export 3D scene (.glb)* saves the view for Blender and other 3D tools (`--export`
+  from the command line, a download in a browser). Surfaces are baked into vertex
+  colours. Belts, comet tails and the sky are left out. No change to the model.
+- `--record <folder> --frames N --frame-rate F` plays the view with a fixed time step
+  and saves numbered frames, off screen; `scripts/make-video.sh` turns them into a
+  video with ffmpeg. Desktop only.
+
 - Licensed under Apache-2.0.
 - Hosted CI and automated security checks.
 - Bevy 0.20.1, which fixes RUSTSEC-2026-0344 in `ruzstd`.
