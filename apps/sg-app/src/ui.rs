@@ -3,6 +3,7 @@
 
 use crate::cards::{self, Card, Companion};
 use crate::help;
+use crate::i18n::{self, tr, tr_message, trf, Language};
 use crate::state::{run_simulation, AppState, SimulationTargets, DEFAULT_PLAYBACK_SECS};
 use bevy::prelude::*;
 use bevy_egui::egui::{self, Align2, Color32, RichText};
@@ -35,7 +36,7 @@ fn mass_slider(ui: &mut egui::Ui, mass: &mut f64, label: &str) {
             .text(label)
             .fixed_decimals(2),
     )
-    .on_hover_text(help::STAR_MASS.text);
+    .on_hover_text(help::STAR_MASS.tip());
 }
 
 /// Sliders for an explicit hierarchy: a mass per star, a separation and an
@@ -44,7 +45,11 @@ fn hierarchy_controls(ui: &mut egui::Ui, node: &mut StarNode, next: &mut u32) {
     match node {
         StarNode::Star(spec) => {
             *next += 1;
-            mass_slider(ui, &mut spec.mass_msun, &format!("Star {next} mass (M☉)"));
+            mass_slider(
+                ui,
+                &mut spec.mass_msun,
+                &trf("Star {} mass (M☉)", &[&*next]),
+            );
         }
         StarNode::Pair { a, b, orbit } => {
             ui.push_id(*next, |ui| {
@@ -53,15 +58,15 @@ fn hierarchy_controls(ui: &mut egui::Ui, node: &mut StarNode, next: &mut u32) {
                 ui.add(
                     egui::Slider::new(&mut orbit.a_au, 0.03..=500.0)
                         .logarithmic(true)
-                        .text("Separation (AU)"),
+                        .text(tr("Separation (AU)")),
                 )
-                .on_hover_text(help::SEPARATION.text);
+                .on_hover_text(help::SEPARATION.tip());
                 ui.add(
                     egui::Slider::new(&mut orbit.e, 0.0..=0.8)
-                        .text("Eccentricity")
+                        .text(tr("Eccentricity"))
                         .fixed_decimals(2),
                 )
-                .on_hover_text(help::ECCENTRICITY.text);
+                .on_hover_text(help::ECCENTRICITY.tip());
             });
         }
     }
@@ -73,12 +78,14 @@ fn system_controls(ui: &mut egui::Ui, system: &mut SystemSpec, fidelity: Fidelit
             primary_mass_msun: Some(mass),
             ..
         } => {
-            mass_slider(ui, mass, "Star mass (M☉)");
+            mass_slider(ui, mass, tr("Star mass (M☉)"));
             if fidelity == Fidelity::Classic && !(0.6..=1.3).contains(mass) {
                 ui.label(
-                    RichText::new("Outside Fogg's 0.6–1.3 M☉: the Classic model is extrapolated.")
-                        .small()
-                        .color(MUTED),
+                    RichText::new(tr(
+                        "Outside Fogg's 0.6–1.3 M☉: the Classic model is extrapolated.",
+                    ))
+                    .small()
+                    .color(MUTED),
                 );
             }
         }
@@ -87,12 +94,14 @@ fn system_controls(ui: &mut egui::Ui, system: &mut SystemSpec, fidelity: Fidelit
             multiplicity: None,
         } => {
             ui.label(
-                RichText::new("Stars drawn from the mass function and multiplicity statistics")
-                    .color(MUTED),
+                RichText::new(tr(
+                    "Stars drawn from the mass function and multiplicity statistics",
+                ))
+                .color(MUTED),
             );
         }
         SystemSpec::Auto { .. } => {
-            ui.label(RichText::new("Star mass: drawn at random (0.7–1.4 M☉)").color(MUTED));
+            ui.label(RichText::new(tr("Star mass: drawn at random (0.7–1.4 M☉)")).color(MUTED));
         }
         SystemSpec::Explicit(node) => {
             hierarchy_controls(ui, node, &mut 0);
@@ -105,9 +114,9 @@ fn preset_items(ui: &mut egui::Ui, state: &mut AppState) {
     for preset in ALL_PRESETS {
         match preset_availability(preset, state.fidelity) {
             PresetAvailability::Available => {
-                let item = ui.selectable_label(state.preset == preset, preset_name(preset));
+                let item = ui.selectable_label(state.preset == preset, tr(preset_name(preset)));
                 let item = match help::preset(preset_name(preset)) {
-                    Some(text) => item.on_hover_text(text),
+                    Some(text) => item.on_hover_text(tr(text)),
                     None => item,
                 };
                 if item.clicked() {
@@ -115,8 +124,8 @@ fn preset_items(ui: &mut egui::Ui, state: &mut AppState) {
                 }
             }
             PresetAvailability::Unavailable(reason) => {
-                ui.add_enabled(false, egui::Button::new(preset_name(preset)))
-                    .on_disabled_hover_text(reason);
+                ui.add_enabled(false, egui::Button::new(tr(preset_name(preset))))
+                    .on_disabled_hover_text(tr(reason));
             }
         }
     }
@@ -133,36 +142,36 @@ fn controls(
     let mut fidelity = state.fidelity;
     ui.horizontal(|ui| {
         tier_choices(ui, &mut fidelity);
-        ui.label(RichText::new(format!("model {MODEL_VERSION}")).color(MUTED))
-            .on_hover_text(help::MODEL_VERSION_NOTE.text);
+        ui.label(RichText::new(trf("model {}", &[&MODEL_VERSION])).color(MUTED))
+            .on_hover_text(help::MODEL_VERSION_NOTE.tip());
     });
     if fidelity != state.fidelity {
         state.set_fidelity(fidelity);
     }
     if let Some(result) = targets.view.result() {
         let shown = match result.diagnostics.fidelity {
-            Fidelity::Classic => "Shown: Classic accretion, evolved stars",
-            Fidelity::High => "Shown: High",
-            Fidelity::Standard => "Shown: Standard",
+            Fidelity::Classic => tr("Shown: Classic accretion, evolved stars"),
+            Fidelity::High => tr("Shown: High"),
+            Fidelity::Standard => tr("Shown: Standard"),
         };
         ui.label(RichText::new(shown).small().color(MUTED))
-            .on_hover_text(help::SHOWN.text);
+            .on_hover_text(help::SHOWN.tip());
     }
     ui.separator();
 
-    egui::ComboBox::from_label("Preset")
-        .selected_text(preset_name(state.preset))
+    egui::ComboBox::new("preset", tr("Preset"))
+        .selected_text(tr(preset_name(state.preset)))
         .show_ui(ui, |ui| preset_items(ui, state))
         .response
-        .on_hover_text(help::PRESET.text);
+        .on_hover_text(help::PRESET.tip());
 
     ui.horizontal(|ui| {
-        ui.label("Seed").on_hover_text(help::SEED.text);
+        ui.label(tr("Seed")).on_hover_text(help::SEED.tip());
         ui.add(egui::DragValue::new(&mut state.params.seed).range(1..=u64::from(u32::MAX)))
-            .on_hover_text(help::SEED.text);
+            .on_hover_text(help::SEED.tip());
         if ui
-            .button("New seed")
-            .on_hover_text(help::NEW_SEED.text)
+            .button(tr("New seed"))
+            .on_hover_text(help::NEW_SEED.tip())
             .clicked()
         {
             state.next_seed();
@@ -174,8 +183,8 @@ fn controls(
     let mut fixed_age = state.params.age_gyr.is_some();
     ui.horizontal(|ui| {
         if ui
-            .checkbox(&mut fixed_age, "Fix age")
-            .on_hover_text(help::FIX_AGE.text)
+            .checkbox(&mut fixed_age, tr("Fix age"))
+            .on_hover_text(help::FIX_AGE.tip())
             .changed()
         {
             state.params.age_gyr = fixed_age.then_some(4.6);
@@ -187,7 +196,7 @@ fn controls(
                     .fixed_decimals(1),
             );
         } else {
-            ui.label(RichText::new("sampled").color(MUTED));
+            ui.label(RichText::new(tr("sampled")).color(MUTED));
         }
     });
 
@@ -199,17 +208,17 @@ fn controls(
 
     ui.add_space(4.0);
     ui.horizontal(|ui| {
-        let simulate =
-            egui::Button::new(RichText::new("Simulate").strong()).min_size(egui::vec2(120.0, 28.0));
+        let simulate = egui::Button::new(RichText::new(tr("Simulate")).strong())
+            .min_size(egui::vec2(120.0, 28.0));
         if ui
             .add(simulate)
-            .on_hover_text(help::SIMULATE.text)
+            .on_hover_text(help::SIMULATE.tip())
             .clicked()
         {
             run_simulation(state, targets);
         }
-        ui.checkbox(&mut state.play_on_simulate, "Play formation")
-            .on_hover_text(help::PLAY_FORMATION.text);
+        ui.checkbox(&mut state.play_on_simulate, tr("Play formation"))
+            .on_hover_text(help::PLAY_FORMATION.tip());
     });
     if let Some(error) = &state.error {
         ui.colored_label(Color32::from_rgb(240, 110, 100), error);
@@ -217,22 +226,23 @@ fn controls(
         // The time this device took: the budget is two seconds on a phone
         // (PLAN.md §4).
         ui.label(
-            RichText::new(format!("Simulated in {}", simulation_time(ms)))
+            RichText::new(trf("Simulated in {}", &[&simulation_time(ms)]))
                 .small()
                 .color(MUTED),
         )
-        .on_hover_text(help::SIMULATED_IN.text);
+        .on_hover_text(help::SIMULATED_IN.tip());
     }
 
     if with_view {
         ui.separator();
-        ui.label(RichText::new("View").strong());
+        ui.label(RichText::new(tr("View")).strong());
         scale_controls(ui, targets);
         overlay_controls(ui, targets);
         ui.horizontal_wrapped(|ui| motion_controls(ui, targets));
         ui.horizontal_wrapped(|ui| quality_controls(ui, targets, &mut state.show_fps));
         frame_system_button(ui, targets);
         tour_button(ui, targets);
+        language_controls(ui);
     }
     run_notes(ui, state, targets);
 }
@@ -244,8 +254,8 @@ fn tier_choices(ui: &mut egui::Ui, fidelity: &mut Fidelity) {
         (Fidelity::Classic, "Classic"),
         (Fidelity::High, "High"),
     ] {
-        ui.radio_value(fidelity, tier, name)
-            .on_hover_text(help::tier(tier));
+        ui.radio_value(fidelity, tier, tr(name))
+            .on_hover_text(tr(help::tier(tier)));
     }
 }
 
@@ -270,25 +280,25 @@ fn optional_slider(
     let mut fixed = value.is_some();
     ui.horizontal(|ui| {
         if ui
-            .checkbox(&mut fixed, item.name)
-            .on_hover_text(item.text)
+            .checkbox(&mut fixed, item.title())
+            .on_hover_text(item.tip())
             .changed()
         {
             *value = fixed.then_some(when_fixed);
         }
         match value.as_mut() {
             Some(v) => {
-                ui.add(slider(v)).on_hover_text(item.text);
+                ui.add(slider(v)).on_hover_text(item.tip());
             }
             None => {
-                ui.label(RichText::new("drawn at random").color(MUTED));
+                ui.label(RichText::new(tr("drawn at random")).color(MUTED));
             }
         }
     });
 }
 
 fn standard_controls(ui: &mut egui::Ui, state: &mut AppState) {
-    ui.collapsing("Disk and formation", |ui| {
+    ui.collapsing(tr("Disk and formation"), |ui| {
         optional_slider(
             ui,
             &mut state.params.metallicity_feh,
@@ -308,7 +318,7 @@ fn standard_controls(ui: &mut egui::Ui, state: &mut AppState) {
             |v| {
                 egui::Slider::new(v, 0.003..=0.2)
                     .logarithmic(true)
-                    .suffix(" × star")
+                    .suffix(tr(" × star"))
             },
         );
         optional_slider(
@@ -322,11 +332,11 @@ fn standard_controls(ui: &mut egui::Ui, state: &mut AppState) {
                     .fixed_decimals(1)
             },
         );
-        ui.checkbox(&mut state.params.toggles.migration, "Migration")
-            .on_hover_text(help::MIGRATION.text);
+        ui.checkbox(&mut state.params.toggles.migration, tr("Migration"))
+            .on_hover_text(help::MIGRATION.tip());
         if ui
-            .button("Reset")
-            .on_hover_text(help::RESET_DISK.text)
+            .button(tr("Reset"))
+            .on_hover_text(help::RESET_DISK.tip())
             .clicked()
         {
             state.params.metallicity_feh = None;
@@ -338,33 +348,39 @@ fn standard_controls(ui: &mut egui::Ui, state: &mut AppState) {
 }
 
 fn classic_controls(ui: &mut egui::Ui, state: &mut AppState) {
-    ui.collapsing("Accretion model", |ui| {
+    ui.collapsing(tr("Accretion model"), |ui| {
         let c = &mut state.params.formation.classic;
         ui.add(
             egui::Slider::new(&mut c.dust_density_coeff, 5.0e-4..=6.0e-3)
                 .logarithmic(true)
-                .text("Dust density A"),
+                .text(tr("Dust density A")),
         )
-        .on_hover_text(help::DUST_DENSITY.text);
-        ui.add(egui::Slider::new(&mut c.gas_dust_ratio, 10.0..=150.0).text("Gas/dust ratio K"))
-            .on_hover_text(help::GAS_DUST.text);
+        .on_hover_text(help::DUST_DENSITY.tip());
+        ui.add(egui::Slider::new(&mut c.gas_dust_ratio, 10.0..=150.0).text(tr("Gas/dust ratio K")))
+            .on_hover_text(help::GAS_DUST.tip());
         ui.add(
             egui::Slider::new(&mut c.crit_mass_coeff_msun, 2.0e-6..=6.0e-5)
                 .logarithmic(true)
-                .text("Critical mass B (M☉)"),
+                .text(tr("Critical mass B (M☉)")),
         )
-        .on_hover_text(help::CRITICAL_MASS.text);
-        ui.add(egui::Slider::new(&mut c.cloud_eccentricity, 0.0..=0.5).text("Cloud eccentricity"))
-            .on_hover_text(help::CLOUD_ECCENTRICITY.text);
+        .on_hover_text(help::CRITICAL_MASS.tip());
         ui.add(
-            egui::Slider::new(&mut c.eccentricity_coeff, 0.02..=0.3).text("Eccentricity exponent"),
+            egui::Slider::new(&mut c.cloud_eccentricity, 0.0..=0.5).text(tr("Cloud eccentricity")),
         )
-        .on_hover_text(help::ECCENTRICITY_EXPONENT.text);
-        ui.checkbox(&mut state.params.toggles.atmospheres, "Compute atmospheres")
-            .on_hover_text(help::COMPUTE_ATMOSPHERES.text);
+        .on_hover_text(help::CLOUD_ECCENTRICITY.tip());
+        ui.add(
+            egui::Slider::new(&mut c.eccentricity_coeff, 0.02..=0.3)
+                .text(tr("Eccentricity exponent")),
+        )
+        .on_hover_text(help::ECCENTRICITY_EXPONENT.tip());
+        ui.checkbox(
+            &mut state.params.toggles.atmospheres,
+            tr("Compute atmospheres"),
+        )
+        .on_hover_text(help::COMPUTE_ATMOSPHERES.tip());
         if ui
-            .button("Reset to Dole's values")
-            .on_hover_text(help::RESET_DOLE.text)
+            .button(tr("Reset to Dole's values"))
+            .on_hover_text(help::RESET_DOLE.tip())
             .clicked()
         {
             *c = Default::default();
@@ -376,8 +392,8 @@ fn scale_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
     let mut mode = targets.settings.scale.to;
     ui.horizontal_wrapped(|ui| {
         for candidate in ScaleMode::ALL {
-            ui.radio_value(&mut mode, candidate, candidate.label())
-                .on_hover_text(help::scale(candidate));
+            ui.radio_value(&mut mode, candidate, tr(candidate.label()))
+                .on_hover_text(tr(help::scale(candidate)));
         }
     });
     if mode != targets.settings.scale.to {
@@ -394,55 +410,58 @@ fn scale_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
 
 fn overlay_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
     ui.horizontal_wrapped(|ui| {
-        ui.checkbox(&mut targets.settings.show_orbits, "Orbits")
-            .on_hover_text(help::ORBITS.text);
-        ui.checkbox(&mut targets.settings.show_habitable_zone, "Habitable zone")
-            .on_hover_text(help::HABITABLE_ZONE.text);
-        ui.checkbox(&mut targets.settings.show_stability_limits, "Limits")
-            .on_hover_text(help::LIMITS.text);
+        ui.checkbox(&mut targets.settings.show_orbits, tr("Orbits"))
+            .on_hover_text(help::ORBITS.tip());
+        ui.checkbox(
+            &mut targets.settings.show_habitable_zone,
+            tr("Habitable zone"),
+        )
+        .on_hover_text(help::HABITABLE_ZONE.tip());
+        ui.checkbox(&mut targets.settings.show_stability_limits, tr("Limits"))
+            .on_hover_text(help::LIMITS.tip());
     });
     ui.horizontal_wrapped(|ui| {
-        ui.checkbox(&mut targets.settings.show_labels, "Names")
-            .on_hover_text(help::NAMES.text);
-        ui.checkbox(&mut targets.settings.show_disk, "Disk, while forming")
-            .on_hover_text(help::DISK.text);
-        ui.checkbox(&mut targets.settings.show_backdrop, "Sky backdrop")
-            .on_hover_text(help::SKY.text);
+        ui.checkbox(&mut targets.settings.show_labels, tr("Names"))
+            .on_hover_text(help::NAMES.tip());
+        ui.checkbox(&mut targets.settings.show_disk, tr("Disk, while forming"))
+            .on_hover_text(help::DISK.tip());
+        ui.checkbox(&mut targets.settings.show_backdrop, tr("Sky backdrop"))
+            .on_hover_text(help::SKY.tip());
     });
 }
 
 fn motion_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
-    ui.checkbox(&mut targets.playback.orbits_running, "Orbital motion")
-        .on_hover_text(help::ORBITAL_MOTION.text);
+    ui.checkbox(&mut targets.playback.orbits_running, tr("Orbital motion"))
+        .on_hover_text(help::ORBITAL_MOTION.tip());
     ui.add(
         egui::Slider::new(&mut targets.playback.days_per_second, 1.0..=3000.0)
             .logarithmic(true)
-            .text("days / second"),
+            .text(tr("days / second")),
     )
-    .on_hover_text(help::DAYS_PER_SECOND.text);
+    .on_hover_text(help::DAYS_PER_SECOND.tip());
 }
 
 fn quality_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets, show_fps: &mut bool) {
     ui.horizontal(|ui| {
-        ui.label("Effects");
+        ui.label(tr("Effects"));
         for quality in Quality::ALL {
-            ui.radio_value(&mut targets.settings.quality, quality, quality.label());
+            ui.radio_value(&mut targets.settings.quality, quality, tr(quality.label()));
         }
     })
     .response
-    .on_hover_text(help::EFFECTS.text);
-    ui.checkbox(show_fps, "Frame rate")
-        .on_hover_text(help::FRAME_RATE.text);
+    .on_hover_text(help::EFFECTS.tip());
+    ui.checkbox(show_fps, tr("Frame rate"))
+        .on_hover_text(help::FRAME_RATE.tip());
 }
 
 /// Sends the spaceship round the system, or calls it off.
 fn tour_button(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
     let label = if targets.voyage.active() {
-        "Stop spaceship"
+        tr("Stop spaceship")
     } else {
-        "Spaceship tour"
+        tr("Spaceship tour")
     };
-    if ui.button(label).on_hover_text(help::TOUR.text).clicked() {
+    if ui.button(label).on_hover_text(help::TOUR.tip()).clicked() {
         if targets.voyage.active() {
             targets.voyage.stop();
         } else if let Some(result) = targets.view.result() {
@@ -455,8 +474,8 @@ fn tour_button(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
 
 fn frame_system_button(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
     if ui
-        .button("Frame system")
-        .on_hover_text(help::FRAME_SYSTEM.text)
+        .button(tr("Frame system"))
+        .on_hover_text(help::FRAME_SYSTEM.tip())
         .clicked()
     {
         targets.selection.0 = None;
@@ -472,19 +491,19 @@ fn frame_system_button(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
 fn run_notes(ui: &mut egui::Ui, state: &mut AppState, targets: &SimulationTargets) {
     if let Some(result) = targets.view.result() {
         for warning in &result.diagnostics.warnings {
-            ui.colored_label(Color32::from_rgb(235, 190, 90), warning)
-                .on_hover_text(help::WARNINGS.text);
+            ui.colored_label(Color32::from_rgb(235, 190, 90), tr_message(warning))
+                .on_hover_text(help::WARNINGS.tip());
         }
     }
     ui.add_space(2.0);
     ui.label(
-        RichText::new(
+        RichText::new(tr(
             "Drag to rotate · scroll or pinch to zoom · click or tap a body for its card",
-        )
+        ))
         .small()
         .color(MUTED),
     );
-    if ui.button("Help").clicked() {
+    if ui.button(tr("Help")).clicked() {
         state.show_help = true;
     }
 }
@@ -492,7 +511,7 @@ fn run_notes(ui: &mut egui::Ui, state: &mut AppState, targets: &SimulationTarget
 fn timeline(ui: &mut egui::Ui, targets: &mut SimulationTargets, narrow: bool) {
     let end = targets.view.timeline_end_myr();
     if end <= 0.0 {
-        ui.label("No formation timeline.");
+        ui.label(tr("No formation timeline."));
         return;
     }
     let (events, bodies_now) = match targets.view.result() {
@@ -506,14 +525,14 @@ fn timeline(ui: &mut egui::Ui, targets: &mut SimulationTargets, narrow: bool) {
     let buttons = |ui: &mut egui::Ui, targets: &mut SimulationTargets| {
         let at_end = targets.playback.t_myr >= end;
         let label = if targets.playback.playing {
-            "Pause"
+            tr("Pause")
         } else {
-            "Play"
+            tr("Play")
         };
         let height = ui.spacing().interact_size.y.max(22.0);
         if ui
             .add_sized([56.0, height], egui::Button::new(label))
-            .on_hover_text(help::PLAY.text)
+            .on_hover_text(help::PLAY.tip())
             .clicked()
         {
             if at_end {
@@ -522,14 +541,18 @@ fn timeline(ui: &mut egui::Ui, targets: &mut SimulationTargets, narrow: bool) {
             targets.playback.playing = !targets.playback.playing;
         }
         if ui
-            .button("Restart")
-            .on_hover_text(help::RESTART.text)
+            .button(tr("Restart"))
+            .on_hover_text(help::RESTART.tip())
             .clicked()
         {
             targets.playback.t_myr = 0.0;
             targets.playback.playing = true;
         }
-        if ui.button("End").on_hover_text(help::END.text).clicked() {
+        if ui
+            .button(tr("End"))
+            .on_hover_text(help::END.tip())
+            .clicked()
+        {
             targets.playback.t_myr = end;
             targets.playback.playing = false;
         }
@@ -542,7 +565,7 @@ fn timeline(ui: &mut egui::Ui, targets: &mut SimulationTargets, narrow: bool) {
         let slider = egui::Slider::new(&mut shown, 0.0..=end)
             .suffix(" Myr")
             .fixed_decimals(2);
-        let response = ui.add(slider).on_hover_text(help::TIME.text);
+        let response = ui.add(slider).on_hover_text(help::TIME.tip());
         if response.dragged() || (response.changed() && response.has_focus()) {
             targets.playback.t_myr = shown.clamp(0.0, end);
             targets.playback.playing = false;
@@ -560,7 +583,7 @@ fn timeline(ui: &mut egui::Ui, targets: &mut SimulationTargets, narrow: bool) {
                     .suffix("×")
                     .fixed_decimals(1),
             )
-            .on_hover_text(help::SPEED.text)
+            .on_hover_text(help::SPEED.tip())
             .changed()
         {
             targets.playback.myr_per_second = speed * base;
@@ -584,35 +607,38 @@ fn timeline(ui: &mut egui::Ui, targets: &mut SimulationTargets, narrow: bool) {
         });
     }
     let clock = match targets.view.result().map(|r| r.diagnostics.fidelity) {
-        Some(Fidelity::Classic) => "Classic times are nominal, not physical",
-        _ => "time since the disk formed",
+        Some(Fidelity::Classic) => tr("Classic times are nominal, not physical"),
+        _ => tr("time since the disk formed"),
     };
     let phase = if targets.playback.t_myr >= end {
-        "finished system".to_string()
+        tr("finished system").to_string()
     } else {
-        format!("{bodies_now} embryos")
+        trf("{} embryos", &[&bodies_now])
     };
     ui.label(
-        RichText::new(format!("{phase} · {events} formation events · {clock}"))
-            .small()
-            .color(MUTED),
+        RichText::new(trf(
+            "{} · {} formation events · {}",
+            &[&phase, &events, &clock],
+        ))
+        .small()
+        .color(MUTED),
     )
-    .on_hover_text(help::STATUS.text);
+    .on_hover_text(help::STATUS.tip());
 }
 
 fn card(ui: &mut egui::Ui, card: &Card) {
     ui.label(RichText::new(&card.subtitle).color(MUTED));
     for section in &card.sections {
         ui.add_space(6.0);
-        ui.label(RichText::new(section.heading).strong());
+        ui.label(RichText::new(tr(section.heading)).strong());
         egui::Grid::new(section.heading)
             .num_columns(2)
             .spacing([14.0, 3.0])
             .show(ui, |ui| {
                 for (label, value) in &section.rows {
-                    let name = ui.label(RichText::new(*label).color(MUTED));
+                    let name = ui.label(RichText::new(tr(label)).color(MUTED));
                     if let Some(text) = help::card_row(label) {
-                        name.on_hover_text(text);
+                        name.on_hover_text(tr(text));
                     }
                     ui.label(value);
                     ui.end_row();
@@ -872,10 +898,10 @@ fn narrow_layout(
         .anchor(Align2::LEFT_TOP, [margin, margin])
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
-                if ui.button("☰ Controls").clicked() {
+                if ui.button(tr("☰ Controls")).clicked() {
                     state.panel_open = Some(true);
                 }
-                if ui.button("Help").clicked() {
+                if ui.button(tr("Help")).clicked() {
                     state.show_help = true;
                 }
             });
@@ -924,26 +950,26 @@ fn menu_bar(
 }
 
 fn menus(ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTargets) {
-    ui.menu_button("System", |ui| {
+    ui.menu_button(tr("System"), |ui| {
         if ui
-            .button("Simulate")
-            .on_hover_text(help::SIMULATE.text)
+            .button(tr("Simulate"))
+            .on_hover_text(help::SIMULATE.tip())
             .clicked()
         {
             run_simulation(state, targets);
             ui.close();
         }
         if ui
-            .button("New seed")
-            .on_hover_text(help::NEW_SEED.text)
+            .button(tr("New seed"))
+            .on_hover_text(help::NEW_SEED.tip())
             .clicked()
         {
             state.next_seed();
         }
-        ui.checkbox(&mut state.play_on_simulate, "Play formation")
-            .on_hover_text(help::PLAY_FORMATION.text);
+        ui.checkbox(&mut state.play_on_simulate, tr("Play formation"))
+            .on_hover_text(help::PLAY_FORMATION.tip());
         ui.separator();
-        ui.menu_button("Preset", |ui| preset_items(ui, state));
+        ui.menu_button(tr("Preset"), |ui| preset_items(ui, state));
         ui.separator();
         let mut fidelity = state.fidelity;
         tier_choices(ui, &mut fidelity);
@@ -951,34 +977,48 @@ fn menus(ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTarget
             state.set_fidelity(fidelity);
         }
     });
-    ui.menu_button("View", |ui| {
-        ui.label(RichText::new("Scale").strong());
+    ui.menu_button(tr("View"), |ui| {
+        ui.label(RichText::new(tr("Scale")).strong());
         scale_controls(ui, targets);
         ui.separator();
         overlay_controls(ui, targets);
         ui.separator();
         frame_system_button(ui, targets);
     });
-    ui.menu_button("Playback", |ui| {
+    ui.menu_button(tr("Playback"), |ui| {
         motion_controls(ui, targets);
         ui.separator();
         tour_button(ui, targets);
     });
-    ui.menu_button("Settings", |ui| {
+    ui.menu_button(tr("Settings"), |ui| {
         quality_controls(ui, targets, &mut state.show_fps);
         ui.separator();
-        ui.checkbox(&mut state.show_panel, "Control panel")
-            .on_hover_text(help::CONTROL_PANEL.text);
+        ui.checkbox(&mut state.show_panel, tr("Control panel"))
+            .on_hover_text(help::CONTROL_PANEL.tip());
+        ui.separator();
+        language_controls(ui);
     });
-    ui.menu_button("Help", |ui| {
-        if ui.button("What everything means (F1)").clicked() {
+    ui.menu_button(tr("Help"), |ui| {
+        if ui.button(tr("What everything means (F1)")).clicked() {
             state.show_help = true;
             ui.close();
         }
         ui.separator();
-        ui.label(format!("Stardust, model {MODEL_VERSION}"));
+        ui.label(trf("Stardust, model {}", &[&MODEL_VERSION]));
         ui.label(RichText::new("Apache-2.0").small().color(MUTED));
     });
+}
+
+/// The choice of language, each in its own words.
+fn language_controls(ui: &mut egui::Ui) {
+    let mut chosen = i18n::language();
+    ui.label(RichText::new(tr("Language")).strong());
+    ui.horizontal_wrapped(|ui| {
+        for language in Language::ALL {
+            ui.radio_value(&mut chosen, language, language.name());
+        }
+    });
+    i18n::set_language(chosen);
 }
 
 /// Largest size of the Help window, points.
@@ -992,7 +1032,7 @@ fn help_window(ctx: &egui::Context, state: &mut AppState, screen: egui::Rect) {
         HELP_POINTS[0].min(screen.width() - 32.0),
         HELP_POINTS[1].min(screen.height() - 140.0).max(160.0),
     ];
-    egui::Window::new("Help")
+    egui::Window::new(tr("Help"))
         .id(egui::Id::new("help"))
         .anchor(Align2::CENTER_TOP, [0.0, MENU_BAR_POINTS + 12.0])
         .fixed_size(size)
@@ -1002,7 +1042,7 @@ fn help_window(ctx: &egui::Context, state: &mut AppState, screen: egui::Rect) {
         .show(ctx, |ui| {
             ui.add(
                 egui::TextEdit::singleline(&mut state.help_search)
-                    .hint_text("Search")
+                    .hint_text(tr("Search"))
                     .desired_width(f32::INFINITY),
             );
             ui.add_space(4.0);
@@ -1020,20 +1060,20 @@ fn help_window(ctx: &egui::Context, state: &mut AppState, screen: egui::Rect) {
                         continue;
                     }
                     found = true;
-                    egui::CollapsingHeader::new(RichText::new(topic.title).strong())
+                    egui::CollapsingHeader::new(RichText::new(tr(topic.title)).strong())
                         .id_salt(topic.title)
                         .default_open(index == 0)
                         .open(searching.then_some(true))
                         .show(ui, |ui| {
                             for item in items {
-                                ui.label(RichText::new(item.name).strong());
-                                ui.label(item.text);
+                                ui.label(RichText::new(item.title()).strong());
+                                ui.label(item.tip());
                                 ui.add_space(4.0);
                             }
                         });
                 }
                 if !found {
-                    ui.label(RichText::new("Nothing matches that search.").color(MUTED));
+                    ui.label(RichText::new(tr("Nothing matches that search.")).color(MUTED));
                 }
             });
         });

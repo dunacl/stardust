@@ -98,6 +98,10 @@ A link can point at a system: `?seed=7&preset=circumbinary&tier=classic&scale=sc
 *Help* (or F1) explains everything on the screen, and hovering over a control or a
 data-card row says the same. Start with it open with `--help-window`, or `?help=1`
 in a link.
+
+The interface speaks English, Spanish, French and German: choose in *Settings*, or
+start with `--lang es`, or `?lang=es` in a link. Body names and the program's
+command line stay as they are, and numbers keep a decimal point in every language.
 On a phone the same page shows a layout for small screens; `&quality=full`
 or `&quality=reduced` sets how much it draws.
 

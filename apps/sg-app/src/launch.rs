@@ -5,6 +5,7 @@
 //! `?seed=7&preset=red-dwarf&tier=classic&scale=schematic`, so a link can
 //! point at a particular system.
 
+use crate::i18n::Language;
 use sg_render::{Quality, ScaleMode};
 use sg_schema::{Fidelity, PresetId};
 use std::path::PathBuf;
@@ -38,6 +39,8 @@ pub struct Launch {
     pub fps: bool,
     /// Start with the Help window open.
     pub help: bool,
+    /// The interface language.
+    pub language: Language,
 }
 
 impl Default for Launch {
@@ -59,6 +62,7 @@ impl Default for Launch {
             tour: false,
             fps: false,
             help: false,
+            language: Language::En,
         }
     }
 }
@@ -108,6 +112,11 @@ impl Launch {
                 "fps" => launch.fps = value != "0",
                 "tour" => launch.tour = value != "0",
                 "help" => launch.help = value != "0",
+                "lang" => {
+                    if let Some(language) = Language::from_code(value) {
+                        launch.language = language;
+                    }
+                }
                 "quality" => match value {
                     "full" => launch.quality = Some(Quality::Full),
                     "reduced" => launch.quality = Some(Quality::Reduced),
@@ -134,7 +143,7 @@ mod tests {
     fn query_sets_the_starting_system() {
         let launch = Launch::from_query(
             "?seed=7&preset=red-dwarf&tier=classic&scale=schematic&select=3&time=0.5&ui=0\
-             &quality=reduced&fps=1&help=1",
+             &quality=reduced&fps=1&help=1&lang=fr",
         );
         assert_eq!(
             launch,
@@ -155,6 +164,7 @@ mod tests {
                 tour: false,
                 fps: true,
                 help: true,
+                language: Language::Fr,
             }
         );
     }
@@ -162,7 +172,7 @@ mod tests {
     #[test]
     fn bad_values_are_ignored() {
         let launch = Launch::from_query(
-            "seed=0&preset=quasar&tier=best&scale=&time=NaN&select=-1&other=1&novalue&quality=ultra",
+            "seed=0&preset=quasar&tier=best&scale=&time=NaN&select=-1&other=1&novalue&quality=ultra&lang=xx",
         );
         assert_eq!(launch, Launch::default());
         assert_eq!(Launch::from_query("seed=abc&seed=9").seed, 9);

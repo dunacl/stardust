@@ -1,5 +1,6 @@
 //! Desktop only: command-line options and screenshot mode.
 
+use crate::i18n::Language;
 use crate::launch::Launch;
 use bevy::camera::RenderTarget;
 use bevy::prelude::*;
@@ -61,6 +62,9 @@ struct Args {
     /// Start with the Help window open.
     #[arg(long = "help-window")]
     help_window: bool,
+    /// Interface language.
+    #[arg(long, value_parser = ["en", "es", "fr", "de"])]
+    lang: Option<String>,
     /// Effects level: full, or the reduced set meant for phones.
     #[arg(long, value_enum)]
     quality: Option<QualityArg>,
@@ -286,6 +290,11 @@ pub fn launch() -> Launch {
         drawer: args.drawer,
         tour: args.tour,
         help: args.help_window,
+        language: args
+            .lang
+            .as_deref()
+            .and_then(Language::from_code)
+            .unwrap_or_default(),
         fps: args.fps,
     }
 }
