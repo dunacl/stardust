@@ -12,7 +12,7 @@ use bevy::shader::ShaderRef;
 /// (low enough for its surface to show), as a camera's exposure would
 /// adapt. An exposure convention.
 const DISC_BRIGHTNESS: f32 = 40.0;
-const DISC_BRIGHTNESS_CLOSE: f32 = 2.2;
+const DISC_BRIGHTNESS_CLOSE: f32 = 1.7;
 /// Apparent radii, pixels, between which the exposure adapts.
 const EXPOSURE_ADAPTS_OVER: (f32, f32) = (25.0, 140.0);
 

@@ -45,15 +45,37 @@ fn sample_at(index: i32) -> f32 {
     return disk.samples[k / 4][k % 4];
 }
 
+fn hash3(p: vec3<f32>) -> f32 {
+    var q = fract(p * 0.1031);
+    q = q + dot(q, q.zyx + 31.32);
+    return fract((q.x + q.y) * q.z);
+}
+
+fn noise3(p: vec3<f32>) -> f32 {
+    let i = floor(p);
+    let f = fract(p);
+    let u = f * f * (3.0 - 2.0 * f);
+    let a = mix(hash3(i), hash3(i + vec3<f32>(1.0, 0.0, 0.0)), u.x);
+    let b = mix(hash3(i + vec3<f32>(0.0, 1.0, 0.0)), hash3(i + vec3<f32>(1.0, 1.0, 0.0)), u.x);
+    let c = mix(hash3(i + vec3<f32>(0.0, 0.0, 1.0)), hash3(i + vec3<f32>(1.0, 0.0, 1.0)), u.x);
+    let d = mix(hash3(i + vec3<f32>(0.0, 1.0, 1.0)), hash3(i + vec3<f32>(1.0, 1.0, 1.0)), u.x);
+    return mix(mix(a, b, u.y), mix(c, d, u.y), u.z);
+}
+
 // Streaks at radius fraction `u` and angle `phi`, wound by `turns` of
-// differential rotation.
+// differential rotation. Noise in the angle and the radius: few features
+// around the disk and many across it, so that shear has drawn them out into
+// long trailing arcs, not spokes.
 fn streaks(u: f32, phi: f32, turns: f32) -> f32 {
-    // Inner orbits run ahead of outer ones.
-    let wound = phi + turns * 3.0 / (0.35 + u);
-    let a = vec2<f32>(cos(wound), sin(wound)) * (2.0 + 5.0 * u);
-    let coarse = noise2(a * 1.3 + vec2<f32>(u * 9.0, 0.0));
-    let fine = noise2(a * 4.1 + vec2<f32>(u * 41.0, 7.0));
-    return 0.6 * coarse + 0.4 * fine;
+    // Inner orbits run ahead of outer ones; the fixed part is the winding
+    // shear has already done.
+    let wound = phi + (1.6 + turns) * 3.0 / (0.3 + u);
+    let around = vec2<f32>(cos(wound), sin(wound));
+    let radius = sqrt(u);
+    let broad = noise3(vec3<f32>(around * 1.4, radius * 11.0));
+    let arcs = noise3(vec3<f32>(around * 2.6, radius * 34.0) + 5.0);
+    let fine = noise3(vec3<f32>(around * 4.0, radius * 110.0) + 11.0);
+    return 0.5 * broad + 0.32 * arcs + 0.18 * fine;
 }
 
 @fragment
@@ -87,7 +109,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let t2 = fract(cycle + 0.5);
     let w1 = 1.0 - abs(2.0 * t1 - 1.0);
     let pattern = w1 * streaks(u, phi, t1 - 0.5) + (1.0 - w1) * streaks(u, phi, t2 - 0.5);
-    let texture = 0.55 + 0.9 * (pattern - 0.5);
+    let texture = clamp(0.5 + 2.6 * (pattern - 0.5), 0.05, 1.5);
 
     // Soft edges.
     let edge = smoothstep(0.0, 0.02, u) * (1.0 - smoothstep(0.93, 1.0, u));
@@ -95,5 +117,11 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if alpha < 0.003 {
         discard;
     }
-    return vec4<f32>(disk.color.rgb * alpha, alpha * 0.6);
+    // Warm near the star, where it is hot and well lit; dull and red far
+    // out. Temperature falls outward, as r^(-1/2) for a disk lit by its star
+    // (Chiang & Goldreich 1997); the colours themselves are a choice.
+    let hot = 1.0 - smoothstep(0.0, 0.35, sqrt(u));
+    let tint = mix(vec3<f32>(0.75, 0.62, 0.62), vec3<f32>(2.2, 1.7, 1.2), hot);
+    let light = 0.35 + 0.65 / (1.0 + 7.0 * u);
+    return vec4<f32>(disk.color.rgb * tint * light * alpha, alpha * 0.6);
 }
