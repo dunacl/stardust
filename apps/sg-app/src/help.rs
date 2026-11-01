@@ -214,6 +214,11 @@ pub const SKY: Item = item(
     "Sky backdrop",
     "Scenery: the stars and galaxies behind the system are not simulated.",
 );
+pub const COMETS: Item = item(
+    "Comets",
+    "A few comets, each standing for many, with their orbits. Tails grow near the star. How many \
+     a system has follows from its icy belts and planets; each comet's orbit is drawn.",
+);
 pub const FRAME_SYSTEM: Item = item(
     "Frame system",
     "Clears the selection and moves the camera to show the whole system.",
@@ -309,6 +314,7 @@ const VIEW: &[Item] = &[
     NAMES,
     DISK,
     SKY,
+    COMETS,
     FRAME_SYSTEM,
 ];
 const PLAYBACK: &[Item] = &[
@@ -452,6 +458,23 @@ const CARD_ROWS: &[Item] = &[
     ),
     item("Distance", "The moon's average distance from its planet."),
     item("Month", "How long one orbit of the planet takes."),
+    item("Perihelion", "The closest the comet comes to its star."),
+    item("Aphelion", "The farthest it goes."),
+    item("Inclination", "The tilt of its orbit to the planets' plane. Above 90° it goes round backwards."),
+    item("Nucleus", "The diameter of the solid body of ice and rock."),
+    item(
+        "Active comets",
+        "An estimate of comets over 2.3 km that come close enough to show a tail, from a count of about 300 in the Solar System (Brasser & Wang 2015).",
+    ),
+    item("Icy belts", "The mass of the belts beyond the ice line, where comets come from."),
+    item(
+        "Ejectors",
+        "Planets on the way in heavy enough to throw most comets out of the system (Wyatt et al. 2017). Jupiter and Saturn are two.",
+    ),
+    item(
+        "Oort cloud",
+        "An estimate of the mass in a far shell of comets, if a planet here can build one. Very uncertain.",
+    ),
 ];
 
 /// Everything the Help window lists, in the order of the screen.

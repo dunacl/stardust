@@ -85,6 +85,12 @@ pub fn find_host(node: &HierarchyNode, host: HostRef) -> Option<&HierarchyNode> 
     }
 }
 
+/// Light of what a planet of `host` orbits, L☉.
+pub fn host_luminosity(snapshot: &SystemSnapshot, host: HostRef) -> Option<f64> {
+    let node = find_host(&snapshot.hierarchy, host)?;
+    Some(stars(node).iter().map(|s| s.luminosity_lsun).sum())
+}
+
 /// Mass a planet of `host` orbits, M☉.
 pub fn host_mass(snapshot: &SystemSnapshot, host: HostRef) -> Option<f64> {
     find_host(&snapshot.hierarchy, host).map(node_mass)

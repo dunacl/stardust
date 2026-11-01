@@ -5,7 +5,10 @@
 
 use crate::i18n::{self, tr, trf, Language};
 use sg_render::belt::is_belt;
-use sg_schema::{Body, DiskSummary, HabitableZone, MoonOrigin, PlanetClass, PlanetZone, Star};
+use sg_schema::{
+    Body, Comet, CometFamily, CometReservoir, DiskSummary, HabitableZone, MoonOrigin, PlanetClass,
+    PlanetZone, Star,
+};
 
 /// A titled list of label/value rows, plus free-text notes.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -536,6 +539,108 @@ pub fn with_moons(mut card: Card, moons: usize) -> Card {
 }
 
 /// The card of a moon: `number` counts outward among its planet's moons.
+/// A count of comets to two figures: more would claim too much.
+fn round_count(count: f64) -> String {
+    if count < 100.0 {
+        return format!("{count:.0}");
+    }
+    let magnitude = 10f64.powi(count.log10().floor() as i32 - 1);
+    format!("{:.0}", (count / magnitude).round() * magnitude)
+}
+
+/// Adds what a host has in comets to its star's card.
+pub fn with_comets(mut card: Card, reservoir: &CometReservoir) -> Card {
+    let mut rows = vec![
+        (
+            "Active comets",
+            trf("about {}", &[&round_count(reservoir.active_comets)]),
+        ),
+        (
+            "Icy belts",
+            trf(
+                "{} Earth masses",
+                &[&format!("{:.2}", reservoir.belt_mass_mearth)],
+            ),
+        ),
+        ("Ejectors", reservoir.ejectors.to_string()),
+    ];
+    if let Some(oort) = reservoir.oort_mass_mearth {
+        rows.push((
+            "Oort cloud",
+            trf("{} Earth masses", &[&format!("{oort:.1}")]),
+        ));
+    }
+    card.sections.push(Section {
+        heading: "Comets",
+        rows,
+    });
+    card.notes.push(
+        tr(
+            "Comet counts are orders of magnitude, scaled from the Solar System. This model's \
+            outer belts are not cleared as the Kuiper belt was, so counts tend to run high.",
+        )
+        .into(),
+    );
+    card
+}
+
+/// A comet's card. `orbits` names what it orbits.
+pub fn comet_card(comet: &Comet, orbits: &str) -> Card {
+    let orbit = &comet.orbit;
+    let family = match comet.family {
+        CometFamily::JupiterFamily => tr("Jupiter-family comet"),
+        CometFamily::LongPeriod => tr("Long-period comet"),
+    };
+    let mut notes = vec![match comet.family {
+        CometFamily::JupiterFamily => {
+            tr("A short-period comet, held on its orbit by the system's \
+            heaviest planet.")
+        }
+        CometFamily::LongPeriod => tr("It fell in from an Oort cloud, and is shown near its \
+            closest approach: it will not be back for a very long time."),
+    }
+    .to_string()];
+    notes.push(
+        tr(
+            "Its orbit and size were drawn from what comets of this family are known to have; \
+            the model follows no small body. The nucleus is drawn far larger than it is, and \
+            the length of the tails is a drawing choice. Tails grow near the star and point \
+            away from it.",
+        )
+        .into(),
+    );
+    Card {
+        title: comet.name.clone(),
+        subtitle: trf(
+            "{} · orbits {} · {}",
+            &[&family, &orbits, &comet.designation],
+        ),
+        sections: vec![
+            Section {
+                heading: "Orbit",
+                rows: vec![
+                    (
+                        "Perihelion",
+                        in_au(&format!("{:.2}", orbit.a_au * (1.0 - orbit.e))),
+                    ),
+                    (
+                        "Aphelion",
+                        in_au(&format!("{:.2}", orbit.a_au * (1.0 + orbit.e))),
+                    ),
+                    ("Eccentricity", format!("{:.3}", orbit.e)),
+                    ("Inclination", format!("{:.0}°", orbit.i_deg)),
+                    ("Year", duration(orbit.period_days * 24.0)),
+                ],
+            },
+            Section {
+                heading: "Comet",
+                rows: vec![("Nucleus", format!("{:.1} km", comet.diameter_km))],
+            },
+        ],
+        notes,
+    }
+}
+
 pub fn moon_card(moon: &Body, planet: &Body, number: usize, origin: Option<MoonOrigin>) -> Card {
     const KM_PER_AU: f64 = 1.495_978_707e8;
     const LUNAR_MASS_MEARTH: f64 = 0.0123;
@@ -674,6 +779,18 @@ mod tests {
                         snapshot.disks_at_dispersal.first(),
                     ));
                 }
+                for comet in &snapshot.comets {
+                    cards.push(comet_card(comet, "x"));
+                }
+                for reservoir in &snapshot.comet_reservoirs {
+                    let empty = Card {
+                        title: String::new(),
+                        subtitle: String::new(),
+                        sections: Vec::new(),
+                        notes: Vec::new(),
+                    };
+                    cards.push(with_comets(empty, reservoir));
+                }
                 for body in snapshot.planets() {
                     cards.push(body_card(body, 1));
                     for moon in snapshot.moons_of(body.id) {
@@ -724,6 +841,29 @@ mod tests {
     }
 
     #[test]
+    fn counts_of_comets_keep_two_figures() {
+        assert_eq!(round_count(7.4), "7");
+        assert_eq!(round_count(300.0), "300");
+        assert_eq!(round_count(124_131.4), "120000");
+    }
+
+    #[test]
+    fn a_comet_card_says_what_it_is() {
+        let (result, comet) = (1..50)
+            .find_map(|seed| {
+                let result = system_of(seed);
+                let comet = result.snapshot.comets.first().cloned()?;
+                Some((result, comet))
+            })
+            .expect("a system with comets");
+        let card = comet_card(&comet, "Vela");
+        assert_eq!(card.title, comet.name);
+        assert!(card.subtitle.contains("Vela"));
+        assert!(card.notes.iter().any(|note| note.contains("no small body")));
+        assert!(!result.snapshot.comet_reservoirs.is_empty());
+    }
+
+    #[test]
     fn places_are_written_as_each_language_writes_them() {
         assert_eq!(place(Language::En, 3, false), "3rd");
         assert_eq!(place(Language::Es, 3, false), "3.º");
@@ -732,6 +872,15 @@ mod tests {
         assert_eq!(place(Language::Fr, 1, true), "1re");
         assert_eq!(place(Language::Fr, 2, true), "2e");
         assert_eq!(place(Language::De, 4, false), "4.");
+    }
+
+    fn system_of(seed: u64) -> sg_sim::SimulationResult {
+        sg_sim::simulate(&SimulationParams {
+            seed,
+            fidelity: sg_schema::Fidelity::Standard,
+            ..SimulationParams::default()
+        })
+        .unwrap()
     }
 
     #[test]

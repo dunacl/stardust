@@ -20,6 +20,8 @@ pub struct StartOptions {
     pub select: Option<usize>,
     /// Select the Nth moon, from 1.
     pub moon: Option<usize>,
+    /// Select the Nth comet, from 1.
+    pub comet: Option<usize>,
     /// Look at the Nth belt, from 1.
     pub belt: Option<usize>,
     /// Freeze the clocks (screenshot mode), so captures are repeatable.
@@ -209,6 +211,9 @@ pub fn simulate_on_startup(mut state: ResMut<AppState>, mut targets: SimulationT
     targets.camera.select_zoom = start.zoom;
     if let (Some(n), Some(result)) = (start.moon, targets.view.result()) {
         targets.selection.0 = crate::nth_moon(&result.snapshot, n);
+    }
+    if let (Some(n), Some(result)) = (start.comet, targets.view.result()) {
+        targets.selection.0 = crate::nth_comet(&result.snapshot, n);
     }
     if let (Some(n), Some(result)) = (start.belt, targets.view.result()) {
         let view = n.checked_sub(1).and_then(|zone| {

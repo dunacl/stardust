@@ -108,6 +108,17 @@ pub fn moon_name(planet_name: &str, index: usize) -> String {
     }
 }
 
+/// A new proper name, not in `taken`, which it joins.
+pub(crate) fn unique(rng: &mut RngStream, taken: &mut BTreeSet<String>) -> String {
+    loop {
+        let name = candidate(rng);
+        let real = REAL_STAR_NAMES.contains(&name.to_ascii_lowercase().as_str());
+        if reads_well(&name) && !real && taken.insert(name.clone()) {
+            return name;
+        }
+    }
+}
+
 /// Gives every planet and moon a proper name, unique in its system, keeping
 /// the name it was built with as its designation, and names the belts.
 pub fn assign(snapshot: &mut SystemSnapshot, seed: u64) {
@@ -115,13 +126,7 @@ pub fn assign(snapshot: &mut SystemSnapshot, seed: u64) {
     let star = star_name(seed);
     let mut taken = BTreeSet::from([star.clone()]);
     for body in &mut snapshot.bodies {
-        let name = loop {
-            let name = candidate(&mut rng);
-            let real = REAL_STAR_NAMES.contains(&name.to_ascii_lowercase().as_str());
-            if reads_well(&name) && !real && taken.insert(name.clone()) {
-                break name;
-            }
-        };
+        let name = unique(&mut rng, &mut taken);
         body.designation = core::mem::replace(&mut body.name, name);
     }
     name_belts(snapshot, &star);

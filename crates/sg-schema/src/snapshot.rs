@@ -31,6 +31,11 @@ pub struct SystemSnapshot {
     /// Planets, moons and dwarf planets, planets ordered outward.
     pub bodies: Vec<Body>,
     pub belts: Vec<Belt>,
+    /// A few comets drawn to show; the counts are in `comet_reservoirs`.
+    /// None in the Classic tier.
+    pub comets: Vec<Comet>,
+    /// What each host's icy belts and planets give in comets.
+    pub comet_reservoirs: Vec<CometReservoir>,
     pub disks_at_dispersal: Vec<DiskSummary>,
     pub habitable_zones: Vec<HabitableZone>,
     /// Where planets could form, one entry per star or pair that has room
@@ -321,6 +326,49 @@ pub struct Belt {
     pub inner_au: f64,
     pub outer_au: f64,
     pub mass_mearth: f64,
+}
+
+/// Identifies a comet within one snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct CometId(pub u32);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CometFamily {
+    /// Short period, low tilt, held by the system's giant.
+    JupiterFamily,
+    /// From an Oort cloud, on a long thin orbit tilted any way.
+    LongPeriod,
+}
+
+/// One comet, drawn from what its family looks like: the model follows no
+/// small body.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Comet {
+    pub id: CometId,
+    /// Proper name, invented. A label only.
+    pub name: String,
+    /// e.g. `3P/Velora` or `C/Velora`. A label only.
+    pub designation: String,
+    pub host: HostRef,
+    pub family: CometFamily,
+    pub orbit: Orbit,
+    /// Diameter of the nucleus.
+    pub diameter_km: f64,
+}
+
+/// What one host's belts and planets give in comets; orders of magnitude.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CometReservoir {
+    pub host: HostRef,
+    /// Belts beyond the ice line.
+    pub belt_mass_mearth: f64,
+    /// Planets on the way in that eject most of what reaches them.
+    pub ejectors: u32,
+    /// Active comets above 2.3 km with perihelia in the visible range.
+    pub active_comets: f64,
+    /// `None` if nothing here can build an Oort cloud.
+    pub oort_mass_mearth: Option<f64>,
 }
 
 /// A protoplanetary disk as the Standard tier modelled it.

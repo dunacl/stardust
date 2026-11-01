@@ -27,6 +27,7 @@ use std::f64::consts::TAU;
 pub enum Target {
     Star(StarId),
     Body(BodyId),
+    Comet(sg_schema::CometId),
 }
 
 /// The selected object, if any.
@@ -172,6 +173,8 @@ pub struct ViewSettings {
     pub show_backdrop: bool,
     /// Names beside the star and planets. Drawn by the app.
     pub show_labels: bool,
+    /// Comets and their orbits.
+    pub show_comets: bool,
     /// The disk of gas and dust during formation playback.
     pub show_disk: bool,
     pub quality: Quality,
@@ -187,6 +190,7 @@ impl Default for ViewSettings {
             show_stability_limits: true,
             show_backdrop: true,
             show_labels: true,
+            show_comets: true,
             show_disk: true,
             quality: Quality::default(),
         }
@@ -237,6 +241,19 @@ impl BodyPlacements {
 
     pub fn iter(&self) -> impl Iterator<Item = (Target, Placement)> + '_ {
         self.0.iter().map(|(t, p)| (*t, *p))
+    }
+
+    pub(crate) fn insert(&mut self, target: Target, placement: Placement) {
+        self.0.insert(target, placement);
+    }
+
+    pub(crate) fn has_no(&self, target: Target) -> bool {
+        !self.0.contains_key(&target)
+    }
+
+    pub(crate) fn clear_comets(&mut self) {
+        self.0
+            .retain(|target, _| !matches!(target, Target::Comet(_)));
     }
 
     /// The moons' paths this frame.
@@ -810,7 +827,7 @@ fn sync_scene(
             .get(&target)
             .map(|placement| (target, placement))
     }) {
-        Some((Target::Body(_), placement)) => (
+        Some((Target::Body(_) | Target::Comet(_), placement)) => (
             FOLLOWED_LUX,
             received_at(placement.position, placement.radius),
         ),
@@ -1093,6 +1110,7 @@ impl Plugin for StardustRenderPlugin {
         crate::star::build(app);
         crate::disk::build(app);
         crate::ring::build(app);
+        crate::comet::build(app);
         app.add_systems(
             Startup,
             (setup, camera::spawn_camera, crate::voyage::spawn_ship),
@@ -1107,6 +1125,7 @@ impl Plugin for StardustRenderPlugin {
                 advance,
                 sync_scene,
                 belt::sync_belts,
+                crate::comet::sync_comets,
                 crate::disk::sync_disks,
                 crate::ring::sync_rings,
                 crate::voyage::sync_ship,
@@ -1114,6 +1133,7 @@ impl Plugin for StardustRenderPlugin {
                 sky::sync_sky,
                 camera::pick,
                 draw_overlays,
+                crate::comet::draw_comet_orbits,
             )
                 .chain(),
         );

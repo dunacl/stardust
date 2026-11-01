@@ -132,7 +132,7 @@ pub(crate) fn sync_rings(
             .iter()
             .filter_map(|(target, star)| match target {
                 Target::Star(id) => Some((id, star.position - placement.position)),
-                Target::Body(_) => None,
+                Target::Body(_) | Target::Comet(_) => None,
             })
             .min_by(|a, b| a.1.length_squared().total_cmp(&b.1.length_squared()));
         let (star_dir, star_color) = star.map_or((Vec3::X, Vec3::ONE), |(id, to_star)| {

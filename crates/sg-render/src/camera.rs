@@ -295,7 +295,7 @@ pub(crate) fn apply_camera(
                 orbit.goal_distance = (placement.focus_radius * 9.0 / orbit.select_zoom)
                     .clamp(MIN_DISTANCE, MAX_DISTANCE);
                 *followed = Some(target);
-                if let Target::Body(_) = target {
+                if matches!(target, Target::Body(_) | Target::Comet(_)) {
                     let nearest_star = placements
                         .iter()
                         .filter(|(other, _)| matches!(other, Target::Star(_)))
