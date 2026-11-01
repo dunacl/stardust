@@ -16,8 +16,10 @@ mod cards;
 #[cfg(not(target_arch = "wasm32"))]
 mod desktop;
 mod help;
+mod i18n;
 mod launch;
 mod state;
+mod strings;
 mod ui;
 
 use bevy::prelude::*;
@@ -59,6 +61,7 @@ fn default_quality() -> Quality {
 /// Starts the app and runs it until it is closed.
 pub fn run() {
     let launch = launch_options();
+    i18n::set_language(launch.language);
 
     let mut state = AppState::new(launch.preset, launch.seed, launch.fidelity);
     state.show_ui = launch.show_ui;

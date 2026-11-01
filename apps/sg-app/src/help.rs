@@ -5,6 +5,7 @@
 //! two cannot disagree. Words only: this module holds no physics, and says
 //! plainly where the app draws something the model does not give.
 
+use crate::i18n::tr;
 use sg_render::ScaleMode;
 use sg_schema::Fidelity;
 
@@ -17,11 +18,21 @@ pub struct Item {
 }
 
 impl Item {
-    /// Whether a search matches the name or the text, ignoring case. An
-    /// empty search matches everything.
+    /// Its name in the current language.
+    pub fn title(&self) -> &'static str {
+        tr(self.name)
+    }
+
+    /// What it means, in the current language.
+    pub fn tip(&self) -> &'static str {
+        tr(self.text)
+    }
+
+    /// Whether a search matches the name or the text as shown, ignoring
+    /// case. An empty search matches everything.
     pub fn matches(&self, search: &str) -> bool {
         let search = search.trim().to_lowercase();
-        self.name.to_lowercase().contains(&search) || self.text.to_lowercase().contains(&search)
+        self.title().to_lowercase().contains(&search) || self.tip().to_lowercase().contains(&search)
     }
 }
 

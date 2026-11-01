@@ -3,6 +3,7 @@
 //! Pure text formatting over the snapshot, so it is unit-tested without a
 //! window.
 
+use crate::i18n::{self, tr, trf, Language};
 use sg_render::belt::is_belt;
 use sg_schema::{Body, DiskSummary, HabitableZone, MoonOrigin, PlanetClass, PlanetZone, Star};
 
@@ -52,9 +53,9 @@ pub fn duration(hours: f64) -> String {
     if hours < 72.0 {
         format!("{hours:.1} h")
     } else if hours < 24.0 * 365.25 * 2.0 {
-        format!("{:.1} days", hours / 24.0)
+        trf("{} days", &[&format!("{:.1}", hours / 24.0)])
     } else {
-        format!("{:.2} years", hours / (24.0 * 365.25))
+        trf("{} years", &[&format!("{:.2}", hours / (24.0 * 365.25))])
     }
 }
 
@@ -68,6 +69,26 @@ pub fn ordinal(n: usize) -> String {
         _ => "th",
     };
     format!("{n}{suffix}")
+}
+
+/// A place in a row, as it is written in `language`. Spanish and French
+/// agree with the noun, and `feminine` is for moons (`luna`, `lune`).
+fn place(language: Language, n: usize, feminine: bool) -> String {
+    match language {
+        Language::En => ordinal(n),
+        Language::Es => format!("{n}.{}", if feminine { "ª" } else { "º" }),
+        Language::Fr => match (n, feminine) {
+            (1, true) => "1re".to_string(),
+            (1, false) => "1er".to_string(),
+            _ => format!("{n}e"),
+        },
+        Language::De => format!("{n}."),
+    }
+}
+
+/// A distance as text, in the current language's unit.
+fn in_au(distance: &str) -> String {
+    trf("{} AU", &[&distance])
 }
 
 /// A mass in Earth masses: three decimals, or scientific notation when
@@ -85,7 +106,7 @@ pub fn mass(mass_mearth: f64) -> String {
 /// For giants, the mass in Jupiters as well: `(1.83 × Jupiter)`.
 fn in_jupiters(mass_mearth: f64) -> String {
     if mass_mearth >= 30.0 {
-        format!(" ({:.2} × Jupiter)", mass_mearth / 317.8)
+        trf(" ({} × Jupiter)", &[&format!("{:.2}", mass_mearth / 317.8)])
     } else {
         String::new()
     }
@@ -166,19 +187,19 @@ pub fn star_card(
             rows: vec![
                 ("Orbits with", companion.name.clone()),
                 ("Companion mass", format!("{:.2} M☉", companion.mass_msun)),
-                ("Separation", format!("{} AU", au(companion.separation_au))),
+                ("Separation", in_au(&au(companion.separation_au))),
                 ("Eccentricity", format!("{:.2}", companion.eccentricity)),
                 ("Period", duration(companion.period_days * 24.0)),
             ],
         });
         match zone {
-            Some(zone) if zone.limited_outside => notes.push(format!(
+            Some(zone) if zone.limited_outside => notes.push(trf(
                 "Its companion leaves stable orbits for planets only within {} AU.",
-                au(zone.outer_au)
+                &[&au(zone.outer_au)],
             )),
             Some(_) => {}
             None => notes.push(
-                "Its companion is too close for this star to keep planets of its own.".into(),
+                tr("Its companion is too close for this star to keep planets of its own.").into(),
             ),
         }
     }
@@ -189,16 +210,16 @@ pub fn star_card(
                 ("Gas mass", format!("{:.3} M☉", disk.initial_mass_msun)),
                 (
                     "Dust",
-                    format!(
-                        "{:.0} Earth masses",
-                        disk.initial_mass_msun * disk.dust_to_gas * 332_946.0
+                    trf(
+                        "{} Earth masses",
+                        &[&format!(
+                            "{:.0}",
+                            disk.initial_mass_msun * disk.dust_to_gas * 332_946.0
+                        )],
                     ),
                 ),
                 ("Lasted", format!("{:.1} Myr", disk.lifetime_myr)),
-                (
-                    "Ice line at the end",
-                    format!("{} AU", au(disk.final_ice_line_au)),
-                ),
+                ("Ice line at the end", in_au(&au(disk.final_ice_line_au))),
             ],
         });
     }
@@ -208,24 +229,24 @@ pub fn star_card(
             rows: vec![
                 (
                     "Conservative",
-                    format!(
-                        "{:.2}–{:.2} AU",
+                    in_au(&format!(
+                        "{:.2}–{:.2}",
                         hz.conservative_inner_au, hz.conservative_outer_au
-                    ),
+                    )),
                 ),
                 (
                     "Optimistic",
-                    format!(
-                        "{:.2}–{:.2} AU",
+                    in_au(&format!(
+                        "{:.2}–{:.2}",
                         hz.optimistic_inner_au, hz.optimistic_outer_au
-                    ),
+                    )),
                 ),
             ],
         });
     }
     Card {
         title: star.name.clone(),
-        subtitle: format!("{} main-sequence star", star.spectral_class),
+        subtitle: trf("{} main-sequence star", &[&star.spectral_class]),
         sections,
         notes,
     }
@@ -247,7 +268,7 @@ pub fn au(distance_au: f64) -> String {
 fn host_label(body: &Body) -> &str {
     body.designation
         .rsplit_once(' ')
-        .map_or("its star", |(host, _)| host)
+        .map_or(tr("its star"), |(host, _)| host)
 }
 
 /// `number` is the planet's 1-based position counting outward from its host.
@@ -256,7 +277,7 @@ pub fn body_card(body: &Body, number: usize) -> Card {
         Section {
             heading: "Orbit",
             rows: vec![
-                ("Semi-major axis", format!("{:.3} AU", body.orbit.a_au)),
+                ("Semi-major axis", in_au(&format!("{:.3}", body.orbit.a_au))),
                 ("Eccentricity", format!("{:.3}", body.orbit.e)),
                 ("Year", duration(body.orbit.period_days * 24.0)),
             ],
@@ -267,18 +288,17 @@ pub fn body_card(body: &Body, number: usize) -> Card {
                 let mut rows = vec![
                     (
                         "Mass",
-                        format!(
-                            "{} Earth masses{}",
-                            mass(body.mass_mearth),
-                            in_jupiters(body.mass_mearth)
-                        ),
+                        trf("{} Earth masses", &[&mass(body.mass_mearth)])
+                            + &in_jupiters(body.mass_mearth),
                     ),
                     (
                         "Radius",
-                        format!(
-                            "{:.0} km ({:.2} × Earth)",
-                            body.radius_km,
-                            body.radius_km / 6378.0
+                        trf(
+                            "{} km ({} × Earth)",
+                            &[
+                                &format!("{:.0}", body.radius_km),
+                                &format!("{:.2}", body.radius_km / 6378.0),
+                            ],
                         ),
                     ),
                     ("Density", format!("{:.2} g/cm³", body.density_g_cm3)),
@@ -317,7 +337,13 @@ pub fn body_card(body: &Body, number: usize) -> Card {
                 ),
                 (
                     "Extremes",
-                    format!("{:.0} to {:.0} K", climate.min_temp_k, climate.max_temp_k),
+                    trf(
+                        "{} to {} K",
+                        &[
+                            &format!("{:.0}", climate.min_temp_k),
+                            &format!("{:.0}", climate.max_temp_k),
+                        ],
+                    ),
                 ),
             ];
             if let Some(atmosphere) = &body.atmosphere {
@@ -346,7 +372,7 @@ pub fn body_card(body: &Body, number: usize) -> Card {
                     }
                 }
             } else {
-                rows.push(("Atmosphere", "none".into()));
+                rows.push(("Atmosphere", tr("none").into()));
             }
             rows.push(("Oceans", percent(climate.ocean_frac)));
             rows.push(("Ice", percent(climate.ice_frac)));
@@ -372,98 +398,123 @@ pub fn body_card(body: &Body, number: usize) -> Card {
     let mut notes = Vec::new();
     let kind = if is_belt(body) {
         notes.push(
-            "Too little mass for a planet: drawn as a belt. The model gives the belt's \
-             orbit and total mass; the rocks shown are illustrative."
-                .into(),
+            tr(
+                "Too little mass for a planet: drawn as a belt. The model gives the belt's \
+                orbit and total mass; the rocks shown are illustrative.",
+            )
+            .into(),
         );
-        class_name(body.class)
+        tr(class_name(body.class))
     } else if body.class == PlanetClass::Asteroids {
         // The Classic tier gives this label by mass, so this should not occur;
         // a hand-edited snapshot could still carry it.
-        notes.push("Labelled \"Asteroids\", but at this mass it is a single airless world.".into());
-        class_name(PlanetClass::Rock)
+        notes.push(
+            tr("Labelled \"Asteroids\", but at this mass it is a single airless world.").into(),
+        );
+        tr(class_name(PlanetClass::Rock))
     } else {
-        class_name(body.class)
+        tr(class_name(body.class))
     };
     let f = &body.formation;
     if is_standard_class(body.class) {
-        let mut story = format!("Began as an embryo {} AU from its star", au(f.origin_a_au));
-        if body.orbit.a_au < 0.8 * f.origin_a_au {
-            story.push_str(&format!(
-                " and migrated inward to {} AU while the gas disk lasted",
-                au(body.orbit.a_au)
-            ));
-        }
-        story.push('.');
-        notes.push(story);
+        notes.push(if body.orbit.a_au < 0.8 * f.origin_a_au {
+            trf(
+                "Began as an embryo {} AU from its star and migrated inward to {} AU while the \
+                 gas disk lasted.",
+                &[&au(f.origin_a_au), &au(body.orbit.a_au)],
+            )
+        } else {
+            trf(
+                "Began as an embryo {} AU from its star.",
+                &[&au(f.origin_a_au)],
+            )
+        });
         match f.mergers {
             0 => {}
-            1 => notes.push("Absorbed one other embryo.".into()),
-            n => notes.push(format!("Absorbed {n} other embryos.")),
+            1 => notes.push(tr("Absorbed one other embryo.").into()),
+            n => notes.push(trf("Absorbed {} other embryos.", &[&n])),
         }
         if f.captured_gas {
-            notes.push("Its core grew heavy enough to pull in gas in a runaway.".into());
+            notes.push(tr("Its core grew heavy enough to pull in gas in a runaway.").into());
         }
         if body.climate.is_none() && body.atmosphere.is_none() {
             notes.push(
-                "This tier does not yet model its surface or any thin atmosphere: it is drawn \
-                 as bare ground, and the terrain is illustrative."
-                    .into(),
+                tr(
+                    "This tier does not yet model its surface or any thin atmosphere: it is drawn \
+                    as bare ground, and the terrain is illustrative.",
+                )
+                .into(),
             );
         }
         if sg_render::surface::appearance(body).assumed_day {
-            notes.push(format!(
+            notes.push(trf(
                 "Cloud colours follow its temperature. This tier gives no day length: the \
-                 bands are drawn for an assumed {:.0}-hour day.",
-                sg_render::surface::ASSUMED_GIANT_DAY_HOURS
+                 bands are drawn for an assumed {}-hour day.",
+                &[&format!(
+                    "{:.0}",
+                    sg_render::surface::ASSUMED_GIANT_DAY_HOURS
+                )],
             ));
         }
     } else {
-        let mut story = format!("Grew from a nucleus injected at {:.2} AU", f.origin_a_au);
-        match f.mergers {
-            0 => story.push_str(" and never collided with another."),
-            1 => story.push_str(", then absorbed one other embryo."),
-            n => story.push_str(&format!(", then absorbed {n} other embryos.")),
-        }
-        notes.push(story);
+        let origin = format!("{:.2}", f.origin_a_au);
+        notes.push(match f.mergers {
+            0 => trf(
+                "Grew from a nucleus injected at {} AU and never collided with another.",
+                &[&origin],
+            ),
+            1 => trf(
+                "Grew from a nucleus injected at {} AU, then absorbed one other embryo.",
+                &[&origin],
+            ),
+            n => trf(
+                "Grew from a nucleus injected at {} AU, then absorbed {} other embryos.",
+                &[&origin, &n],
+            ),
+        });
         if f.captured_gas {
-            notes.push("Passed its critical mass and captured gas from the disk.".into());
+            notes.push(tr("Passed its critical mass and captured gas from the disk.").into());
         }
     }
     if body.rotation.tidally_locked {
-        notes.push("Tidally locked: one face always toward the star.".into());
+        notes.push(tr("Tidally locked: one face always toward the star.").into());
     } else if body.rotation.spin_orbit_resonance {
-        notes.push("Caught in a spin–orbit resonance.".into());
+        notes.push(tr("Caught in a spin–orbit resonance.").into());
     }
     if body.climate.as_ref().is_some_and(|c| c.runaway_greenhouse) {
-        notes.push("Runaway greenhouse.".into());
+        notes.push(tr("Runaway greenhouse.").into());
     }
     if body.habitability.in_conservative_hz {
-        notes.push("In the conservative habitable zone.".into());
+        notes.push(tr("In the conservative habitable zone.").into());
     } else if body.habitability.in_optimistic_hz {
-        notes.push("In the optimistic habitable zone.".into());
+        notes.push(tr("In the optimistic habitable zone.").into());
     }
     if body.habitability.surface_liquid_water {
-        notes.push("The model finds liquid water on the surface.".into());
+        notes.push(tr("The model finds liquid water on the surface.").into());
     }
     if let Some(rings) = &body.rings {
-        notes.push(format!(
-            "Rings of ice from {:.1} to {:.1} planetary radii. Where they end follows from the \
+        notes.push(trf(
+            "Rings of ice from {} to {} planetary radii. Where they end follows from the \
              planet's density (inside that distance its tides pull a moon apart); that this \
              planet has bright rings at all was drawn, at the Solar System's rate of one giant \
              in four. The ringlets shown are illustrative.",
-            rings.inner_radius_km / body.radius_km,
-            rings.outer_radius_km / body.radius_km
+            &[
+                &format!("{:.1}", rings.inner_radius_km / body.radius_km),
+                &format!("{:.1}", rings.outer_radius_km / body.radius_km),
+            ],
         ));
     }
 
     Card {
         title: body.name.clone(),
-        subtitle: format!(
-            "{kind} · {} planet of {} · {}",
-            ordinal(number),
-            host_label(body),
-            body.designation
+        subtitle: trf(
+            "{} · {} planet of {} · {}",
+            &[
+                &kind,
+                &place(i18n::language(), number, false),
+                &host_label(body),
+                &body.designation,
+            ],
         ),
         sections,
         notes,
@@ -476,10 +527,10 @@ pub fn with_moons(mut card: Card, moons: usize) -> Card {
         0 => {}
         1 => card
             .notes
-            .push("One moon: zoom out a little to see it.".into()),
+            .push(tr("One moon: zoom out a little to see it.").into()),
         n => card
             .notes
-            .push(format!("{n} moons: zoom out a little to see them.")),
+            .push(trf("{} moons: zoom out a little to see them.", &[&n])),
     }
     card
 }
@@ -492,18 +543,22 @@ pub fn moon_card(moon: &Body, planet: &Body, number: usize, origin: Option<MoonO
     let mut body_rows = vec![
         (
             "Mass",
-            format!(
-                "{} Earth masses ({:.2} × the Moon)",
-                mass(moon.mass_mearth),
-                moon.mass_mearth / LUNAR_MASS_MEARTH
+            trf(
+                "{} Earth masses ({} × the Moon)",
+                &[
+                    &mass(moon.mass_mearth),
+                    &format!("{:.2}", moon.mass_mearth / LUNAR_MASS_MEARTH),
+                ],
             ),
         ),
         (
             "Radius",
-            format!(
-                "{:.0} km ({:.2} × the Moon)",
-                moon.radius_km,
-                moon.radius_km / 1737.4
+            trf(
+                "{} km ({} × the Moon)",
+                &[
+                    &format!("{:.0}", moon.radius_km),
+                    &format!("{:.2}", moon.radius_km / 1737.4),
+                ],
             ),
         ),
         ("Density", format!("{:.2} g/cm³", moon.density_g_cm3)),
@@ -513,40 +568,44 @@ pub fn moon_card(moon: &Body, planet: &Body, number: usize, origin: Option<MoonO
     }
     body_rows.push(("Equilibrium temperature", celsius(moon.equilibrium_temp_k)));
     let mut notes = vec![match origin {
-        Some(MoonOrigin::GiantImpact) => format!(
+        Some(MoonOrigin::GiantImpact) => trf(
             "Formed from the debris of a collision between {} and another body, as the Moon \
              is thought to have. About one rocky planet in twelve gets such a moon.",
-            planet.name
+            &[&planet.name],
         ),
-        Some(MoonOrigin::CircumplanetaryDisk) | None => format!(
+        Some(MoonOrigin::CircumplanetaryDisk) | None => trf(
             "Grew in the disk of gas and dust around {} as the planet formed, as the large \
              moons of Jupiter and Saturn did.",
-            planet.name
+            &[&planet.name],
         ),
-        Some(MoonOrigin::Capture) => format!("Captured by {}.", planet.name),
+        Some(MoonOrigin::Capture) => trf("Captured by {}.", &[&planet.name]),
     }];
     notes.push(
         if moon.composition.water_frac >= 0.1 {
-            "Half ice, half rock: it is cold enough here for ice to last."
+            tr("Half ice, half rock: it is cold enough here for ice to last.")
         } else {
-            "Rock: too warm here for ice to last."
+            tr("Rock: too warm here for ice to last.")
         }
         .into(),
     );
     notes.push(
-        "Its mass and distance were drawn within what such moons are known to have; its \
-         formation was not simulated. Shown circling 20 times slower than the orbital clock. \
-         Outside True scale it is drawn closer in, to stay clear of other planets. The \
-         terrain is illustrative."
-            .into(),
+        tr(
+            "Its mass and distance were drawn within what such moons are known to have; its \
+            formation was not simulated. Shown circling 20 times slower than the orbital clock. \
+            Outside True scale it is drawn closer in, to stay clear of other planets. The \
+            terrain is illustrative.",
+        )
+        .into(),
     );
     Card {
         title: moon.name.clone(),
-        subtitle: format!(
+        subtitle: trf(
             "{} moon of {} · {}",
-            ordinal(number),
-            planet.name,
-            moon.designation
+            &[
+                &place(i18n::language(), number, true),
+                &planet.name,
+                &moon.designation,
+            ],
         ),
         sections: vec![
             Section {
@@ -623,13 +682,56 @@ mod tests {
                 }
                 for card in cards {
                     for section in card.sections {
+                        assert!(i18n::has(section.heading), "{}", section.heading);
                         for (label, _) in section.rows {
                             assert!(crate::help::card_row(label).is_some(), "no help: {label}");
+                            assert!(i18n::has(label), "no translation: {label}");
                         }
                     }
                 }
             }
         }
+    }
+
+    #[test]
+    fn every_class_has_a_translation() {
+        use PlanetClass::*;
+        for class in [
+            Asteroids,
+            Rock,
+            Venusian,
+            Terrestrial,
+            Martian,
+            Water,
+            Ice,
+            OneFace,
+            GasDwarf,
+            SubJovian,
+            Jovian,
+            Unknown,
+            Rocky,
+            SuperEarth,
+            LavaWorld,
+            WaterWorld,
+            IceWorld,
+            SubNeptune,
+            IceGiant,
+            GasGiant,
+            HotJupiter,
+        ] {
+            assert!(i18n::has(class_name(class)), "{class:?}");
+        }
+    }
+
+    #[test]
+    fn places_are_written_as_each_language_writes_them() {
+        assert_eq!(place(Language::En, 3, false), "3rd");
+        assert_eq!(place(Language::Es, 3, false), "3.º");
+        assert_eq!(place(Language::Es, 3, true), "3.ª");
+        assert_eq!(place(Language::Fr, 1, false), "1er");
+        assert_eq!(place(Language::Fr, 1, true), "1re");
+        assert_eq!(place(Language::Fr, 2, true), "2e");
+        assert_eq!(place(Language::De, 4, false), "4.");
     }
 
     #[test]
