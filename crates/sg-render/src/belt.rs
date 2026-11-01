@@ -36,6 +36,11 @@ const MAX_ROCK_ECCENTRICITY: f64 = 0.12;
 const MAX_ROCK_INCLINATION: f64 = 0.10;
 /// A rock's drawn radius relative to the smallest a planet is drawn.
 const ROCK_APPARENT_SIZE: f32 = 0.22;
+/// Radius of a rock of `size` 1, as a fraction of its drawn distance from
+/// the star. Far larger than real asteroids, like every drawn body here: it is
+/// chosen so that rocks show their shape up close and leave the wide view
+/// to [`ROCK_APPARENT_SIZE`].
+const ROCK_NEAR_SIZE: f32 = 0.0015;
 
 /// When a belt is selected the camera frames a stretch of it this wide, as
 /// a fraction of the belt's distance from the star, rather than closing in
@@ -137,6 +142,13 @@ pub fn lump(direction: Vec3, variant: u32) -> f32 {
         + 0.3 * wave(Vec3::new(-0.2, 1.0, 0.7 - v), 4.1, v * 2.9)
         + 0.2 * wave(Vec3::new(0.6, -0.8 + v, 1.0), 7.3, v * 0.6);
     0.925 + 0.275 * bumps
+}
+
+/// Drawn radius of a rock: a few pixels from afar, so that a belt can be
+/// seen at all, and its own size once the camera is close enough for that
+/// to be larger.
+pub fn rock_radius(apparent_floor: f32, size: f32, distance_from_star: f32) -> f32 {
+    (apparent_floor * ROCK_APPARENT_SIZE).max(distance_from_star * ROCK_NEAR_SIZE) * size
 }
 
 /// How many rock shapes a belt shares.
@@ -286,7 +298,12 @@ pub(crate) fn sync_belts(
                     }),
                 ),
         );
-        let radius = scene::apparent_floor(eye, position) * ROCK_APPARENT_SIZE * rock.size;
+        let radius = rock_radius(
+            scene::apparent_floor(eye, position),
+            rock.size,
+            // As drawn, not in AU: Schematic scale pulls the far belts in.
+            (position - orbit.local(centre)).length(),
+        );
         *transform = Transform {
             translation: position,
             rotation: Quat::from_euler(EulerRot::XYZ, rock.spin[0], rock.spin[1], rock.spin[2]),
@@ -322,6 +339,17 @@ mod tests {
         assert!(from_centre > 0.9 * inner_au && from_centre < 1.1 * outer_au);
         assert!(distance > 0.0);
         assert!(view_of(snapshot, &scale, 0.0, 999).is_none());
+    }
+
+    #[test]
+    fn rocks_keep_their_screen_size_far_off_and_their_own_up_close() {
+        // Far: the radius follows the apparent floor.
+        let far = rock_radius(0.1, 1.0, 2.0);
+        assert_eq!(far, rock_radius(0.1, 1.0, 2.5));
+        assert_eq!(rock_radius(0.2, 1.0, 2.0), 2.0 * far);
+        // Near: it stops shrinking with the camera's distance.
+        assert_eq!(rock_radius(1e-5, 1.0, 2.0), rock_radius(1e-6, 1.0, 2.0));
+        assert!(rock_radius(1e-5, 2.0, 2.0) > rock_radius(1e-5, 1.0, 2.0));
     }
 
     #[test]
