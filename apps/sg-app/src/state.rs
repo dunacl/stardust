@@ -31,6 +31,8 @@ pub struct StartOptions {
     pub tour: bool,
     /// Desktop only: save the view as a `.glb` here and exit.
     pub export: Option<std::path::PathBuf>,
+    /// Layers to start hidden, by name.
+    pub hide: Vec<String>,
     /// How much closer than usual to frame the selected body.
     pub zoom: f32,
 }
@@ -61,6 +63,8 @@ pub struct AppState {
     pub export_note: Option<String>,
     /// Save the view on the next frame.
     pub export_wanted: bool,
+    /// Show the Layers window.
+    pub show_layers: bool,
     /// Show the Help window.
     pub show_help: bool,
     /// What the Help window is searching for.
@@ -120,6 +124,7 @@ impl AppState {
             panel_open: None,
             show_panel: true,
             show_fps: false,
+            show_layers: false,
             show_help: false,
             export_note: None,
             export_wanted: false,
@@ -201,6 +206,9 @@ pub fn simulate_on_startup(mut state: ResMut<AppState>, mut targets: SimulationT
     let start = state.start.clone();
     targets.settings.scale = ScaleBlend::settled(start.scale);
     targets.settings.quality = start.quality;
+    for layer in &start.hide {
+        crate::ui::hide_layer(&mut targets.settings, layer);
+    }
     run_simulation(&mut state, &mut targets);
 
     let end = targets.view.timeline_end_myr();

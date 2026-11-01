@@ -5,6 +5,7 @@ Simulation changes are tracked by model version; each has a report in
 
 ## Unreleased
 
+- A Layers panel shows or hides each kind of object and guide. No change to the model.
 - Stars have layered convection cells, sunspots and faculae; hot stars stay smooth.
   The gas disk shows long trailing arcs, warm near the star, in place of radial
   streaks. The model's density and gaps are unchanged, and the patterns are drawn.

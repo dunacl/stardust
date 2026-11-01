@@ -53,6 +53,10 @@ pub struct Launch {
     pub fps: bool,
     /// Start with the Help window open.
     pub help: bool,
+    /// Start with the Layers window open.
+    pub layers: bool,
+    /// Layers to start hidden, by name.
+    pub hide: Vec<String>,
     /// The interface language.
     pub language: Language,
     /// How much closer than usual to frame the selected body. Above about
@@ -86,6 +90,8 @@ impl Default for Launch {
             tour: false,
             fps: false,
             help: false,
+            layers: false,
+            hide: Vec::new(),
             language: Language::En,
             zoom: 1.0,
         }
@@ -148,6 +154,8 @@ impl Launch {
                         launch.zoom = zoom;
                     }
                 }
+                "layers" => launch.layers = value != "0",
+                "hide" => launch.hide = value.split(',').map(str::to_string).collect(),
                 "help" => launch.help = value != "0",
                 "lang" => {
                     if let Some(language) = Language::from_code(value) {
@@ -208,6 +216,8 @@ mod tests {
                 tour: false,
                 fps: true,
                 help: true,
+                layers: false,
+                hide: Vec::new(),
                 language: Language::Fr,
                 zoom: 1.0,
             }

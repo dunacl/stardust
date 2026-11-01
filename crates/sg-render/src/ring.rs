@@ -108,12 +108,13 @@ pub(crate) fn sync_rings(
         entities.generation = view.generation();
     }
     let finished = playback.t_myr >= view.timeline_end_myr();
-    let _ = &settings;
     for body in result.snapshot.planets() {
         let Some((inner, outer)) = extent_in_radii(body) else {
             continue;
         };
-        let placement = placements.get(Target::Body(body.id)).filter(|_| finished);
+        let placement = placements
+            .get(Target::Body(body.id))
+            .filter(|_| finished && settings.show_rings);
         let Some(placement) = placement else {
             if let Some(ring) = entities.rings.get(&body.id) {
                 for face in ring.faces {

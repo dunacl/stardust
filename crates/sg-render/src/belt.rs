@@ -265,7 +265,7 @@ pub(crate) fn sync_belts(
     let eye = orbit.eye();
     let layout = Layout::at(&snapshot.hierarchy, &settings.scale, playback.orbit_days);
     for (belt_rock, mut transform, mut visibility) in &mut rocks_query {
-        let wanted = if finished {
+        let wanted = if finished && settings.show_belts {
             Visibility::Visible
         } else {
             Visibility::Hidden

@@ -219,6 +219,26 @@ pub const COMETS: Item = item(
     "A few comets, each standing for many, with their orbits. Tails grow near the star. How many \
      a system has follows from its icy belts and planets; each comet's orbit is drawn.",
 );
+pub const LAYERS: Item = item(
+    "Layers",
+    "Everything that can be shown or hidden, one switch each. What is hidden has no name, cannot be clicked and is left out of an export.",
+);
+pub const STARS_LAYER: Item = item("Stars", "The stars themselves. Their light stays on.");
+pub const PLANETS_LAYER: Item = item("Planets", "The planets, and embryos while they form.");
+pub const MOONS_LAYER: Item = item("Moons", "The moons of the planets, and their orbits.");
+pub const RINGS_LAYER: Item = item("Rings", "Planetary rings.");
+pub const BELTS_LAYER: Item = item(
+    "Belts",
+    "Belts of small bodies. The rocks are illustrative.",
+);
+pub const TAILS_LAYER: Item = item(
+    "Comet tails",
+    "The glow and tails of comets, leaving bare nuclei.",
+);
+pub const MARKS_LAYER: Item = item(
+    "Formation marks",
+    "Rings that flash at events while the system forms, such as a collision.",
+);
 pub const FRAME_SYSTEM: Item = item(
     "Frame system",
     "Clears the selection and moves the camera to show the whole system.",
@@ -319,6 +339,14 @@ const VIEW: &[Item] = &[
     DISK,
     SKY,
     COMETS,
+    LAYERS,
+    STARS_LAYER,
+    PLANETS_LAYER,
+    MOONS_LAYER,
+    RINGS_LAYER,
+    BELTS_LAYER,
+    TAILS_LAYER,
+    MARKS_LAYER,
     FRAME_SYSTEM,
 ];
 const PLAYBACK: &[Item] = &[
