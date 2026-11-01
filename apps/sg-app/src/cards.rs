@@ -6,8 +6,8 @@
 use crate::i18n::{self, tr, trf, Language};
 use sg_render::belt::is_belt;
 use sg_schema::{
-    Body, Comet, CometFamily, CometReservoir, DiskSummary, HabitableZone, MoonOrigin, PlanetClass,
-    PlanetZone, Star,
+    Body, Comet, CometFamily, CometReservoir, DiskSummary, HabitableZone, Mineral, MoonOrigin,
+    PlanetClass, PlanetZone, Star,
 };
 
 /// A titled list of label/value rows, plus free-text notes.
@@ -183,6 +183,14 @@ pub fn star_card(
             ("Planets", planets.to_string()),
         ],
     }];
+    sections.push(Section {
+        heading: "Composition",
+        rows: vec![
+            ("Hydrogen", share(star.hydrogen_frac)),
+            ("Helium", share(star.helium_frac)),
+            ("Metals", share(star.metal_frac)),
+        ],
+    });
     let mut notes = Vec::new();
     if let Some(companion) = companion {
         sections.push(Section {
@@ -319,16 +327,14 @@ pub fn body_card(body: &Body, number: usize) -> Card {
                 if let Some(tilt) = body.rotation.obliquity_deg {
                     rows.push(("Axial tilt", format!("{tilt:.0}°")));
                 }
-                if body.composition.water_frac > 0.005 {
-                    rows.push(("Water", percent(body.composition.water_frac)));
-                }
-                if body.composition.h_he_frac > 0.0005 {
-                    rows.push(("Hydrogen/helium", share(body.composition.h_he_frac)));
-                }
                 rows
             },
         },
+        composition_section(body),
     ];
+    if let Some(section) = minerals_section(body) {
+        sections.push(section);
+    }
 
     match &body.climate {
         Some(climate) => {
@@ -539,6 +545,50 @@ pub fn with_moons(mut card: Card, moons: usize) -> Card {
 }
 
 /// The card of a moon: `number` counts outward among its planet's moons.
+/// What a body is made of, by mass, as the model gives it.
+fn composition_section(body: &Body) -> Section {
+    let c = &body.composition;
+    let rows = [
+        ("Iron and metals", c.metal_frac),
+        ("Rock", c.rock_frac),
+        ("Water", c.water_frac),
+        ("Volatiles", c.volatiles_frac),
+        ("Hydrogen/helium", c.h_he_frac),
+    ]
+    .into_iter()
+    .filter(|(_, fraction)| *fraction > 0.0005)
+    .map(|(label, fraction)| (label, share(fraction)))
+    .collect();
+    Section {
+        heading: "Composition",
+        rows,
+    }
+}
+
+fn mineral_name(mineral: Mineral) -> &'static str {
+    match mineral {
+        Mineral::Silicates => "Silicates",
+        Mineral::IronOxides => "Iron oxides",
+        Mineral::Sulfides => "Sulfides",
+        Mineral::Carbonates => "Carbonates",
+        Mineral::WaterIce => "Water ice",
+        Mineral::VolatileIces => "Volatile ices",
+        Mineral::MoltenRock => "Molten rock",
+    }
+}
+
+/// The estimated surface, if the body has one.
+fn minerals_section(body: &Body) -> Option<Section> {
+    (!body.minerals.is_empty()).then(|| Section {
+        heading: "Surface minerals (estimated)",
+        rows: body
+            .minerals
+            .iter()
+            .map(|part| (mineral_name(part.mineral), percent(part.share)))
+            .collect(),
+    })
+}
+
 /// A count of comets to two figures: more would claim too much.
 fn round_count(count: f64) -> String {
     if count < 100.0 {
@@ -634,7 +684,10 @@ pub fn comet_card(comet: &Comet, orbits: &str) -> Card {
             },
             Section {
                 heading: "Comet",
-                rows: vec![("Nucleus", format!("{:.1} km", comet.diameter_km))],
+                rows: vec![
+                    ("Nucleus", format!("{:.1} km", comet.diameter_km)),
+                    ("Ice and dust", tr("about equal").to_string()),
+                ],
             },
         ],
         notes,
@@ -732,6 +785,7 @@ pub fn moon_card(moon: &Body, planet: &Body, number: usize, origin: Option<MoonO
                 heading: "Body",
                 rows: body_rows,
             },
+            composition_section(moon),
         ],
         notes,
     }
@@ -841,6 +895,25 @@ mod tests {
     }
 
     #[test]
+    fn every_mineral_has_a_row_and_help() {
+        for mineral in [
+            Mineral::Silicates,
+            Mineral::IronOxides,
+            Mineral::Sulfides,
+            Mineral::Carbonates,
+            Mineral::WaterIce,
+            Mineral::VolatileIces,
+            Mineral::MoltenRock,
+        ] {
+            let name = mineral_name(mineral);
+            assert!(
+                i18n::has(name) && crate::help::card_row(name).is_some(),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
     fn counts_of_comets_keep_two_figures() {
         assert_eq!(round_count(7.4), "7");
         assert_eq!(round_count(300.0), "300");
@@ -945,7 +1018,16 @@ mod tests {
             card.subtitle
         );
         let headings: Vec<_> = card.sections.iter().map(|s| s.heading).collect();
-        assert_eq!(headings, ["Orbit", "Body", "Surface"]);
+        assert_eq!(
+            headings,
+            [
+                "Orbit",
+                "Body",
+                "Composition",
+                "Surface minerals (estimated)",
+                "Surface"
+            ]
+        );
         assert!(card.notes[0].starts_with("Grew from a nucleus injected at"));
     }
 

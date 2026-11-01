@@ -42,6 +42,14 @@ pub fn z_from_feh(feh: f64) -> f64 {
     SOLAR_Z * pow(10.0, feh)
 }
 
+/// Hydrogen, helium and metal shares by mass for metallicity `z`: the
+/// relations the stellar tracks are built on, `Y = 0.24 + 2Z` and
+/// `X = 0.76 − 3Z` (Pols et al. 1998, MNRAS 298, 525; Hurley, Pols & Tout
+/// 2000). Valid over the tracks' range of `z`, 10⁻⁴ to 0.03.
+pub fn composition_from_z(z: f64) -> (f64, f64, f64) {
+    (0.76 - 3.0 * z, 0.24 + 2.0 * z, z)
+}
+
 /// `c[0] + x·(c[1] + x·(c[2] + …))`.
 fn poly(c: &[f64], x: f64) -> f64 {
     c.iter().rev().fold(0.0, |acc, k| acc * x + k)
@@ -550,6 +558,13 @@ impl MainSequence {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn composition_adds_up_and_is_near_the_suns_at_solar_z() {
+        let (x, y, z) = composition_from_z(0.02);
+        assert!((x + y + z - 1.0).abs() < 1e-12);
+        assert!((x - 0.70).abs() < 1e-12 && (y - 0.28).abs() < 1e-12);
+    }
 
     #[test]
     fn polynomial_is_horner() {

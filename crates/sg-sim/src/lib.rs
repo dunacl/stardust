@@ -33,7 +33,7 @@ use sg_schema::{EventTimeline, Fidelity, SimulationParams, SystemSnapshot, SCHEM
 
 /// Version of the physical model. Bump whenever a change alters outputs for
 /// existing parameters (CLAUDE.md hard rule 7).
-pub const MODEL_VERSION: &str = "0.15.0";
+pub const MODEL_VERSION: &str = "0.16.0";
 
 /// Everything a run produces.
 #[derive(Debug, Clone, PartialEq)]
@@ -155,10 +155,26 @@ pub fn simulate_with(
         Fidelity::High => standard::simulate(params, observer),
     }?;
     names::assign(&mut result.snapshot, params.seed);
+    assign_minerals(&mut result.snapshot);
     if params.fidelity != Fidelity::Classic {
         comets::assign(&mut result.snapshot, params.seed);
     }
     Ok(result)
+}
+
+/// Estimates every body's surface from what the model gave it. Nothing
+/// reads the result back, so no draw or physics depends on it.
+fn assign_minerals(snapshot: &mut SystemSnapshot) {
+    for body in &mut snapshot.bodies {
+        let c = &body.composition;
+        body.minerals = sg_planet::minerals::surface_mix(
+            c.metal_frac,
+            c.rock_frac,
+            c.water_frac,
+            c.h_he_frac,
+            body.equilibrium_temp_k,
+        );
+    }
 }
 
 /// Fingerprint of a parameter set: FNV-1a of its canonical JSON.

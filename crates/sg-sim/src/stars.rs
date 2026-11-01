@@ -373,6 +373,8 @@ impl Builder<'_> {
                         String::new()
                     },
                 });
+                let (hydrogen_frac, helium_frac, metal_frac) =
+                    evolution::composition_from_z(self.tracks.z());
                 Ok(Built {
                     node: HierarchyNode::Star(Star {
                         id,
@@ -385,6 +387,9 @@ impl Builder<'_> {
                         color_linear_rgb: sg_stellar::blackbody_linear_srgb(state.teff),
                         age_gyr: self.age_gyr,
                         main_sequence_lifetime_gyr: lifetime_gyr,
+                        hydrogen_frac,
+                        helium_frac,
+                        metal_frac,
                     }),
                     mass: *mass,
                     members: vec![index],

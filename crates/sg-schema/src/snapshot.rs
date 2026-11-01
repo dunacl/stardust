@@ -90,6 +90,11 @@ pub struct Star {
     pub age_gyr: f64,
     /// Main-sequence lifetime.
     pub main_sequence_lifetime_gyr: f64,
+    /// Share of the star's mass that is hydrogen.
+    pub hydrogen_frac: f64,
+    pub helium_frac: f64,
+    /// Everything heavier.
+    pub metal_frac: f64,
 }
 
 /// Keplerian orbit about the host.
@@ -138,6 +143,9 @@ pub struct Body {
     pub kind: BodyKind,
     pub host: HostRef,
     pub orbit: Orbit,
+    /// The likely surface mix by decreasing share, estimated. Empty for a
+    /// body with no solid surface.
+    pub minerals: Vec<MineralShare>,
     pub mass_mearth: f64,
     /// Equatorial radius.
     pub radius_km: f64,
@@ -175,6 +183,28 @@ pub struct Composition {
     pub volatiles_frac: f64,
     /// Hydrogen and helium.
     pub h_he_frac: f64,
+}
+
+/// A kind of material on a surface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Mineral {
+    Silicates,
+    IronOxides,
+    Sulfides,
+    Carbonates,
+    WaterIce,
+    /// Nitrogen, methane and the like.
+    VolatileIces,
+    MoltenRock,
+}
+
+/// One part of a surface; an estimate (`sg_planet::minerals`).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct MineralShare {
+    pub mineral: Mineral,
+    /// Share of the surface, 0 to 1.
+    pub share: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

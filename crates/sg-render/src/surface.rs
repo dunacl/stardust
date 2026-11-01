@@ -16,12 +16,13 @@
 //!   Rayleigh's λ⁻⁴.
 //! - **Drawing choices**: every colour swatch, the shape of the terrain
 //!   (noise, not geology), the craters on bare rock (their sizes, places
-//!   and dark plains), the dry belts on land, the height of the drawn atmosphere, and the wind
+//!   and dark plains), the dry belts on land, how much the estimated
+//!   minerals tint bare rock (the estimate is `sg_planet::minerals`), the height of the drawn atmosphere, and the wind
 //!   speed and (where the tier gives none) the day length that set the band
 //!   count. These are marked where they are made.
 
 use sg_core::units::Kelvin;
-use sg_schema::{Body, PlanetClass};
+use sg_schema::{Body, Mineral, PlanetClass};
 use sg_stellar::blackbody_linear_srgb;
 
 /// Which procedure the shader runs. The numbers are the shader's.
@@ -102,6 +103,28 @@ fn srgb(r: f32, g: f32, b: f32) -> [f32; 3] {
 /// Rayleigh blue: what a clear nitrogen or oxygen sky scatters.
 fn rayleigh_blue() -> [f32; 3] {
     srgb(0.36, 0.60, 1.0)
+}
+
+/// Colour factor of bare rock from its estimated surface: iron oxides
+/// redden it, as on Mars; sulfides yellow it, as on Io; ices whiten it. How
+/// much is a drawing choice.
+fn mineral_tint(body: &Body) -> [f32; 3] {
+    let mut tint = [1.0_f32; 3];
+    for part in &body.minerals {
+        let share = part.share as f32;
+        let (color, strength): ([f32; 3], f32) = match part.mineral {
+            Mineral::IronOxides => ([1.45, 0.72, 0.48], 3.0),
+            Mineral::Sulfides => ([1.25, 1.1, 0.6], 3.0),
+            Mineral::Carbonates => ([1.2, 1.2, 1.15], 2.0),
+            Mineral::WaterIce => ([1.7, 1.8, 1.95], 1.0),
+            Mineral::VolatileIces => ([1.5, 1.3, 1.1], 1.0),
+            Mineral::Silicates | Mineral::MoltenRock => ([1.0, 1.0, 1.0], 0.0),
+        };
+        for (channel, target) in tint.iter_mut().zip(color) {
+            *channel *= 1.0 + (target - 1.0) * (share * strength).min(1.0);
+        }
+    }
+    tint
 }
 
 /// Equilibrium temperature at which rock begins to glow visibly, and at
@@ -301,6 +324,12 @@ pub fn appearance(body: &Body) -> Appearance {
         PlanetClass::Asteroids | PlanetClass::Rock | PlanetClass::Rocky | PlanetClass::Unknown => {
             look.ocean_frac = 0.0;
             look.cloud_frac = 0.0;
+            let tint = mineral_tint(body);
+            for color in &mut look.colors {
+                for (channel, factor) in color.iter_mut().zip(tint) {
+                    *channel *= factor;
+                }
+            }
         }
         PlanetClass::SuperEarth => {
             look.colors = [

@@ -25,6 +25,10 @@ fn sample_body() -> Body {
         escape_velocity_km_s: 11.2,
         albedo: 0.3,
         equilibrium_temp_k: 255.0,
+        minerals: vec![MineralShare {
+            mineral: Mineral::Silicates,
+            share: 1.0,
+        }],
         composition: Composition {
             metal_frac: 0.32,
             rock_frac: 0.68,
@@ -105,6 +109,9 @@ fn sample_snapshot() -> SystemSnapshot {
                 color_linear_rgb: [1.0, 0.93, 0.87],
                 age_gyr: 4.6,
                 main_sequence_lifetime_gyr: 10.0,
+                hydrogen_frac: 0.7,
+                helium_frac: 0.28,
+                metal_frac: 0.02,
             })),
             b: Box::new(HierarchyNode::Star(Star {
                 id: StarId(1),
@@ -117,6 +124,9 @@ fn sample_snapshot() -> SystemSnapshot {
                 color_linear_rgb: [1.0, 0.6, 0.3],
                 age_gyr: 4.6,
                 main_sequence_lifetime_gyr: 80.0,
+                hydrogen_frac: 0.7,
+                helium_frac: 0.28,
+                metal_frac: 0.02,
             })),
             orbit: Orbit {
                 a_au: 80.0,

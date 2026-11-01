@@ -18,6 +18,14 @@ Simulation changes are tracked by model version; each has a report in
 - The growth-model milestone is closed at model 0.13.0, with its known limits stated
   in the README. No change to the model.
 
+## Model 0.16.0
+
+- Every body's card shows what it is made of, by mass, and any solid world an estimate
+  of its surface minerals, labelled as one: the model follows no mineral, so the mix
+  comes from its makeup and temperature by a few rules (`sg_planet::minerals`). Stars
+  show hydrogen, helium and metals. The estimate tints bare rock. Schema 0.13.0. Nothing
+  else changes: the validation report differs from 0.15.0 only in its timing.
+
 ## Model 0.15.0
 
 - Comets, in the Standard and High tiers. How many a host has follows from its icy
