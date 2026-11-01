@@ -129,6 +129,7 @@ pub(crate) fn attach(
                 escape_velocity_km_s: 11.186 * sqrt(moon.mass_mearth / radius),
                 albedo: planet.albedo,
                 equilibrium_temp_k: planet.equilibrium_temp_k,
+                minerals: Vec::new(),
                 composition: Composition {
                     metal_frac: rock * (1.0 - sg_planet::EARTH_ROCK_FRACTION),
                     rock_frac: rock * sg_planet::EARTH_ROCK_FRACTION,

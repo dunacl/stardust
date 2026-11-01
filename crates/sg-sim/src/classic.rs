@@ -218,6 +218,7 @@ fn body(
         escape_velocity_km_s: p.escape_km_s,
         albedo: p.albedo,
         equilibrium_temp_k: p.equilibrium_k,
+        minerals: Vec::new(),
         composition: Composition {
             metal_frac: rock_and_iron * (1.0 - sg_planet::EARTH_ROCK_FRACTION),
             rock_frac: rock_and_iron * sg_planet::EARTH_ROCK_FRACTION,

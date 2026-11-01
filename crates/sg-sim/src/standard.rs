@@ -892,6 +892,7 @@ pub(crate) fn simulate(
                 escape_velocity_km_s: 11.186 * sqrt(mass / radius),
                 albedo: ASSUMED_ALBEDO,
                 equilibrium_temp_k: temp,
+                minerals: Vec::new(),
                 composition: Composition {
                     metal_frac: rock_and_iron * (1.0 - sg_planet::EARTH_ROCK_FRACTION),
                     rock_frac: rock_and_iron * sg_planet::EARTH_ROCK_FRACTION,

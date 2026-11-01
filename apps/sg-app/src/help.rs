@@ -366,6 +366,20 @@ const PRESETS: &[Item] = &[
 ];
 /// What a data card's rows mean; [`card_row`] finds them by label.
 const CARD_ROWS: &[Item] = &[
+    item("Iron and metals", "The share of the body's mass in its metal core."),
+    item("Rock", "The share of the body's mass that is rock."),
+    item("Volatiles", "The share of the body's mass in ices such as ammonia and methane."),
+    item("Hydrogen", "The share of the star's mass that is hydrogen."),
+    item("Helium", "The share of the star's mass that is helium."),
+    item("Metals", "The share of the star's mass in everything heavier."),
+    item("Silicates", "Rock-forming minerals such as olivine and pyroxene. Estimated, like the rest of this list, from the body's makeup and temperature; the model follows no mineral."),
+    item("Iron oxides", "Rust. Water oxidises iron, as on Mars. Estimated."),
+    item("Sulfides", "Compounds of sulfur and metals. Estimated."),
+    item("Carbonates", "Limestone and the like, laid down where liquid water weathers rock. Estimated."),
+    item("Water ice", "Lasts on the surface below about 170 K. Estimated."),
+    item("Volatile ices", "Frozen nitrogen and methane, as on Pluto. Estimated."),
+    item("Molten rock", "Above about 1400 K silicate rock melts. Estimated."),
+    item("Ice and dust", "Comets are about as much dust as ice. A general value, not modelled for each comet."),
     item(
         "Mass",
         "In Earth masses for bodies, solar masses (M☉) for stars.",
