@@ -219,7 +219,9 @@ for what in "$@"; do
   esac
 done
 
-(cd "$DIST" && shasum -a 256 stardust-"$VERSION"-* | grep -v SHA256SUMS >"SHA256SUMS-$VERSION.txt")
+# Archives only: dist/ can also hold a folder unpacked by hand.
+(cd "$DIST" && find . -maxdepth 1 -type f -name "stardust-$VERSION-*" | sed 's|^\./||' | sort |
+  xargs shasum -a 256 >"SHA256SUMS-$VERSION.txt")
 echo
 ls -lh "$DIST"
 echo "release: wrote $DIST/ (checksums in $DIST/SHA256SUMS-$VERSION.txt)"
