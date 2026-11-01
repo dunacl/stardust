@@ -2,6 +2,7 @@
 //! labels beside the star and planets.
 
 use crate::cards::{self, Card, Companion};
+use crate::help;
 use crate::state::{run_simulation, AppState, SimulationTargets, DEFAULT_PLAYBACK_SECS};
 use bevy::prelude::*;
 use bevy_egui::egui::{self, Align2, Color32, RichText};
@@ -33,7 +34,8 @@ fn mass_slider(ui: &mut egui::Ui, mass: &mut f64, label: &str) {
             .logarithmic(true)
             .text(label)
             .fixed_decimals(2),
-    );
+    )
+    .on_hover_text(help::STAR_MASS.text);
 }
 
 /// Sliders for an explicit hierarchy: a mass per star, a separation and an
@@ -52,12 +54,14 @@ fn hierarchy_controls(ui: &mut egui::Ui, node: &mut StarNode, next: &mut u32) {
                     egui::Slider::new(&mut orbit.a_au, 0.03..=500.0)
                         .logarithmic(true)
                         .text("Separation (AU)"),
-                );
+                )
+                .on_hover_text(help::SEPARATION.text);
                 ui.add(
                     egui::Slider::new(&mut orbit.e, 0.0..=0.8)
                         .text("Eccentricity")
                         .fixed_decimals(2),
-                );
+                )
+                .on_hover_text(help::ECCENTRICITY.text);
             });
         }
     }
@@ -101,10 +105,12 @@ fn preset_items(ui: &mut egui::Ui, state: &mut AppState) {
     for preset in ALL_PRESETS {
         match preset_availability(preset, state.fidelity) {
             PresetAvailability::Available => {
-                if ui
-                    .selectable_label(state.preset == preset, preset_name(preset))
-                    .clicked()
-                {
+                let item = ui.selectable_label(state.preset == preset, preset_name(preset));
+                let item = match help::preset(preset_name(preset)) {
+                    Some(text) => item.on_hover_text(text),
+                    None => item,
+                };
+                if item.clicked() {
                     state.apply_preset(preset);
                 }
             }
@@ -126,28 +132,9 @@ fn controls(
 ) {
     let mut fidelity = state.fidelity;
     ui.horizontal(|ui| {
-        ui.radio_value(&mut fidelity, Fidelity::Standard, "Standard")
-            .on_hover_text(
-                "The modern model: a gas disk that evolves and clears, cores grown by pebble \
-                 accretion, gas giants by runaway accretion, migration, and loss of atmospheres \
-                 to the star's radiation.",
-            );
-        ui.radio_value(&mut fidelity, Fidelity::Classic, "Classic")
-            .on_hover_text(
-                "Dole's accretion model of 1969 with Fogg's extension of 1985, around modern \
-                 stars and orbital-stability limits. A historical method, not a description \
-                 of how planets form.",
-            );
-        ui.radio_value(&mut fidelity, Fidelity::High, "High")
-            .on_hover_text(
-                "The Standard model, with the orbits of the massive planets followed directly \
-                 after the gas clears: a run aims at a million years but usually stops near \
-                 30,000. Giants packed too closely \
-                 throw one another onto elongated orbits or out of the system, where the \
-                 Standard tier would merge them. Takes a few seconds when there are two or \
-                 more massive planets; otherwise it is the Standard tier.",
-            );
-        ui.label(RichText::new(format!("model {MODEL_VERSION}")).color(MUTED));
+        tier_choices(ui, &mut fidelity);
+        ui.label(RichText::new(format!("model {MODEL_VERSION}")).color(MUTED))
+            .on_hover_text(help::MODEL_VERSION_NOTE.text);
     });
     if fidelity != state.fidelity {
         state.set_fidelity(fidelity);
@@ -158,18 +145,26 @@ fn controls(
             Fidelity::High => "Shown: High",
             Fidelity::Standard => "Shown: Standard",
         };
-        ui.label(RichText::new(shown).small().color(MUTED));
+        ui.label(RichText::new(shown).small().color(MUTED))
+            .on_hover_text(help::SHOWN.text);
     }
     ui.separator();
 
     egui::ComboBox::from_label("Preset")
         .selected_text(preset_name(state.preset))
-        .show_ui(ui, |ui| preset_items(ui, state));
+        .show_ui(ui, |ui| preset_items(ui, state))
+        .response
+        .on_hover_text(help::PRESET.text);
 
     ui.horizontal(|ui| {
-        ui.label("Seed");
-        ui.add(egui::DragValue::new(&mut state.params.seed).range(1..=u64::from(u32::MAX)));
-        if ui.button("New seed").clicked() {
+        ui.label("Seed").on_hover_text(help::SEED.text);
+        ui.add(egui::DragValue::new(&mut state.params.seed).range(1..=u64::from(u32::MAX)))
+            .on_hover_text(help::SEED.text);
+        if ui
+            .button("New seed")
+            .on_hover_text(help::NEW_SEED.text)
+            .clicked()
+        {
             state.next_seed();
         }
     });
@@ -178,7 +173,11 @@ fn controls(
 
     let mut fixed_age = state.params.age_gyr.is_some();
     ui.horizontal(|ui| {
-        if ui.checkbox(&mut fixed_age, "Fix age").changed() {
+        if ui
+            .checkbox(&mut fixed_age, "Fix age")
+            .on_hover_text(help::FIX_AGE.text)
+            .changed()
+        {
             state.params.age_gyr = fixed_age.then_some(4.6);
         }
         if let Some(age) = state.params.age_gyr.as_mut() {
@@ -202,10 +201,15 @@ fn controls(
     ui.horizontal(|ui| {
         let simulate =
             egui::Button::new(RichText::new("Simulate").strong()).min_size(egui::vec2(120.0, 28.0));
-        if ui.add(simulate).clicked() {
+        if ui
+            .add(simulate)
+            .on_hover_text(help::SIMULATE.text)
+            .clicked()
+        {
             run_simulation(state, targets);
         }
-        ui.checkbox(&mut state.play_on_simulate, "Play formation");
+        ui.checkbox(&mut state.play_on_simulate, "Play formation")
+            .on_hover_text(help::PLAY_FORMATION.text);
     });
     if let Some(error) = &state.error {
         ui.colored_label(Color32::from_rgb(240, 110, 100), error);
@@ -216,7 +220,8 @@ fn controls(
             RichText::new(format!("Simulated in {}", simulation_time(ms)))
                 .small()
                 .color(MUTED),
-        );
+        )
+        .on_hover_text(help::SIMULATED_IN.text);
     }
 
     if with_view {
@@ -229,7 +234,19 @@ fn controls(
         frame_system_button(ui, targets);
         tour_button(ui, targets);
     }
-    run_notes(ui, targets);
+    run_notes(ui, state, targets);
+}
+
+/// The tiers to choose from, each explaining itself.
+fn tier_choices(ui: &mut egui::Ui, fidelity: &mut Fidelity) {
+    for (tier, name) in [
+        (Fidelity::Standard, "Standard"),
+        (Fidelity::Classic, "Classic"),
+        (Fidelity::High, "High"),
+    ] {
+        ui.radio_value(fidelity, tier, name)
+            .on_hover_text(help::tier(tier));
+    }
 }
 
 /// A simulation's duration for display: milliseconds below a second.
@@ -246,18 +263,22 @@ pub fn simulation_time(ms: f64) -> String {
 fn optional_slider(
     ui: &mut egui::Ui,
     value: &mut Option<f64>,
-    label: &str,
+    item: help::Item,
     when_fixed: f64,
     slider: impl FnOnce(&mut f64) -> egui::Slider<'_>,
 ) {
     let mut fixed = value.is_some();
     ui.horizontal(|ui| {
-        if ui.checkbox(&mut fixed, label).changed() {
+        if ui
+            .checkbox(&mut fixed, item.name)
+            .on_hover_text(item.text)
+            .changed()
+        {
             *value = fixed.then_some(when_fixed);
         }
         match value.as_mut() {
             Some(v) => {
-                ui.add(slider(v));
+                ui.add(slider(v)).on_hover_text(item.text);
             }
             None => {
                 ui.label(RichText::new("drawn at random").color(MUTED));
@@ -271,7 +292,7 @@ fn standard_controls(ui: &mut egui::Ui, state: &mut AppState) {
         optional_slider(
             ui,
             &mut state.params.metallicity_feh,
-            "Metallicity",
+            help::METALLICITY,
             0.0,
             |v| {
                 egui::Slider::new(v, -0.6..=0.5)
@@ -282,7 +303,7 @@ fn standard_controls(ui: &mut egui::Ui, state: &mut AppState) {
         optional_slider(
             ui,
             &mut state.params.disk.mass_fraction,
-            "Disk mass",
+            help::DISK_MASS,
             0.03,
             |v| {
                 egui::Slider::new(v, 0.003..=0.2)
@@ -293,7 +314,7 @@ fn standard_controls(ui: &mut egui::Ui, state: &mut AppState) {
         optional_slider(
             ui,
             &mut state.params.disk.lifetime_myr,
-            "Disk lifetime",
+            help::DISK_LIFETIME,
             3.0,
             |v| {
                 egui::Slider::new(v, 0.5..=10.0)
@@ -302,8 +323,12 @@ fn standard_controls(ui: &mut egui::Ui, state: &mut AppState) {
             },
         );
         ui.checkbox(&mut state.params.toggles.migration, "Migration")
-            .on_hover_text("Planets drift inward through the gas disk as they grow.");
-        if ui.button("Reset").clicked() {
+            .on_hover_text(help::MIGRATION.text);
+        if ui
+            .button("Reset")
+            .on_hover_text(help::RESET_DISK.text)
+            .clicked()
+        {
             state.params.metallicity_feh = None;
             state.params.disk = Default::default();
             state.params.formation.standard = Default::default();
@@ -320,23 +345,28 @@ fn classic_controls(ui: &mut egui::Ui, state: &mut AppState) {
                 .logarithmic(true)
                 .text("Dust density A"),
         )
-        .on_hover_text("More dust: more and heavier planets. Dole: 0.0015.");
+        .on_hover_text(help::DUST_DENSITY.text);
         ui.add(egui::Slider::new(&mut c.gas_dust_ratio, 10.0..=150.0).text("Gas/dust ratio K"))
-            .on_hover_text("How much gas a giant can capture per unit of dust. Dole: 50.");
+            .on_hover_text(help::GAS_DUST.text);
         ui.add(
             egui::Slider::new(&mut c.crit_mass_coeff_msun, 2.0e-6..=6.0e-5)
                 .logarithmic(true)
                 .text("Critical mass B (M☉)"),
         )
-        .on_hover_text("Mass above which a planet captures gas, at 1 AU. Dole: 1.2e-5.");
+        .on_hover_text(help::CRITICAL_MASS.text);
         ui.add(egui::Slider::new(&mut c.cloud_eccentricity, 0.0..=0.5).text("Cloud eccentricity"))
-            .on_hover_text("Widens each nucleus's reach. Dole: 0.2–0.25.");
+            .on_hover_text(help::CLOUD_ECCENTRICITY.text);
         ui.add(
             egui::Slider::new(&mut c.eccentricity_coeff, 0.02..=0.3).text("Eccentricity exponent"),
         )
-        .on_hover_text("Larger: more eccentric nuclei. Dole: 0.077.");
-        ui.checkbox(&mut state.params.toggles.atmospheres, "Compute atmospheres");
-        if ui.button("Reset to Dole's values").clicked() {
+        .on_hover_text(help::ECCENTRICITY_EXPONENT.text);
+        ui.checkbox(&mut state.params.toggles.atmospheres, "Compute atmospheres")
+            .on_hover_text(help::COMPUTE_ATMOSPHERES.text);
+        if ui
+            .button("Reset to Dole's values")
+            .on_hover_text(help::RESET_DOLE.text)
+            .clicked()
+        {
             *c = Default::default();
         }
     });
@@ -346,7 +376,8 @@ fn scale_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
     let mut mode = targets.settings.scale.to;
     ui.horizontal_wrapped(|ui| {
         for candidate in ScaleMode::ALL {
-            ui.radio_value(&mut mode, candidate, candidate.label());
+            ui.radio_value(&mut mode, candidate, candidate.label())
+                .on_hover_text(help::scale(candidate));
         }
     });
     if mode != targets.settings.scale.to {
@@ -363,33 +394,32 @@ fn scale_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
 
 fn overlay_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
     ui.horizontal_wrapped(|ui| {
-        ui.checkbox(&mut targets.settings.show_orbits, "Orbits");
-        ui.checkbox(&mut targets.settings.show_habitable_zone, "Habitable zone");
+        ui.checkbox(&mut targets.settings.show_orbits, "Orbits")
+            .on_hover_text(help::ORBITS.text);
+        ui.checkbox(&mut targets.settings.show_habitable_zone, "Habitable zone")
+            .on_hover_text(help::HABITABLE_ZONE.text);
         ui.checkbox(&mut targets.settings.show_stability_limits, "Limits")
-            .on_hover_text(
-                "Red rings: where a companion star's pull ends the zone in which \
-                 planets keep stable orbits.",
-            );
+            .on_hover_text(help::LIMITS.text);
     });
     ui.horizontal_wrapped(|ui| {
-        ui.checkbox(&mut targets.settings.show_labels, "Names");
+        ui.checkbox(&mut targets.settings.show_labels, "Names")
+            .on_hover_text(help::NAMES.text);
         ui.checkbox(&mut targets.settings.show_disk, "Disk, while forming")
-            .on_hover_text(
-                "The gas and dust the planets grow in. How dense it is, where giants have \
-                 opened gaps and when it clears come from the model; the streaks do not.",
-            );
+            .on_hover_text(help::DISK.text);
         ui.checkbox(&mut targets.settings.show_backdrop, "Sky backdrop")
-            .on_hover_text("Scenery: the stars and galaxies behind the system are not simulated.");
+            .on_hover_text(help::SKY.text);
     });
 }
 
 fn motion_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
-    ui.checkbox(&mut targets.playback.orbits_running, "Orbital motion");
+    ui.checkbox(&mut targets.playback.orbits_running, "Orbital motion")
+        .on_hover_text(help::ORBITAL_MOTION.text);
     ui.add(
         egui::Slider::new(&mut targets.playback.days_per_second, 1.0..=3000.0)
             .logarithmic(true)
             .text("days / second"),
-    );
+    )
+    .on_hover_text(help::DAYS_PER_SECOND.text);
 }
 
 fn quality_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets, show_fps: &mut bool) {
@@ -400,11 +430,9 @@ fn quality_controls(ui: &mut egui::Ui, targets: &mut SimulationTargets, show_fps
         }
     })
     .response
-    .on_hover_text(
-        "Reduced is for phones and older graphics: no glow around stars, coarser \
-         spheres, fewer belt rocks, less surface detail.",
-    );
-    ui.checkbox(show_fps, "Frame rate");
+    .on_hover_text(help::EFFECTS.text);
+    ui.checkbox(show_fps, "Frame rate")
+        .on_hover_text(help::FRAME_RATE.text);
 }
 
 /// Sends the spaceship round the system, or calls it off.
@@ -414,14 +442,7 @@ fn tour_button(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
     } else {
         "Spaceship tour"
     };
-    if ui
-        .button(label)
-        .on_hover_text(
-            "Just for fun: a small ship visits each planet and moon. It is not simulated, \
-             and its speed and size are chosen for the picture.",
-        )
-        .clicked()
-    {
+    if ui.button(label).on_hover_text(help::TOUR.text).clicked() {
         if targets.voyage.active() {
             targets.voyage.stop();
         } else if let Some(result) = targets.view.result() {
@@ -433,7 +454,11 @@ fn tour_button(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
 }
 
 fn frame_system_button(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
-    if ui.button("Frame system").clicked() {
+    if ui
+        .button("Frame system")
+        .on_hover_text(help::FRAME_SYSTEM.text)
+        .clicked()
+    {
         targets.selection.0 = None;
         if let Some(result) = targets.view.result() {
             targets
@@ -444,10 +469,11 @@ fn frame_system_button(ui: &mut egui::Ui, targets: &mut SimulationTargets) {
 }
 
 /// The run's warnings and how to move around.
-fn run_notes(ui: &mut egui::Ui, targets: &SimulationTargets) {
+fn run_notes(ui: &mut egui::Ui, state: &mut AppState, targets: &SimulationTargets) {
     if let Some(result) = targets.view.result() {
         for warning in &result.diagnostics.warnings {
-            ui.colored_label(Color32::from_rgb(235, 190, 90), warning);
+            ui.colored_label(Color32::from_rgb(235, 190, 90), warning)
+                .on_hover_text(help::WARNINGS.text);
         }
     }
     ui.add_space(2.0);
@@ -458,6 +484,9 @@ fn run_notes(ui: &mut egui::Ui, targets: &SimulationTargets) {
         .small()
         .color(MUTED),
     );
+    if ui.button("Help").clicked() {
+        state.show_help = true;
+    }
 }
 
 fn timeline(ui: &mut egui::Ui, targets: &mut SimulationTargets, narrow: bool) {
@@ -484,6 +513,7 @@ fn timeline(ui: &mut egui::Ui, targets: &mut SimulationTargets, narrow: bool) {
         let height = ui.spacing().interact_size.y.max(22.0);
         if ui
             .add_sized([56.0, height], egui::Button::new(label))
+            .on_hover_text(help::PLAY.text)
             .clicked()
         {
             if at_end {
@@ -491,11 +521,15 @@ fn timeline(ui: &mut egui::Ui, targets: &mut SimulationTargets, narrow: bool) {
             }
             targets.playback.playing = !targets.playback.playing;
         }
-        if ui.button("Restart").clicked() {
+        if ui
+            .button("Restart")
+            .on_hover_text(help::RESTART.text)
+            .clicked()
+        {
             targets.playback.t_myr = 0.0;
             targets.playback.playing = true;
         }
-        if ui.button("End").clicked() {
+        if ui.button("End").on_hover_text(help::END.text).clicked() {
             targets.playback.t_myr = end;
             targets.playback.playing = false;
         }
@@ -508,7 +542,7 @@ fn timeline(ui: &mut egui::Ui, targets: &mut SimulationTargets, narrow: bool) {
         let slider = egui::Slider::new(&mut shown, 0.0..=end)
             .suffix(" Myr")
             .fixed_decimals(2);
-        let response = ui.add(slider);
+        let response = ui.add(slider).on_hover_text(help::TIME.text);
         if response.dragged() || (response.changed() && response.has_focus()) {
             targets.playback.t_myr = shown.clamp(0.0, end);
             targets.playback.playing = false;
@@ -526,6 +560,7 @@ fn timeline(ui: &mut egui::Ui, targets: &mut SimulationTargets, narrow: bool) {
                     .suffix("×")
                     .fixed_decimals(1),
             )
+            .on_hover_text(help::SPEED.text)
             .changed()
         {
             targets.playback.myr_per_second = speed * base;
@@ -561,7 +596,8 @@ fn timeline(ui: &mut egui::Ui, targets: &mut SimulationTargets, narrow: bool) {
         RichText::new(format!("{phase} · {events} formation events · {clock}"))
             .small()
             .color(MUTED),
-    );
+    )
+    .on_hover_text(help::STATUS.text);
 }
 
 fn card(ui: &mut egui::Ui, card: &Card) {
@@ -574,7 +610,10 @@ fn card(ui: &mut egui::Ui, card: &Card) {
             .spacing([14.0, 3.0])
             .show(ui, |ui| {
                 for (label, value) in &section.rows {
-                    ui.label(RichText::new(*label).color(MUTED));
+                    let name = ui.label(RichText::new(*label).color(MUTED));
+                    if let Some(text) = help::card_row(label) {
+                        name.on_hover_text(text);
+                    }
                     ui.label(value);
                     ui.end_row();
                 }
@@ -803,6 +842,12 @@ fn narrow_layout(
         .show(ctx, |ui| timeline(ui, targets, true));
     let bar_top = bar.map_or(screen.bottom(), |shown| shown.response.rect.top());
 
+    // Help covers the rest: a phone has no room for it beside anything.
+    if state.show_help {
+        help_window(ctx, state, screen);
+        return;
+    }
+
     if open {
         // The controls as a drawer down the left side.
         let mut keep = true;
@@ -826,9 +871,14 @@ fn narrow_layout(
     egui::Area::new(egui::Id::new("controls-button"))
         .anchor(Align2::LEFT_TOP, [margin, margin])
         .show(ctx, |ui| {
-            if ui.button("☰ Controls").clicked() {
-                state.panel_open = Some(true);
-            }
+            ui.horizontal(|ui| {
+                if ui.button("☰ Controls").clicked() {
+                    state.panel_open = Some(true);
+                }
+                if ui.button("Help").clicked() {
+                    state.show_help = true;
+                }
+            });
         });
 
     // The card as a sheet just above the bar; it gives way to the drawer.
@@ -875,21 +925,28 @@ fn menu_bar(
 
 fn menus(ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTargets) {
     ui.menu_button("System", |ui| {
-        if ui.button("Simulate").clicked() {
+        if ui
+            .button("Simulate")
+            .on_hover_text(help::SIMULATE.text)
+            .clicked()
+        {
             run_simulation(state, targets);
             ui.close();
         }
-        if ui.button("New seed").clicked() {
+        if ui
+            .button("New seed")
+            .on_hover_text(help::NEW_SEED.text)
+            .clicked()
+        {
             state.next_seed();
         }
-        ui.checkbox(&mut state.play_on_simulate, "Play formation");
+        ui.checkbox(&mut state.play_on_simulate, "Play formation")
+            .on_hover_text(help::PLAY_FORMATION.text);
         ui.separator();
         ui.menu_button("Preset", |ui| preset_items(ui, state));
         ui.separator();
         let mut fidelity = state.fidelity;
-        ui.radio_value(&mut fidelity, Fidelity::Standard, "Standard");
-        ui.radio_value(&mut fidelity, Fidelity::Classic, "Classic");
-        ui.radio_value(&mut fidelity, Fidelity::High, "High");
+        tier_choices(ui, &mut fidelity);
         if fidelity != state.fidelity {
             state.set_fidelity(fidelity);
         }
@@ -910,12 +967,79 @@ fn menus(ui: &mut egui::Ui, state: &mut AppState, targets: &mut SimulationTarget
     ui.menu_button("Settings", |ui| {
         quality_controls(ui, targets, &mut state.show_fps);
         ui.separator();
-        ui.checkbox(&mut state.show_panel, "Control panel");
+        ui.checkbox(&mut state.show_panel, "Control panel")
+            .on_hover_text(help::CONTROL_PANEL.text);
     });
     ui.menu_button("Help", |ui| {
+        if ui.button("What everything means (F1)").clicked() {
+            state.show_help = true;
+            ui.close();
+        }
+        ui.separator();
         ui.label(format!("Stardust, model {MODEL_VERSION}"));
         ui.label(RichText::new("Apache-2.0").small().color(MUTED));
     });
+}
+
+/// Largest size of the Help window, points.
+const HELP_POINTS: [f32; 2] = [520.0, 640.0];
+
+/// Everything on the screen and what it means, by the part of the screen
+/// it is in, with a search. The same on every layout.
+fn help_window(ctx: &egui::Context, state: &mut AppState, screen: egui::Rect) {
+    let mut open = true;
+    let size = [
+        HELP_POINTS[0].min(screen.width() - 32.0),
+        HELP_POINTS[1].min(screen.height() - 140.0).max(160.0),
+    ];
+    egui::Window::new("Help")
+        .id(egui::Id::new("help"))
+        .anchor(Align2::CENTER_TOP, [0.0, MENU_BAR_POINTS + 12.0])
+        .fixed_size(size)
+        .resizable(false)
+        .collapsible(false)
+        .open(&mut open)
+        .show(ctx, |ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut state.help_search)
+                    .hint_text("Search")
+                    .desired_width(f32::INFINITY),
+            );
+            ui.add_space(4.0);
+            let searching = !state.help_search.trim().is_empty();
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                let mut found = false;
+                for (index, topic) in help::TOPICS.iter().enumerate() {
+                    let items: Vec<_> = topic
+                        .items
+                        .iter()
+                        .filter(|item| item.matches(&state.help_search))
+                        .collect();
+                    if items.is_empty() {
+                        continue;
+                    }
+                    found = true;
+                    egui::CollapsingHeader::new(RichText::new(topic.title).strong())
+                        .id_salt(topic.title)
+                        .default_open(index == 0)
+                        .open(searching.then_some(true))
+                        .show(ui, |ui| {
+                            for item in items {
+                                ui.label(RichText::new(item.name).strong());
+                                ui.label(item.text);
+                                ui.add_space(4.0);
+                            }
+                        });
+                }
+                if !found {
+                    ui.label(RichText::new("Nothing matches that search.").color(MUTED));
+                }
+            });
+        });
+    if !open {
+        state.show_help = false;
+    }
 }
 
 /// The frame rate in the top right corner, under the data card's place on
@@ -963,6 +1087,9 @@ pub fn draw(
     let screen = ctx.content_rect();
     let narrow = is_narrow(screen.width());
     apply_touch_sizes(ctx, narrow);
+    if ctx.input(|input| input.key_pressed(egui::Key::F1)) {
+        state.show_help = !state.show_help;
+    }
     if narrow {
         narrow_layout(ctx, &mut state, &mut targets, screen);
     } else {
@@ -996,6 +1123,9 @@ pub fn draw(
                 targets.selection.0 = None;
             }
         }
+        if state.show_help {
+            help_window(ctx, &mut state, screen);
+        }
     }
 
     captured.0 = ctx.egui_wants_pointer_input() || ctx.is_pointer_over_egui();
@@ -1015,6 +1145,13 @@ mod tests {
         // A phone on its side, a tablet, a desktop window.
         for width in [844.0, 768.0, 1440.0] {
             assert!(!is_narrow(width));
+        }
+    }
+
+    #[test]
+    fn every_preset_explains_itself_by_its_name_on_the_screen() {
+        for preset in ALL_PRESETS {
+            assert!(help::preset(preset_name(preset)).is_some(), "{preset:?}");
         }
     }
 

@@ -94,6 +94,10 @@ it with right-click > Open the first time). The script can also build Linux
 been completed or tested yet; they need about 8 GB of memory for Docker.
 
 A link can point at a system: `?seed=7&preset=circumbinary&tier=classic&scale=schematic`.
+
+*Help* (or F1) explains everything on the screen, and hovering over a control or a
+data-card row says the same. Start with it open with `--help-window`, or `?help=1`
+in a link.
 On a phone the same page shows a layout for small screens; `&quality=full`
 or `&quality=reduced` sets how much it draws.
 

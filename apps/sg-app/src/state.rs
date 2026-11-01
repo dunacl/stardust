@@ -47,6 +47,10 @@ pub struct AppState {
     pub show_panel: bool,
     /// Show the frame rate in a corner.
     pub show_fps: bool,
+    /// Show the Help window.
+    pub show_help: bool,
+    /// What the Help window is searching for.
+    pub help_search: String,
     pub frame_rate: FrameRate,
 }
 
@@ -102,6 +106,8 @@ impl AppState {
             panel_open: None,
             show_panel: true,
             show_fps: false,
+            show_help: false,
+            help_search: String::new(),
             frame_rate: FrameRate::default(),
         }
     }
