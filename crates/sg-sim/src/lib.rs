@@ -18,6 +18,7 @@
 mod classic;
 mod comets;
 mod high;
+pub mod life;
 mod moons;
 pub mod names;
 mod presets;
@@ -164,7 +165,7 @@ pub fn simulate_with(
 
 /// Estimates every body's surface from what the model gave it. Nothing
 /// reads the result back, so no draw or physics depends on it.
-fn assign_minerals(snapshot: &mut SystemSnapshot) {
+pub(crate) fn assign_minerals(snapshot: &mut SystemSnapshot) {
     for body in &mut snapshot.bodies {
         let c = &body.composition;
         body.minerals = sg_planet::minerals::surface_mix(

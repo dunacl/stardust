@@ -5,6 +5,11 @@ Simulation changes are tracked by model version; each has a report in
 
 ## Unreleased
 
+- One timeline now covers a system's whole life: it forms, then, past a mark, its star
+  ages to the end of its main sequence, and Play runs straight through. The star, its
+  habitable zone and the light on each body change; the bodies stay as they formed. A
+  view, so no change to the model. *Fix age* is gone from the panel, since it built a
+  different system; `--age-gyr` stays on the command line.
 - Long-period comets replay their passage past the star, and the card says so; they
   would otherwise be gone in seconds. Only the selected comet shows its orbit, and hiding
   planets hides their orbits. Very long periods and long numbers in warnings read

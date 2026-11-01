@@ -101,10 +101,6 @@ pub const ECCENTRICITY: Item = item(
     "Eccentricity",
     "How elongated an orbit is: 0 is a circle, and values near 1 are long thin ellipses.",
 );
-pub const FIX_AGE: Item = item(
-    "Fix age",
-    "Sets the age of the system in billions of years (Gyr). Unticked, the age is sampled.",
-);
 pub const SIMULATE: Item = item(
     "Simulate",
     "Builds a new system from everything above. Sliders change nothing until you press it.",
@@ -272,14 +268,16 @@ pub const CONTROL_PANEL: Item = item(
 
 pub const PLAY: Item = item(
     "Play / Pause",
-    "Plays the formation or stops it. At the end, Play starts again from the beginning.",
+    "Plays the formation, then the star's life, or stops. At the very end, Play starts again.",
 );
 pub const RESTART: Item = item("Restart", "Plays the formation from the beginning.");
-pub const END: Item = item("End", "Jumps to the finished system.");
+pub const END: Item = item(
+    "End",
+    "Jumps to the finished system at the age the model gave it.",
+);
 pub const TIME: Item = item(
-    "Time slider",
-    "Moves through the formation, in millions of years (Myr) since the disk formed. Dragging it \
-     pauses the playback. In the Classic tier these times are nominal, not physical.",
+    "Timeline",
+    "The system's whole life. Left of the mark it forms, in millions of years (Myr) since the disk appeared; in the Classic tier those times are nominal. Right of the mark the disk has gone and its star ages, in billions of years (Gyr), up to where the model stops. There the star, its habitable zone and the light on each body change; orbits, masses, atmospheres, belts and comets stay as they formed.",
 );
 pub const SPEED: Item = item(
     "Speed",
@@ -308,7 +306,6 @@ const SYSTEM: &[Item] = &[
     STAR_MASS,
     SEPARATION,
     ECCENTRICITY,
-    FIX_AGE,
     SIMULATE,
     PLAY_FORMATION,
     SIMULATED_IN,
