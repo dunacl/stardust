@@ -75,9 +75,12 @@ pub fn run() {
         time_fraction: launch.time,
         // Resolved to a body once the first system exists.
         select: launch.select,
+        moon: launch.moon,
+        belt: launch.belt,
         frozen: launch.screenshot.is_some(),
         quality: launch.quality.unwrap_or_else(default_quality),
         tour: launch.tour,
+        zoom: launch.zoom,
     };
     let (width, height) = launch.size.unwrap_or((1440, 900));
 
@@ -126,6 +129,16 @@ pub fn run() {
     app.run();
 }
 
+/// Resolves `--moon N`: the Nth moon in the snapshot's order, from 1.
+pub(crate) fn nth_moon(snapshot: &sg_schema::SystemSnapshot, n: usize) -> Option<Target> {
+    let moon = snapshot
+        .bodies
+        .iter()
+        .filter(|body| matches!(body.host, sg_schema::HostRef::Body(_)))
+        .nth(n.checked_sub(1)?)?;
+    Some(Target::Body(moon.id))
+}
+
 /// Resolves `--select N` against a finished system: the Nth planet in the
 /// snapshot's order, or for 0 the first star.
 pub(crate) fn nth_target(result: &sg_sim::SimulationResult, n: usize) -> Option<Target> {
@@ -135,4 +148,38 @@ pub(crate) fn nth_target(result: &sg_sim::SimulationResult, n: usize) -> Option<
     }
     let id: BodyId = result.snapshot.bodies.get(n - 1)?.id;
     Some(Target::Body(id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sg_schema::{HostRef, SimulationParams};
+
+    #[test]
+    fn moons_are_counted_from_one_among_moons_only() {
+        let result = (1..50)
+            .map(|seed| {
+                sg_sim::simulate(&SimulationParams {
+                    seed,
+                    ..SimulationParams::default()
+                })
+                .unwrap()
+            })
+            .find(|result| {
+                result
+                    .snapshot
+                    .bodies
+                    .iter()
+                    .any(|b| matches!(b.host, HostRef::Body(_)))
+            })
+            .expect("a system with a moon");
+        let snapshot = &result.snapshot;
+        let Some(Target::Body(id)) = nth_moon(snapshot, 1) else {
+            panic!("no first moon");
+        };
+        let moon = snapshot.bodies.iter().find(|b| b.id == id).unwrap();
+        assert!(matches!(moon.host, HostRef::Body(_)));
+        assert_eq!(nth_moon(snapshot, 0), None);
+        assert_eq!(nth_moon(snapshot, 9999), None);
+    }
 }

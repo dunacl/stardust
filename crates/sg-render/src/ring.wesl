@@ -52,9 +52,14 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let broad = noise1(u * 5.0 + seed);
     let medium = noise1(u * 23.0 + seed * 3.1);
     let fine = noise1(u * 97.0 + seed * 7.7);
-    var density = 0.25 + 0.75 * (0.55 * broad + 0.3 * medium + 0.15 * fine);
+    // Thinner ringlets are drawn only when they are wider than a pixel:
+    // finer ones would shimmer.
+    let pixel = fwidth(u);
+    let thread = noise1(u * 390.0 + seed * 2.3) * (1.0 - smoothstep(0.0005, 0.002, pixel));
+    let hair = noise1(u * 1500.0 + seed * 5.1) * (1.0 - smoothstep(0.0001, 0.0005, pixel));
+    var density = 0.25 + 0.75 * (0.5 * broad + 0.27 * medium + 0.13 * fine + 0.06 * thread + 0.04 * hair);
     let gap = noise1(u * 3.0 + seed * 1.7 + 40.0);
-    density = density * smoothstep(0.12, 0.2, abs(gap - 0.5) + 0.08);
+    density = density * smoothstep(0.08, 0.13, abs(gap - 0.5) + 0.03);
     // Denser in the middle than at either edge, as Saturn's B ring is.
     density = density * (0.45 + 0.55 * sin(3.14159 * clamp(u, 0.0, 1.0)));
     let edge = smoothstep(0.0, 0.02, u) * (1.0 - smoothstep(0.98, 1.0, u));
@@ -78,6 +83,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // in the ring's plane.
     let face = 0.35 + 0.65 * abs(dot(l, ring.normal.xyz));
     let brightness = (0.75 + 0.25 * fine) * face * (0.04 + 0.96 * lit);
-    let color = ring.color.rgb * brightness * ring.color.a;
+    // Bands of slightly different ice: dustier toward the inner edge.
+    let dust = mix(vec3<f32>(0.80, 0.70, 0.60), vec3<f32>(1.05, 1.03, 1.0), smoothstep(0.1, 0.7, 0.5 * u + 0.5 * medium));
+    let color = ring.color.rgb * dust * brightness * ring.color.a;
     return vec4<f32>(color * alpha, alpha);
 }

@@ -38,6 +38,9 @@ pub struct OrbitCamera {
     /// selects something: the distance that fits it depends on the shape
     /// of the window, which can change (a phone turned on its side).
     pub framing: Option<f32>,
+    /// How much closer than usual a selected body is framed, for close-ups
+    /// from the command line; 1 is the usual view.
+    pub select_zoom: f32,
     /// Pixels the pointer has travelled since the button went down; a press
     /// that moves less than a few pixels counts as a click.
     drag_pixels: f32,
@@ -55,6 +58,7 @@ impl Default for OrbitCamera {
             goal_distance: 8.0,
             swing: None,
             framing: None,
+            select_zoom: 1.0,
             drag_pixels: 0.0,
         }
     }
@@ -76,6 +80,16 @@ const CLICK_SLOP_PIXELS: f32 = 4.0;
 
 impl OrbitCamera {
     /// Frames the whole system: `extent` is the scene radius to fit.
+    /// Jumps to a view of a point, with nothing selected.
+    pub fn look_at(&mut self, focus: DVec3, distance: f32) {
+        self.origin = focus;
+        self.focus = Vec3::ZERO;
+        self.goal_focus = Vec3::ZERO;
+        self.framing = None;
+        self.goal_distance = distance.clamp(MIN_DISTANCE, MAX_DISTANCE);
+        self.snap();
+    }
+
     pub fn frame(&mut self, extent: f32) {
         self.goal_focus = self.local(DVec3::ZERO);
         self.goal_distance = framing_distance(extent, 1.6);
@@ -278,8 +292,8 @@ pub(crate) fn apply_camera(
             orbit.goal_focus = placement.position;
             if *followed != Some(target) {
                 lag = orbit.focus - placement.position;
-                orbit.goal_distance =
-                    (placement.focus_radius * 9.0).clamp(MIN_DISTANCE, MAX_DISTANCE);
+                orbit.goal_distance = (placement.focus_radius * 9.0 / orbit.select_zoom)
+                    .clamp(MIN_DISTANCE, MAX_DISTANCE);
                 *followed = Some(target);
                 if let Target::Body(_) = target {
                     let nearest_star = placements

@@ -16,6 +16,7 @@
 use crate::layout::{self, Layout};
 use crate::scene::{self, Playback, SystemView, ViewSettings};
 use crate::OrbitCamera;
+use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
 use sg_core::rng::{ModuleId, RngStream};
 use sg_core::units::{Au, SolarMass};
@@ -123,6 +124,60 @@ pub fn rocks(seed: u64, inner_au: f64, outer_au: f64, count: usize) -> Vec<Rock>
         .collect()
 }
 
+/// How far a rock's surface lies from its centre along a unit `direction`,
+/// as a fraction of its radius. Sines of a few directions make a lump with
+/// flat faces and shoulders, between about 0.65 and 1.2. The shape is a
+/// drawing choice: the model gives a belt's mass, not its members.
+pub fn lump(direction: Vec3, variant: u32) -> f32 {
+    let v = variant as f32;
+    let wave = |axis: Vec3, frequency: f32, phase: f32| {
+        (direction.dot(axis.normalize()) * frequency + phase).sin()
+    };
+    let bumps = 0.5 * wave(Vec3::new(1.0, 0.3 + v, -0.4), 2.3, v * 1.7)
+        + 0.3 * wave(Vec3::new(-0.2, 1.0, 0.7 - v), 4.1, v * 2.9)
+        + 0.2 * wave(Vec3::new(0.6, -0.8 + v, 1.0), 7.3, v * 0.6);
+    0.925 + 0.275 * bumps
+}
+
+/// How many rock shapes a belt shares.
+const LUMP_VARIANTS: u32 = 3;
+
+/// A rock of unit size, faceted so that it catches the light unevenly.
+fn lump_mesh(variant: u32) -> Mesh {
+    let mut mesh = Sphere::new(1.0)
+        .mesh()
+        .ico(2)
+        .expect("two subdivisions are within the limit");
+    if let Some(VertexAttributeValues::Float32x3(positions)) =
+        mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION)
+    {
+        for position in positions.iter_mut() {
+            let direction = Vec3::from(*position).normalize();
+            *position = (direction * lump(direction, variant)).to_array();
+        }
+    }
+    mesh.duplicate_vertices();
+    mesh.compute_flat_normals();
+    mesh
+}
+
+/// Where to look at the Nth zone of [`belt_zones`], 0-based: a point on the
+/// middle of the belt, in world space, and the camera distance that shows a
+/// stretch of it.
+pub fn view_of(
+    snapshot: &SystemSnapshot,
+    scale: &crate::ScaleBlend,
+    orbit_days: f64,
+    zone: usize,
+) -> Option<(bevy::math::DVec3, f32)> {
+    let (host, _, inner_au, outer_au) = *belt_zones(snapshot).get(zone)?;
+    let layout = Layout::at(&snapshot.hierarchy, scale, orbit_days);
+    let middle = 0.5 * (inner_au + outer_au);
+    let offset = layout::map_offset(scale, [middle, 0.0, 0.0]);
+    let focus = layout.host(host)? + offset;
+    Some((focus, offset.length() as f32 * SELECTED_VIEW_FRACTION * 9.0))
+}
+
 #[derive(Component)]
 pub(crate) struct BeltRock {
     host: HostRef,
@@ -164,18 +219,25 @@ pub(crate) fn sync_belts(
         entities.generation = view.generation();
         let zones = belt_zones(&result.snapshot);
         if !zones.is_empty() {
-            let mesh = meshes.add(Sphere::new(1.0).mesh().uv(8, 6));
+            let shapes: Vec<_> = (0..LUMP_VARIANTS)
+                .map(|variant| meshes.add(lump_mesh(variant)))
+                .collect();
             let material = materials.add(StandardMaterial {
                 base_color: crate::palette::BELT_ROCK_COLOR,
                 perceptual_roughness: 1.0,
                 ..default()
             });
             for (host, seed, inner_au, outer_au) in zones {
-                for rock in rocks(seed, inner_au, outer_au, settings.quality.rocks_per_belt()) {
+                for (index, rock) in
+                    rocks(seed, inner_au, outer_au, settings.quality.rocks_per_belt())
+                        .into_iter()
+                        .enumerate()
+                {
+                    let mesh = shapes[index % shapes.len()].clone();
                     let entity = commands
                         .spawn((
                             BeltRock { host, rock },
-                            Mesh3d(mesh.clone()),
+                            Mesh3d(mesh),
                             MeshMaterial3d(material.clone()),
                             Transform::default(),
                             Visibility::Hidden,
@@ -244,6 +306,41 @@ mod tests {
             ..SimulationParams::default()
         })
         .unwrap()
+    }
+
+    #[test]
+    fn a_belt_is_viewed_from_its_middle() {
+        let result = (1..200)
+            .map(system)
+            .find(|result| !belt_zones(&result.snapshot).is_empty())
+            .expect("a system with a belt");
+        let snapshot = &result.snapshot;
+        let scale = crate::ScaleBlend::settled(crate::ScaleMode::True);
+        let (_, _, inner_au, outer_au) = belt_zones(snapshot)[0];
+        let (focus, distance) = view_of(snapshot, &scale, 0.0, 0).unwrap();
+        let from_centre = focus.length();
+        assert!(from_centre > 0.9 * inner_au && from_centre < 1.1 * outer_au);
+        assert!(distance > 0.0);
+        assert!(view_of(snapshot, &scale, 0.0, 999).is_none());
+    }
+
+    #[test]
+    fn lumps_stay_near_their_size_and_differ() {
+        let mut spread = (f32::MAX, f32::MIN);
+        for i in 0..2000 {
+            // A spiral over the sphere.
+            let y = 1.0 - 2.0 * (i as f32 + 0.5) / 2000.0;
+            let angle = i as f32 * 2.399_963;
+            let ring = (1.0 - y * y).sqrt();
+            let direction = Vec3::new(ring * angle.cos(), y, ring * angle.sin());
+            for variant in 0..LUMP_VARIANTS {
+                let r = lump(direction, variant);
+                assert!((0.65..=1.2).contains(&r), "{r}");
+                spread = (spread.0.min(r), spread.1.max(r));
+            }
+        }
+        assert!(spread.1 - spread.0 > 0.2, "{spread:?}");
+        assert_ne!(lump(Vec3::X, 0), lump(Vec3::X, 1));
     }
 
     #[test]

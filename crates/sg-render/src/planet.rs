@@ -111,7 +111,7 @@ fn value_noise(p: Vec3) -> f32 {
 /// [`noise_quantile`], not to draw.
 pub fn fbm(p: Vec3, octaves: u32) -> f32 {
     let (mut sum, mut norm, mut amp, mut q) = (0.0, 0.0, 0.5, p);
-    for _ in 0..octaves.min(7) {
+    for _ in 0..octaves.min(9) {
         sum += amp * value_noise(q);
         norm += amp;
         amp *= 0.5;

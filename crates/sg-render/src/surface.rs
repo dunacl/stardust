@@ -15,7 +15,8 @@
 //!   the number of bands follows the Rhines scale; sunsets redden by
 //!   Rayleigh's λ⁻⁴.
 //! - **Drawing choices**: every colour swatch, the shape of the terrain
-//!   (noise, not geology), the height of the drawn atmosphere, and the wind
+//!   (noise, not geology), the craters on bare rock (their sizes, places
+//!   and dark plains), the dry belts on land, the height of the drawn atmosphere, and the wind
 //!   speed and (where the tier gives none) the day length that set the band
 //!   count. These are marked where they are made.
 
