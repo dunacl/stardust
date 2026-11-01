@@ -38,7 +38,7 @@ fn same_params_give_identical_results() {
 /// values only. Last updated for schema 0.9.0 and model 0.9.0.
 #[test]
 fn snapshot_hashes_are_pinned() {
-    assert_eq!(MODEL_VERSION, "0.16.0");
+    assert_eq!(MODEL_VERSION, "0.17.0");
     let got: Vec<String> = PINNED
         .iter()
         .map(|(seed, mass, _)| snapshot_hash(&simulate(&params(*seed, *mass)).unwrap().snapshot))
@@ -48,9 +48,9 @@ fn snapshot_hashes_are_pinned() {
 }
 
 const PINNED: [(u64, f64, &str); 3] = [
-    (1, 1.0, "11b112b85b50600b"),
-    (42, 1.0, "9ffb22d86ca966fa"),
-    (7, 0.3, "dce44068569c6e02"),
+    (1, 1.0, "f8e232088fbf7fea"),
+    (42, 1.0, "d80ad1e7bcf82711"),
+    (7, 0.3, "1ebd0e490a38b397"),
 ];
 
 #[test]

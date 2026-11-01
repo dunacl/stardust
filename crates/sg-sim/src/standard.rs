@@ -329,10 +329,16 @@ fn sweep_leftovers(
                     close(&mut open, &mut belts);
                     continue;
                 }
+                let segment = BeltSegment {
+                    inner_au: ring.inner_au,
+                    outer_au: ring.outer_au,
+                    mass_mearth: left,
+                };
                 match open.as_mut() {
                     Some(belt) => {
                         belt.outer_au = ring.outer_au;
                         belt.mass_mearth += left;
+                        belt.segments.push(segment);
                     }
                     None => {
                         open = Some(Belt {
@@ -341,6 +347,7 @@ fn sweep_leftovers(
                             inner_au: ring.inner_au,
                             outer_au: ring.outer_au,
                             mass_mearth: left,
+                            segments: vec![segment],
                         });
                     }
                 }

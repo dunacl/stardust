@@ -596,7 +596,7 @@ fn view_as_glb(targets: &SimulationTargets, placements: &BodyPlacements) -> Opti
     )))
 }
 
-/// Saves the view: a file beside the app on the desktop, a download in a
+/// Saves the view: where a save dialog says on the desktop, a download in a
 /// browser.
 fn export_view(state: &mut AppState, targets: &SimulationTargets, placements: &BodyPlacements) {
     let Some(bytes) = view_as_glb(targets, placements) else {
@@ -604,13 +604,19 @@ fn export_view(state: &mut AppState, targets: &SimulationTargets, placements: &B
     };
     let name = format!("stardust-{}.glb", state.params.seed);
     #[cfg(not(target_arch = "wasm32"))]
-    let saved = crate::desktop::save(&name, &bytes);
+    crate::desktop::save_with_dialog(name, bytes, state.save_note.clone());
     #[cfg(target_arch = "wasm32")]
-    let saved = crate::download(&name, &bytes);
-    state.export_note = Some(match saved {
+    {
+        state.export_note = Some(note_of(crate::download(&name, &bytes)));
+    }
+}
+
+/// What the panel says about a finished save.
+fn note_of(saved: Result<String, String>) -> String {
+    match saved {
         Ok(place) => trf("Saved {}", &[&place]),
         Err(error) => trf("Could not save: {}", &[&error]),
-    });
+    }
 }
 
 fn timeline(ui: &mut egui::Ui, targets: &mut SimulationTargets, narrow: bool) {
@@ -1261,6 +1267,13 @@ pub fn draw(
     }
     if std::mem::take(&mut state.export_wanted) {
         export_view(&mut state, &targets, &placements);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let finished = state.save_note.lock().ok().and_then(|mut slot| slot.take());
+        if let Some(saved) = finished {
+            state.export_note = Some(note_of(saved));
+        }
     }
     state.frame_rate.record(time.delta_secs());
     if state.show_fps {

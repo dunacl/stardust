@@ -301,11 +301,31 @@ fn record(
     }
 }
 
-/// Saves a file where the app was started, and says where.
-pub fn save(name: &str, bytes: &[u8]) -> Result<String, String> {
-    std::fs::write(name, bytes)
-        .map(|()| name.to_string())
-        .map_err(|error| error.to_string())
+/// What a save dialog left: the note for the panel, once it is done.
+pub type SaveNote = std::sync::Arc<std::sync::Mutex<Option<Result<String, String>>>>;
+
+/// Asks where to save, then saves, away from the frame loop: the dialog
+/// stays open as long as the person likes, and the view keeps drawing.
+/// Cancelling leaves no note.
+pub fn save_with_dialog(name: String, bytes: Vec<u8>, note: SaveNote) {
+    std::thread::spawn(move || {
+        let chosen = bevy::tasks::block_on(
+            rfd::AsyncFileDialog::new()
+                .set_file_name(&name)
+                .add_filter("glTF binary", &["glb"])
+                .save_file(),
+        );
+        let Some(chosen) = chosen else {
+            return;
+        };
+        let path = chosen.path().to_path_buf();
+        let saved = std::fs::write(&path, bytes)
+            .map(|()| path.display().to_string())
+            .map_err(|error| error.to_string());
+        if let Ok(mut slot) = note.lock() {
+            *slot = Some(saved);
+        }
+    });
 }
 
 /// Points the scene camera at an image, once it exists.

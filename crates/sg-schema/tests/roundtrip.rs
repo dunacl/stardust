@@ -145,6 +145,7 @@ fn sample_snapshot() -> SystemSnapshot {
             inner_au: 2.1,
             outer_au: 3.3,
             mass_mearth: 4.0e-4,
+            segments: Vec::new(),
         }],
         comets: vec![Comet {
             id: CometId(0),
