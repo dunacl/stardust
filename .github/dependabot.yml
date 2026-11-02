@@ -4,10 +4,14 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    # Bevy and bevy_egui are pinned and upgraded in dedicated changes.
+    # Bevy and bevy_egui are pinned and upgraded in dedicated changes. The
+    # random number crates are part of the determinism contract: a new
+    # version can change every seed's results.
     ignore:
       - dependency-name: bevy
       - dependency-name: "bevy_*"
+      - dependency-name: rand_chacha
+      - dependency-name: rand_core
     groups:
       cargo:
         patterns: ["*"]
