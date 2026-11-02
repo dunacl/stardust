@@ -4,6 +4,19 @@ A simulator of how planetary systems form: pick a kind of star, press
 **Simulate**, watch planets grow in a disk of gas and dust, then explore the
 finished system. It runs as a desktop app and in a browser.
 
+![A finished planetary system in the Stardust app](docs/images/overview.jpg)
+
+| | |
+|---|---|
+| ![A gas disk with spiral arcs and growing planets](docs/images/formation.jpg) | ![An Earth-like planet with oceans, land and clouds](docs/images/earth.jpg) |
+| *A system forming in its disk* | *An ocean world (Classic tier)* |
+| ![A lava world glowing through rafts of crust](docs/images/lava.jpg) | ![A cratered airless planet](docs/images/moon.jpg) |
+| *A lava world close to its star* | *An airless, cratered world* |
+| ![A gas giant with rings](docs/images/rings.jpg) | ![A comet with blue and yellow tails](docs/images/comet.jpg) |
+| *A ringed giant* | *A comet, with its ion and dust tails* |
+| ![Three stars and their orbits](docs/images/triple.jpg) | ![A planet with its data card](docs/images/card.jpg) |
+| *A triple-star system* | *Every body has a data card* |
+
 Stardust was inspired by the C program
 [StarGen](https://github.com/dunacl/stargen). It offers three formation models:
 
@@ -27,7 +40,7 @@ All work around one, two or three stars.
 | | |
 |---|---|
 | Why the Classic tier was written from the papers | [`docs/adr/0006-rewrite-classic-from-the-papers.md`](docs/adr/0006-rewrite-classic-from-the-papers.md) |
-| How the model compares with real planets | [`validation/report-0.14.0.md`](validation/report-0.14.0.md) |
+| How the model compares with real planets | [`validation/report-0.17.0.md`](validation/report-0.17.0.md) |
 | Contributing | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 | Reporting a vulnerability | [`SECURITY.md`](SECURITY.md) |
 
